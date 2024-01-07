@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "andre"
+version = "0.1.0"
+description = "Internet scale IP address geolocation tool"
+authors = ["hrimlinger <hugo.rimlinger@sorbonne-universite.fr>"]
+readme = "README.md"
+packages = [
+    {include = "andre"},
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pydantic = "^2.2.0"
+clickhouse-driver = "^0.2.4"
+ip_address = "^1.0.22"
+tqdm = "^4.66.0"
+urllib3 = "1.26.9"
+schedule = "^1.2.0"
+python-dotenv = "^0.20.0"
+pych-client= "^0.2.12"
+loguru = "^0.7.1"
+ipwhois = "^1.2.0"
+pre-commit = "3.6.0"
+isort = "5.13.1"
+autoflake = "1.4"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.25.2"
+
+[tool.poetry.dev-dependencies]
+black = "23.12"
+flake8 = "^5.0.4"
+isort = "^5.10.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

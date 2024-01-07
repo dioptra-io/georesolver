@@ -1,2 +1,1 @@
-# andre
-Andre is a client-independent, internet scale geolocation tool.
+# ecs-dns-geoloc
