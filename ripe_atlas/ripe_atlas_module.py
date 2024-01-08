@@ -46,7 +46,7 @@ class RIPEAtlas:
             if len(vp_ids) > self.settings.MAX_VP:
                 raise RuntimeError(f"Too many VPs scheduled for target: {target} (nb vps: {len(vp_ids)}, max: {self.settings.MAX_VP})")
     
-    def get_response(url: str, max_retry: int = 60, wait_time: int = 2) -> list:
+    def get_response(url: str, max_retry: int = 10, wait_time: int = 2) -> list:
         """request to Atlas API"""
 
         for _ in range(max_retry):
@@ -98,7 +98,7 @@ class RIPEAtlas:
             "is_dry_run": self.dry_run,
             "nb_targets": len(self.schedule),
             "af": self.settings.IP_VERSION,
-            "measurement_ids": None,
+            "ids": None,
         }
 
     
@@ -246,9 +246,9 @@ class RIPEAtlas:
     
     def parse_data(self, config: dict) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
-        for measurement_id in config["measurement_ids"]:
+        for id in config["measurement_ids"]:
             # get measurement results
-            results = self.get_measurement_from_id(measurement_id)
+            results = self.get_measurement_from_id(id)
             
             # check if measurement belongs to target or responsive subnet address
             ping_data = []
@@ -257,20 +257,20 @@ class RIPEAtlas:
 
                 if rtts:
                     ping_data.append(f"{result['timestamp']},\
-                        {result['timestamp']},\
                         {result['from']},\
                         {get_prefix_from_ip(result['from'])},\
                         {24},\
                         {result['prb_id']},\
-                        {result['dst_addr']}, \
+                        {id},\
+                        {result['dst_addr']},\
                         {get_prefix_from_ip(result['dst_addr'])},\
-                        {result['proto']}, \
-                        {result['rcvd']}, \
-                        {result['sent']}, \
-                        {result['avg']}, \
+                        {result['proto']},\
+                        {result['rcvd']},\
+                        {result['sent']},\
+                        {result['avg']},\
                         {rtts}")
                     
-            # do not overload ripe atlas api
+            # do not overload RIPE Atlas api
             time.sleep(0.1)
         
     def run(
@@ -295,16 +295,20 @@ class RIPEAtlas:
                 all_ids=all_ids
             )
             
-        logger.info(f"measurement : {self.tag} done")
+        logger.info(f"Measurement : {self.tag} done")
         
         end_time = time.time()
-        config["measurement_ids"] = all_ids
+        config["ids"] = all_ids
         config["start_time"] = start_time
         config["end_time"] = end_time
 
         self.save_config(
             config, out_path=self.settings.MEASUREMENT_CONFIG_PATH
         )
+        
+        logger.info("Waiting for several minutes for probes to upload results...")
+        time.sleep(60 * 10)
+        logger.info("Getting measurement results")
         
         csv_data = self.parse_data(config)
         
