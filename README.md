@@ -1,1 +1,1 @@
-# ecs-dns-geoloc
+# GeoGiant
