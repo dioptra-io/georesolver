@@ -6,6 +6,9 @@ authors = ["hrimlinger <hugo.rimlinger@sorbonne-universite.fr>"]
 readme = "README.md"
 packages = [
     {include = "andre"},
+    {include = "ripe_atlas"},
+    {include = "zdns"},
+    {include = "zmap"},
 ]
 
 [tool.poetry.dependencies]
@@ -15,14 +18,16 @@ clickhouse-driver = "^0.2.4"
 ip_address = "^1.0.22"
 tqdm = "^4.66.0"
 urllib3 = "1.26.9"
+pydantic-settings = "^2.0.3"
 schedule = "^1.2.0"
-python-dotenv = "^0.20.0"
+python-dotenv = "^0.21.0"
 pych-client= "^0.2.12"
 loguru = "^0.7.1"
 ipwhois = "^1.2.0"
 pre-commit = "3.6.0"
 isort = "5.13.1"
 autoflake = "1.4"
+numpy = "^1.25.0"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.25.2"
