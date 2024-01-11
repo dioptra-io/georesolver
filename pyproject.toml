@@ -1,14 +1,11 @@
 [tool.poetry]
-name = "andre"
+name = "geogiant"
 version = "0.1.0"
 description = "Internet scale IP address geolocation tool"
 authors = ["hrimlinger <hugo.rimlinger@sorbonne-universite.fr>"]
 readme = "README.md"
 packages = [
-    {include = "andre"},
-    {include = "ripe_atlas"},
-    {include = "zdns"},
-    {include = "zmap"},
+    {include = "geogiant"},
 ]
 
 [tool.poetry.dependencies]
@@ -28,6 +25,8 @@ pre-commit = "3.6.0"
 isort = "5.13.1"
 autoflake = "1.4"
 numpy = "^1.25.0"
+pyasn = "^1.6.1"
+httpx = "^0.25.2"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.25.2"
