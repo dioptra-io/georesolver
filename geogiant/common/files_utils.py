@@ -80,25 +80,33 @@ def load_pickle(input_file: Path) -> dict:
         raise RuntimeError(f"could not load json file: {e}")
 
 
-def load_countries_continent() -> dict:
-    """return a dict of each countries continent"""
-    countries_continent = {}
-    with path_settings.COUNTRIES_CONTINENT.open("r") as f:
+def load_countries_info() -> dict:
+    """load all countries info"""
+    countries = {}
+    with path_settings.COUNTRIES_INFO.open("r") as f:
         for row in f.readlines()[1:]:
             row = row.split(",")
-            country_code = row[1]
-            country_code = country_code[:2]
-            continent = str(row[3]).strip("\n")
+            continent = row[1]
+            alpha2_country_code = row[2]
+            default_lat = row[5]
+            default_lon = row[6]
 
-            countries_continent[country_code] = continent
+            try:
+                countries[alpha2_country_code] = {
+                    "default_lat": float(default_lat),
+                    "default_lon": float(default_lon),
+                    "continent": continent,
+                }
+            except IndexError or ValueError:
+                continue
 
-    return countries_continent
+    return countries
 
 
 def load_countries_default_geoloc() -> dict:
     """load countries default geolocation"""
     countries = {}
-    with path_settings.COUNTRIES_DEFAULT_GEO.open("r", encoding="utf8") as f:
+    with (path_settings.DATASET / "countries_default_geo.txt").open("r") as f:
         for row in f.readlines():
             row = [value.strip() for value in row.split(" ")]
 
@@ -112,6 +120,32 @@ def load_countries_default_geoloc() -> dict:
                 continue
 
     return countries
+
+
+def load_countries_continent() -> dict:
+    """return a dict of each countries continent"""
+    countries_continent = {}
+    with path_settings.COUNTRIES_INFO.open("r") as f:
+        for row in f.readlines()[1:]:
+            row = row.split(",")
+            country_code = row[1]
+            country_code = country_code[:2]
+            continent = str(row[3]).strip("\n")
+
+            countries_continent[country_code] = continent
+
+    return countries_continent
+
+
+def load_anycatch_data() -> None:
+    """get all anycast prefixes detected by anycatch and remove them"""
+    anycast_prefixes = set()
+    with path_settings.ANYCATCH_DATA.open("r") as f:
+        for row in f.readlines():
+            prefix = row.split(",")[0]
+            anycast_prefixes.add(prefix)
+
+    return anycast_prefixes
 
 
 def get_latest_measurement_config(config_path: Path) -> dict:

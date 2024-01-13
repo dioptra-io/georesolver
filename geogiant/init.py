@@ -9,7 +9,10 @@ from prober import RIPEAtlasAPI
 from zdns.zdns_wrapper import ZDNS
 
 from common.geoloc import distance
-from common.files_utils import load_countries_default_geoloc, load_countries_continent
+from common.files_utils import (
+    load_countries_info,
+    load_anycatch_data,
+)
 from common.ip_addresses_utils import route_view_bgp_prefix, get_prefix_from_ip
 from common.settings import PathSettings, ClickhouseSettings
 
@@ -19,7 +22,7 @@ clickhouse_settings = ClickhouseSettings()
 
 def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
     """filter vps with coordinates too close from their country's default location"""
-    countries = load_countries_default_geoloc()
+    countries = load_countries_info()
 
     valid_vps = []
     for vp in vps:
@@ -31,9 +34,9 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
             continue
 
         dist = distance(
-            country_geo["lat"],
+            country_geo["default_lat"],
             vp["lat"],
-            country_geo["lon"],
+            country_geo["default_lon"],
             vp["lon"],
         )
 
@@ -113,37 +116,53 @@ def filter_vps(vps: list) -> None:
 
 def filter_hostnames() -> None:
     """filter hostnames based on VPs DNS mapping"""
+    anycast_prefixes = load_anycatch_data()
+
     subnet_per_hostname = Get().subnet_per_hostname(
         clickhouse_settings.DNS_MAPPING_VPS_RAW
     )
     vps_per_subnet = Get().vps_country_per_subnet(clickhouse_settings.VPS_RAW)
-    countries_continent = load_countries_continent()
+    countries = load_countries_info()
 
-    hostnames = []
-    invalid_hostnames = []
-    for hostname in subnet_per_hostname.items():
-        for answer_bgp_prefix, subnets in subnet_per_hostname[hostname].items():
-            # get vps continent
-            mapping_continents = set()
-            for subnet in subnets:
-                for vp in vps_per_subnet[subnet]:
-                    continent = countries_continent[vp["country_code"]]
+    hostnames = set()
+    invalid_hostnames = set()
+    for (hostname, answer_bgp_prefix), subnets in subnet_per_hostname.items():
+        # get vps continent
 
-                    mapping_continents.add(continent)
+        if set(answer_bgp_prefix).intersection(anycast_prefixes):
+            logger.info(
+                f"{hostname}:{answer_bgp_prefix}::Detected as anycast by anycatch db"
+            )
+            invalid_hostnames.add(hostname)
 
-            if len(mapping_continents) > 1:
-                logger.error(
-                    f"{hostname}:{answer_bgp_prefix}::DNS mapping on multiple continent"
-                )
-                invalid_hostnames.append(hostname)
-            else:
-                hostnames.append(hostname)
+        hostnames.add(hostname)
+
+        mapping_continents = set()
+        vp_countries = set()
+        for subnet in subnets:
+            for vp in vps_per_subnet[subnet]:
+                country = countries[vp["country_code"]]
+                vp_countries.add(vp["country_code"])
+                continent = country["continent"]
+                mapping_continents.add(continent)
+
+        if len(mapping_continents) >= 4:
+            logger.error(
+                f"{hostname}:{answer_bgp_prefix}::DNS mapping on multiple continent, {mapping_continents}"
+            )
+            logger.error(f"vps country:{[c for c in vp_countries]}")
+            invalid_hostnames.add(hostname)
+
+    hostnames = hostnames.difference(invalid_hostnames)
 
     # load all VPs raw DNS mapping data, filter, insert results
+    logger.info(f"Valid hostnames = {len(hostnames)}")
+    for hostname in hostnames:
+        logger.info(f"Hostname: {hostname}")
 
-    logger.info(
-        f"Invalid hostnames = {len(invalid_hostnames)} | remaining = {len(hostnames)}"
-    )
+    logger.info(f"Invalid Valid hostnames = {len(invalid_hostnames)}")
+    for hostname in invalid_hostnames:
+        logger.info(f"Hostname: {hostname}")
 
 
 async def main() -> None:
@@ -152,7 +171,9 @@ async def main() -> None:
 
     # await init_prober(api=api)
 
-    get_raw_dns_mapping()
+    # get_raw_dns_mapping()
+
+    filter_hostnames()
 
 
 if __name__ == "__main__":

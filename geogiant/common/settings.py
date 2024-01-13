@@ -1,6 +1,8 @@
 """general tool settings"""
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Optional
+
 
 from pydantic_settings import BaseSettings
 
@@ -39,7 +41,8 @@ class PathSettings(BaseSettings):
     GOOGLE_POP_GEO_DATA: Path = DATASET / "Google_GGC_02-08-2023.geojson"
 
     # default location countries
-    COUNTRIES_DEFAULT_GEO: Path = DATASET / "countries_default_geo.txt"
+    COUNTRIES_INFO: Path = DATASET / "countries_info.csv"
+    COUNTRIES_DEFAULT_GEO: Path = DATASET / "country_codes.csv"
     COUNTRIES_CONTINENT: Path = DATASET / "countries_continent.csv"
 
     # Verpoelofter
@@ -53,10 +56,10 @@ class ClickhouseSettings(BaseSettings):
     load_dotenv(override=True)
 
     # Clickhouse driver parameters
-    CLICKHOUSE_HOST: str = "localhost"
-    CLICKHOUSE_USERNAME: str = "default"
-    CLICKHOUSE_PASSWORD: str = ""
-    CLICKHOUSE_DB: str = "dns_geoloc"
+    BASE_URL: str = "http://localhost:8123"
+    DATABASE: str = "dns_geoloc"
+    USERNAME: str = "default"
+    PASSWORD: str = ""
 
     # ZDNS tables
     DNS_MAPPING_TARGETS: str = "raw_dns_mapping_targets"
@@ -81,12 +84,12 @@ class ClickhouseSettings(BaseSettings):
     # TODO: create table with uuid?
 
     @property
-    def clickhouse(self):
+    def credentials(self):
         return {
-            "host": self.CLICKHOUSE_HOST,
-            "username": self.CLICKHOUSE_USERNAME,
-            "password": self.CLICKHOUSE_PASSWORD,
-            "db": self.CLICKHOUSE_DB,
+            "base_url": self.BASE_URL,
+            "database": self.DATABASE,
+            "username": self.USERNAME,
+            "password": self.PASSWORD,
         }
 
 

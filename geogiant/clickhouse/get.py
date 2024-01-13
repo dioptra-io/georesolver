@@ -1,28 +1,39 @@
-from geogiant.clickhouse import Clickhouse
+from collections import defaultdict
+
+from geogiant.clickhouse.query import Query
 
 
-class Get(Clickhouse):
-    def subnet_statement(self, table_name: str) -> str:
+class GetSubnets(Query):
+    def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
             DISTINCT toString(subnet_v4)
         FROM 
-            {self.settings.CLICKHOUSE_DB}.{table_name}
+            dns_geoloc.{table_name}
         """
 
-    def subnet(self, table_name: str) -> dict:
-        """get all vps per pop with RTT info"""
-        statement = self.subnet_statement(table_name)
-        resp = self.execute_iter(statement)
+    # def subnet(self, table_name: str) -> dict:
+    #     """get all vps per pop with RTT info"""
+    #     statement = self.subnet_statement(table_name)
+    #     resp = self.execute_iter(statement)
 
-        vps_subnet = [row[0] for row in resp]
-        return vps_subnet
+    #     vps_subnet = [row[0] for row in resp]
+    #     return vps_subnet
 
+
+class Get(Query):
     def vps_country_per_subnet_statement(self, table_name: str) -> str:
         return f"""
         SELECT 
             subnet_v4,
-            groupUniqueArray((toString(address_v4), lat, lon, continent))
+            groupUniqArray(
+                (
+                    toString(address_v4),
+                    lat, 
+                    lon,
+                    country_code
+                )
+            )
         FROM 
             {self.settings.CLICKHOUSE_DB}.{table_name}
         GROUP BY
@@ -31,18 +42,23 @@ class Get(Clickhouse):
 
     def vps_country_per_subnet(self, table_name: str) -> dict:
         """get all vps per pop with RTT info"""
-        vps_per_subnet = {}
+        vps_per_subnet = defaultdict(list)
 
         statement = self.vps_country_per_subnet_statement(table_name)
         resp = self.execute_iter(statement)
 
         for row in resp:
-            vps_per_subnet[row[0]] = {
-                "address_v4": row[1],
-                "lat": row[2],
-                "lon": row[3],
-                "continent": row[4],
-            }
+            subnet = row[0]
+            subnet_data = row[1][0]
+
+            vps_per_subnet[subnet].append(
+                {
+                    "address_v4": subnet_data[0],
+                    "lat": subnet_data[1],
+                    "lon": subnet_data[2],
+                    "country_code": subnet_data[3],
+                }
+            )
 
         return vps_per_subnet
 
@@ -51,7 +67,7 @@ class Get(Clickhouse):
         SELECT 
             hostname,
             answer_bgp_prefix,
-            groupUniqueArray(subnet)
+            groupUniqArray(subnet)
         FROM 
             {self.settings.CLICKHOUSE_DB}.{table_name}
         GROUP BY
@@ -66,6 +82,6 @@ class Get(Clickhouse):
         resp = self.execute_iter(statement)
 
         for row in resp:
-            subnet_per_hostname[row[0]][row[1]] = row[2]
+            subnet_per_hostname[(row[0], row[1])] = row[2]
 
         return subnet_per_hostname
