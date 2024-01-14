@@ -2,17 +2,19 @@ import time
 import httpx
 import asyncio
 
+from pyasn import pyasn
 from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
 from copy import copy
 from loguru import logger
+from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import PingTable
+from clickhouse import CreateVPsTable, CreatePingTable, Insert
 
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.files_utils import dump_json
-from geogiant.common.settings import RIPEAtlasSettings
+from common.files_utils import dump_json, create_tmp_csv_file
+from common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
+from common.settings import RIPEAtlasSettings, ClickhouseSettings
 
 
 class RIPEAtlasAPI:
@@ -82,6 +84,64 @@ class RIPEAtlasAPI:
 
                 await asyncio.sleep(0.1)
 
+    async def insert_vps(self, vps: list[dict], table_name: str) -> None:
+        """insert vps within clickhouse db"""
+        asndb = pyasn(str(self.settings.RIB_TABLE))
+
+        csv_data = []
+        for vp in vps:
+            _, bgp_prefix = route_view_bgp_prefix(vp["address_v4"], asndb)
+            subnet = get_prefix_from_ip(vp["address_v4"])
+
+            csv_data.append(
+                f"{vp['address_v4']},\
+                {subnet},\
+                {vp['asn_v4']},\
+                {bgp_prefix},\
+                {vp['country_code']},\
+                {vp['lat']},\
+                {vp['lon']},\
+                {vp['id']},\
+                {vp['is_anchor']}"
+            )
+
+        tmp_file_path = create_tmp_csv_file(csv_data)
+
+        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            await CreateVPsTable().execute(client, self.settings.VPS_RAW)
+            await Insert().execute(
+                client=client,
+                table_name=table_name,
+                data=tmp_file_path.read_bytes(),
+            )
+
+        tmp_file_path.unlink()
+
+    def parse_ping(self, results: list[dict], id: int) -> list[str]:
+        """retrieve all measurement, parse data and return for clickhouse insert"""
+        parsed_data = []
+        for result in results:
+            rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
+
+            if rtts:
+                parsed_data.append(
+                    f"{result['timestamp']},\
+                    {result['from']},\
+                    {get_prefix_from_ip(result['from'])},\
+                    {24},\
+                    {result['prb_id']},\
+                    {id},\
+                    {result['dst_addr']},\
+                    {get_prefix_from_ip(result['dst_addr'])},\
+                    {result['proto']},\
+                    {result['rcvd']},\
+                    {result['sent']},\
+                    {result['avg']},\
+                    {rtts}"
+                )
+
+        return parsed_data
+
     async def get_ping_results(self, id: int) -> dict:
         """get results from ping measurement id"""
         url = f"{self.settings.MEASUREMENT_URL}/{id}/results/"
@@ -89,7 +149,10 @@ class RIPEAtlasAPI:
             resp = await client.get(url)
             resp = resp.json()
 
-        return resp
+        # parse data and return to prober
+        ping_results = self.parse_ping(resp, id)
+
+        return ping_results
 
     async def get_status(self, measurement_id: str) -> bool:
         """check if measurement status is ongoing, if"""
@@ -110,7 +173,11 @@ class RIPEAtlasAPI:
         vps = []
         rejected = 0
         vp: dict = None
+        i = 0
         async for vp in self.get_raw_vps():
+            if i > 10:
+                break
+            i += 1
             # filter vps based on generic criteria
             if vp["is_anchor"] and probes_only:
                 continue
@@ -185,14 +252,12 @@ class RIPEAtlasProber:
 
     def __init__(
         self,
-        schedule: dict,
         dry_run: bool = False,
     ) -> None:
-        self.api = RIPEAtlasAPI()
-
         self.dry_run = dry_run
-        self.schedule = schedule
-        self.api.check_schedule_validity(self.schedule)
+
+        self.api = RIPEAtlasAPI()
+        self.settings = ClickhouseSettings()
 
         self.uuid = uuid4()
         self.table_name = "ping__" + str(self.uuid)
@@ -202,7 +267,12 @@ class RIPEAtlasProber:
         self.config: dict = None
         self.measurement_ids = set()
 
-    def get_config(self) -> dict:
+    async def init_prober(self) -> None:
+        """get connected vps from measurement platform, insert in clickhouse"""
+        vps = await self.api.get_vps()
+        await self.api.insert_vps(vps, self.api.settings.VPS_RAW)
+
+    def get_config(self, schedule) -> dict:
         """create a dictionary config for the new measurement"""
         return {
             "uuid": str(self.uuid),
@@ -210,7 +280,7 @@ class RIPEAtlasProber:
             "start_time": str(datetime.now()),
             "end_time": None,
             "is_dry_run": self.dry_run,
-            "nb_targets": len(self.schedule),
+            "nb_targets": len(schedule),
             "af": self.api.settings.IP_VERSION,
             "ids": None,
         }
@@ -223,31 +293,6 @@ class RIPEAtlasProber:
 
         config_file = out_path / f"{config['measurement_uuid']}.json"
         dump_json(config, config_file)
-
-    def parse(self, results: list[dict], id: int) -> list[str]:
-        """retrieve all measurement, parse data and return for clickhouse insert"""
-        parsed_data = []
-        for result in results:
-            rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
-
-            if rtts:
-                parsed_data.append(
-                    f"{result['timestamp']},\
-                    {result['from']},\
-                    {get_prefix_from_ip(result['from'])},\
-                    {24},\
-                    {result['prb_id']},\
-                    {id},\
-                    {result['dst_addr']},\
-                    {get_prefix_from_ip(result['dst_addr'])},\
-                    {result['proto']},\
-                    {result['rcvd']},\
-                    {result['sent']},\
-                    {result['avg']},\
-                    {rtts}"
-                )
-
-        return parsed_data
 
     async def wait_for_batch(self, ongoing_ids: set) -> list:
         """Wait for a measurement batch to end"""
@@ -288,10 +333,10 @@ class RIPEAtlasProber:
 
         return id
 
-    async def run(self) -> list[int]:
+    async def run(self, schedule: dict) -> list[int]:
         """run measurement schedule"""
         ongoing_ids = set()
-        for target, vp_ids in self.schedule.items():
+        for target, vp_ids in schedule.items():
             id = await self.probe(
                 target=target,
                 vp_ids=vp_ids,
@@ -325,33 +370,42 @@ class RIPEAtlasProber:
             if ids_to_insert:
                 csv_data = []
                 for id in ids_to_insert:
-                    results = await self.api.get_ping_results(id)
-                    parsed_data = self.parse(results, id)
-                    csv_data.append(parsed_data)
+                    ping_results = await self.api.get_ping_results(id)
+                    csv_data.append(ping_results)
 
                     await asyncio.sleep(0.1)
 
-                PingTable().insert(
-                    table_name=self.table_name,
-                    input_data=csv_data,
-                )
+                tmp_file_path = create_tmp_csv_file(csv_data)
+
+                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                    await CreatePingTable().execute(self.table_name)
+                    await Insert().execute(
+                        client=client,
+                        table_name=self.table_name,
+                        input_data=tmp_file_path.read_bytes(),
+                    )
+
+                tmp_file_path.unlink()
 
                 ids_to_insert = None
 
-    async def main(self, config: dict = None) -> None:
+    async def main(self, schedule: dict, config: dict = None) -> None:
         """run measurement schedule using RIPE Atlas API"""
+
+        # check if schedule is in accordance with API's parameters
+        self.api.check_schedule_validity(schedule)
 
         # TODO: add caching | replace with a DB?
         if not config:
-            config = self.get_config()
+            config = self.get_config(schedule)
             self.save_config(config)
 
         logger.info(
-            f"{self.uuid}::Starting measurement for {len(self.schedule.values())} targets"
+            f"{self.uuid}::Starting measurement for {len(schedule.values())} targets"
         )
 
         await asyncio.gather(
-            self.run(),
+            self.run(schedule),
             self.insert(),
         )
 
