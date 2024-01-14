@@ -8,9 +8,11 @@ from dateutil import parser
 from enum import Enum
 from pathlib import Path
 from loguru import logger
+from pych_client import ClickHouseClient
 
-from clickhouse import DNSMappingTable
+from clickhouse import Insert, CreateDNSMappingTable
 
+from common.files_utils import create_tmp_csv_file
 from common.ip_addresses_utils import (
     is_valid_ipv4,
     get_prefix_from_ip,
@@ -147,15 +149,17 @@ class ZDNS:
 
         zdns_data = self.run()
 
-        create_table_statement = DNSMappingTable().create_table_statement(
-            self.table_name
-        )
-
         # output results
-        DNSMappingTable().insert(
-            input_data=zdns_data,
-            table_name=f"{self.table_name}",
-            create_table_statement=create_table_statement,
-        )
+        with ClickHouseClient(**self.settings.credentials) as client:
+            tmp_file_path = create_tmp_csv_file(zdns_data)
+
+            CreateDNSMappingTable().execute(client, self.table_name)
+            Insert().execute(
+                client=client,
+                table_name=self.table_name,
+                data=tmp_file_path.read_bytes(),
+            )
+
+            tmp_file_path.unlink()
 
         logger.info(f"ZDNS::Resolution done")
