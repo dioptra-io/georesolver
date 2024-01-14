@@ -57,7 +57,7 @@ class ClickhouseSettings(BaseSettings):
 
     # Clickhouse driver parameters
     BASE_URL: str = "http://localhost:8123"
-    DATABASE: str = "dns_geoloc"
+    DB: str = "geogiant"
     USERNAME: str = "default"
     PASSWORD: str = ""
 
@@ -84,16 +84,16 @@ class ClickhouseSettings(BaseSettings):
     # TODO: create table with uuid?
 
     @property
-    def credentials(self):
+    def clickhouse(self):
         return {
             "base_url": self.BASE_URL,
-            "database": self.DATABASE,
+            "database": self.DB,
             "username": self.USERNAME,
             "password": self.PASSWORD,
         }
 
 
-class RIPEAtlasSettings(BaseSettings):
+class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
     """RIPE Atlas module settings"""
 
     # Default path
@@ -112,10 +112,10 @@ class RIPEAtlasSettings(BaseSettings):
     # debugging
     MEASUREMENTS_CONFIG: Path = DEFAULT / "../measurements/config"
 
-    BASE_URL: str = "https://atlas.ripe.net/api/v2"
+    API_URL: str = "https://atlas.ripe.net/api/v2"
     KEY_URL: str = f"?key={SECRET_KEY}"
 
-    MEASUREMENT_URL: str = f"{BASE_URL}/measurements/{KEY_URL}"
+    MEASUREMENT_URL: str = f"{API_URL}/measurements/{KEY_URL}"
 
 
 class ZDNSSettings(PathSettings, ClickhouseSettings):

@@ -2,6 +2,7 @@
 import json
 import pickle
 
+from uuid import uuid4
 from loguru import logger
 from dateutil import parser
 from datetime import datetime
@@ -69,6 +70,20 @@ def dump_pickle(data: dict, output_file: Path) -> None:
 
     with output_file.open("wb") as f:
         pickle.dump(data, f)
+
+
+def create_tmp_csv_file(csv_data: list[str]) -> Path:
+    """create a tmp file into TMP with uuid"""
+    file_path = path_settings.TMP_PATH / f"tmp__{uuid4()}.csv"
+
+    if not file_path.parent.exists():
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with file_path.open("w") as f:
+        for row in csv_data:
+            f.write(row + "\n")
+
+    return file_path
 
 
 def load_pickle(input_file: Path) -> dict:
