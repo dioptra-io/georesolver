@@ -2,7 +2,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 from loguru import logger
-from pych_client import ClickHouseClient
+from pych_client import AsyncClickHouseClient
 
 from geogiant.common.settings import ClickhouseSettings
 
@@ -22,10 +22,11 @@ class Query:
         # is no guarantees that the query will implement this method and return a single statement.
         raise NotImplementedError
 
-    def execute(
+    async def execute(
         self,
-        client: ClickHouseClient,
+        client: AsyncClickHouseClient,
         table_name: str,
+        data: Any = None,
         limit=None,
     ) -> list[dict]:
         """
@@ -45,26 +46,31 @@ class Query:
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
         )
-        logger.info(f" statement: {statement}")
-        rows += client.json(statement, settings=settings)
+        logger.info(f"Executing::{statement}")
+        rows += await client.json(statement, data=data, settings=settings)
 
         return rows
 
     def execute_iter(
         self,
-        client: ClickHouseClient,
+        client: AsyncClickHouseClient,
         table_name: str,
+        data: Any = None,
         limit=None,
     ) -> Iterator[dict]:
         """
         Execute the query and return each row as a dict, as they are received from the database.
         """
-        for i, statement in enumerate(self.statement(table_name)):
-            logger.info(
-                f"query={self.name}#{i} measurement_id={table_name} limit={limit}"
-            )
-            settings = dict(
-                limit=limit[0] if limit else 0,
-                offset=limit[1] if limit else 0,
-            )
-            yield from client.iter_json(statement, settings=settings)
+        statement = self.statement(table_name)
+
+        logger.info(f"query={self.name} table_name={table_name} limit={limit}")
+        settings = dict(
+            limit=limit[0] if limit else 0,
+            offset=limit[1] if limit else 0,
+        )
+        yield from client.iter_json(statement, data=data, settings=settings)
+
+
+class Insert(Query):
+    def statement(self, table_name: str) -> str:
+        return f"INSERT INTO {self.settings.DB}.{table_name} FORMAT CSV"

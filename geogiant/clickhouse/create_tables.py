@@ -1,14 +1,14 @@
-from geogiant.clickhouse import Insert
+from geogiant.clickhouse.query import Query
 
 
-class VPsTable(Insert):
-    def create_table_statement(self, table_name: str) -> str:
+class CreateVPsTable(Query):
+    def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""
         sorting_key = (
             "address_v4, asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
         )
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DB}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
             (
                 address_v4         IPv4,
                 subnet_v4          IPv4,
@@ -18,19 +18,19 @@ class VPsTable(Insert):
                 lat                Float32,
                 lon                Float32,
                 id                 Int32,
-                is_anchor          Bool,                
+                is_anchor          Bool                
             )
             ENGINE MergeTree
             ORDER BY ({sorting_key})
             """
 
 
-class PingTable(Insert):
-    def create_table_statement(self, table_name: str) -> str:
+class CreatePingTable(Query):
+    def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DB}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -53,12 +53,12 @@ class PingTable(Insert):
             """
 
 
-class DNSMappingTable(Insert):
-    def create_table_statement(self, table_name: str) -> str:
+class CreateDNSMappingTable(Query):
+    def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""
         sorting_key = "subnet, netmask, hostname, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DB}.{table_name}
+        CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,
@@ -66,7 +66,7 @@ class DNSMappingTable(Insert):
             hostname               String,
             answer                 IPv4,
             answer_asn             UInt32,
-            answer_bgp_prefix      String,
+            answer_bgp_prefix      String
         )
         ENGINE MergeTree
         ORDER BY ({sorting_key})

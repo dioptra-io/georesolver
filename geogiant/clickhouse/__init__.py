@@ -1,13 +1,14 @@
-from .clickhouse import Clickhouse
-from .insert import Insert
-from .get import Get
-from .tables import VPsTable, PingTable, DNSMappingTable
+from .query import Insert, Query
+from .create_tables import CreateVPsTable, CreatePingTable, CreateDNSMappingTable
+from .get import Get, GetSubnets
+
 
 __all__ = (
-    "Clickhouse",
     "Insert",
+    "Query",
+    "CreateVPsTable",
+    "CreatePingTable",
+    "CreateDNSMappingTable",
+    "GetSubnets",
     "Get",
-    "VPsTable",
-    "PingTable",
-    "DNSMappingTable",
 )

@@ -7,9 +7,9 @@ class GetSubnets(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
-            DISTINCT toString(subnet_v4)
+            DISTINCT toString(subnet_v4) as subnet
         FROM 
-            dns_geoloc.{table_name}
+            {self.settings.DB}.{table_name}
         """
 
     # def subnet(self, table_name: str) -> dict:
