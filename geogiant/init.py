@@ -2,18 +2,17 @@
 import asyncio
 
 from loguru import logger
-from pyasn import pyasn
+from pych_client import ClickHouseClient
 
-from clickhouse import VPsTable, Get
-from prober import RIPEAtlasAPI
-from zdns.zdns_wrapper import ZDNS
+from clickhouse import Get, GetSubnets
+from prober import RIPEAtlasProber
+from zdns import ZDNS
 
 from common.geoloc import distance
 from common.files_utils import (
     load_countries_info,
     load_anycatch_data,
 )
-from common.ip_addresses_utils import route_view_bgp_prefix, get_prefix_from_ip
 from common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -30,7 +29,6 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
             country_geo = countries[vp["country_code"]]
         except KeyError:
             logger.warning(f"error country code {vp['country_code']} is unknown")
-            valid_vps.append(vp)
             continue
 
         dist = distance(
@@ -51,50 +49,15 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
     return valid_vps
 
 
-def insert_vps(vps: list[dict], table_name: str) -> None:
-    """insert vps within clickhouse db"""
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    csv_data = []
-    for vp in vps:
-        _, bgp_prefix = route_view_bgp_prefix(vp["address_v4"], asndb)
-        subnet = get_prefix_from_ip(vp["address_v4"])
-
-        csv_data.append(
-            f"{vp['address_v4']},\
-            {subnet},\
-            {vp['asn_v4']},\
-            {bgp_prefix},\
-            {vp['country_code']},\
-            {vp['lat']},\
-            {vp['lon']},\
-            {vp['id']},\
-            {vp['is_anchor']}"
-        )
-
-    create_table_statement = VPsTable().create_table_statement(
-        table_name=table_name,
-    )
-
-    VPsTable().insert(
-        input_data=csv_data,
-        table_name=table_name,
-        create_table_statement=create_table_statement,
-        drop_table=True,
-    )
-
-
-async def init_prober(api: RIPEAtlasAPI) -> None:
-    """get connected vps from measurement platform, insert in clickhouse"""
-    vps = await api.get_vps()
-    insert_vps(vps, clickhouse_settings.VPS_RAW)
-
-
 # TODO: async DNS
 def get_raw_dns_mapping() -> None:
     """perform DNS mapping with zdns on VPs subnet"""
-    vps_subnet = Get().subnet(clickhouse_settings.VPS_RAW)
-    vps_subnet = [subnet + "/24" for subnet in vps_subnet]
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        vps_subnet = GetSubnets().execute(
+            client=client, table_name=clickhouse_settings.VPS_RAW
+        )
+
+    vps_subnet = [subnet["subnet"] + "/24" for subnet in vps_subnet]
 
     zdns = ZDNS(
         subnets=vps_subnet,
@@ -167,15 +130,14 @@ def filter_hostnames() -> None:
 
 async def main() -> None:
     """init main"""
-    api = RIPEAtlasAPI()
+    prober = RIPEAtlasProber()
 
-    # await init_prober(api=api)
+    await prober.init_prober()
 
     # get_raw_dns_mapping()
 
-    filter_hostnames()
+    # filter_hostnames()
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.run(main())
