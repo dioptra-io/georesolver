@@ -14,7 +14,8 @@ results/
 debbuging/
 
 # clickhouse exec file
-configuration/clickhouse/clickhouseso
+.vscode/
+configuration/
 
 # Distribution / packaging
 .Python

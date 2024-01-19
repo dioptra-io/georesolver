@@ -1,8 +1,8 @@
 import json
 import subprocess
+import pyasn
 
 from tqdm import tqdm
-from pyasn import pyasn
 from datetime import datetime
 from dateutil import parser
 from enum import Enum
@@ -82,7 +82,7 @@ class ZDNS:
 
         return query_results
 
-    def parse(self, subnet: str, query_results: list, asndb: pyasn) -> list:
+    def parse(self, subnet: str, query_results: list, asndb) -> list:
         """return resolution server ip addr"""
         parsed_data = []
         for result in query_results:
@@ -131,7 +131,7 @@ class ZDNS:
 
     def run(self) -> list:
         """run zdns on a set of client subnet and output data within Clickhouse table"""
-        asndb = pyasn(str(self.settings.RIB_TABLE))
+        asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
         # run ZDNS on input subnets
         zdns_data = []
