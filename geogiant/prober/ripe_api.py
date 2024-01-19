@@ -1,17 +1,18 @@
 import json
 import httpx
 import asyncio
+import pyasn
 
 from numpy import mean
 from ipaddress import IPv4Address
 from collections import defaultdict
-from pyasn import pyasn
+
 from loguru import logger
 from enum import Enum
 from pych_client import AsyncClickHouseClient
 from datetime import datetime, timedelta
 
-from geogiant.clickhouse import CreateVPsTable, CreateTracerouteTable, Insert, Drop
+from geogiant.clickhouse import CreateVPsTable, Insert
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings
@@ -60,7 +61,7 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
+            "bill_to": self.settings.USERNAME,
         }
 
     def is_geoloc_disputed(self, probe: dict) -> bool:
@@ -92,7 +93,7 @@ class RIPEAtlasAPI:
 
                 await asyncio.sleep(0.1)
 
-    def parse_vp(self, vp, asndb: pyasn) -> str:
+    def parse_vp(self, vp, asndb) -> str:
         """parse RIPE Atlas VPs data for clickhouse insertion"""
 
         _, bgp_prefix = route_view_bgp_prefix(vp["address_v4"], asndb)
@@ -110,7 +111,7 @@ class RIPEAtlasAPI:
 
     async def insert_vps(self, vps: list[dict], table_name: str) -> None:
         """insert vps within clickhouse db"""
-        asndb = pyasn(str(self.settings.RIB_TABLE))
+        asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
         csv_data = []
         for vp in vps:
@@ -245,42 +246,42 @@ class RIPEAtlasAPI:
 
         return traceroute_results
 
-    async def insert_traceroutes(
-        self, batch_size: int = 10_000, drop_table: bool = False
-    ) -> None:
-        """retrieve traceroutes from RIPE Atlas and insert results in clickhouse"""
-        traceroutes = []
+    # async def insert_traceroutes(
+    #     self, batch_size: int = 10_000, drop_table: bool = False
+    # ) -> None:
+    #     """retrieve traceroutes from RIPE Atlas and insert results in clickhouse"""
+    #     traceroutes = []
 
-        if drop_table:
-            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                await Drop().execute(client, self.settings.TRACEROUTE_VPS_TO_TARGET)
+    #     if drop_table:
+    #         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+    #             await Drop().execute(client, self.settings.TRACEROUTE_VPS_TO_TARGET)
 
-        # drop table for testing
-        async for traceroute in self.get_raw_traceroutes():
-            parsed_traceroute = self.parse_traceroute(traceroute)
+    #     # drop table for testing
+    #     async for traceroute in self.get_raw_traceroutes():
+    #         parsed_traceroute = self.parse_traceroute(traceroute)
 
-            if parsed_traceroute:
-                traceroutes.extend(parsed_traceroute)
+    #         if parsed_traceroute:
+    #             traceroutes.extend(parsed_traceroute)
 
-            # insert every buffer size to avoid losing data
-            if len(traceroutes) > batch_size:
-                logger.info(f"inserting batch of traceroute: limit = {batch_size}")
+    #         # insert every buffer size to avoid losing data
+    #         if len(traceroutes) > batch_size:
+    #             logger.info(f"inserting batch of traceroute: limit = {batch_size}")
 
-                # create table + insert
-                tmp_file_path = create_tmp_csv_file(traceroutes)
+    #             # create table + insert
+    #             tmp_file_path = create_tmp_csv_file(traceroutes)
 
-                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                    await CreateTracerouteTable().execute(
-                        client, self.settings.TRACEROUTE_VPS_TO_TARGET
-                    )
-                    await Insert().execute(
-                        client=client,
-                        table_name=self.settings.TRACEROUTE_VPS_TO_TARGET,
-                        data=tmp_file_path.read_bytes(),
-                    )
+    #             async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+    #                 await CreateTracerouteTable().execute(
+    #                     client, self.settings.TRACEROUTE_VPS_TO_TARGET
+    #                 )
+    #                 await Insert().execute(
+    #                     client=client,
+    #                     table_name=self.settings.TRACEROUTE_VPS_TO_TARGET,
+    #                     data=tmp_file_path.read_bytes(),
+    #                 )
 
-                tmp_file_path.unlink()
-                traceroutes = []
+    #             tmp_file_path.unlink()
+    #             traceroutes = []
 
     def parse_ping(self, results: list[dict]) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
@@ -422,102 +423,3 @@ class RIPEAtlasAPI:
                     f"{uuid}:: Cannot perform measurement for target: {target}"
                 )
         return id
-
-
-from datetime import date, datetime
-from time import time
-from ftplib import FTP
-from argparse import ArgumentParser
-from subprocess import call
-from sys import stdout
-from urllib.request import urlopen
-
-
-# Parse command line options
-# Note: --latest might be changes to --46, instead of --4, in the future
-parser = ArgumentParser(
-    description="Script to download MRT/RIB BGP archives (from RouteViews)."
-)
-group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument(
-    "--latestv4", "-4", "--latest", action="store_true", help="Grab lastest IPV4 data"
-)
-group.add_argument(
-    "--latestv6", "-6", action="store_true", help="Grab lastest IPV6 data"
-)
-group.add_argument(
-    "--latestv46", "-46", action="store_true", help="Grab lastest IPV4/V6 data"
-)
-group.add_argument("--version", action="store_true")
-group.add_argument(
-    "--dates-from-file",
-    "-f",
-    action="store",
-    help="Grab IPV4 archives for specifc dates (one date, YYYYMMDD, per line)",
-)
-parser.add_argument(
-    "--filename", action="store", help="Specify name with which the file will be saved"
-)
-args = parser.parse_args()
-
-
-def ftp_download(server, remote_dir: str, remote_file: str, local_file):
-    """Downloads a file from an FTP server and stores it locally"""
-    ftp = FTP(server)
-    ftp.login()
-    ftp.cwd(remote_dir)
-    logger.info("Downloading ftp://%s/%s/%s" % (server, remote_dir, remote_file))
-    filesize = ftp.size(remote_file)
-
-    filename = args.filename if args.filename is not None else local_file
-    # perhaps warn before overwriting file?
-    with open(filename, "wb") as fp:
-
-        def recv(s):
-            fp.write(s)
-            recv.chunk += 1
-            recv.bytes += len(s)
-            if recv.chunk % 100 == 0:
-                print(
-                    "\r %.f%%, %.fKB/s"
-                    % (
-                        recv.bytes * 100 / filesize,
-                        recv.bytes / (1000 * (time() - recv.start)),
-                    ),
-                    end="",
-                )
-                stdout.flush()
-
-        recv.chunk, recv.bytes, recv.start = 0, 0, time()
-        ftp.retrbinary("RETR %s" % remote_file, recv)
-    ftp.close()
-    logger.info("\nDownload complete.")
-
-
-def find_latest_in_ftp(server, archive_root, sub_dir, print_progress=True):
-    """Returns (server, filepath, filename) for the most recent file in an FTP archive"""
-    if print_progress:
-        print("Connecting to ftp://" + server)
-    ftp = FTP(server)
-    ftp.login()
-    months = sorted(
-        ftp.nlst(archive_root), reverse=True
-    )  # e.g. 'route-views6/bgpdata/2016.12'
-    filepath = "/%s/%s" % (months[0], sub_dir)
-    if print_progress:
-        print("Finding most recent archive in %s ..." % filepath)
-    ftp.cwd(filepath)
-    fls = ftp.nlst()
-    if not fls:
-        filepath = "/%s/%s" % (months[1], sub_dir)
-        if print_progress:
-            print("Finding most recent archive in %s ..." % filepath)
-        ftp.cwd(filepath)
-        fls = ftp.nlst()
-        if not fls:
-            raise LookupError(
-                "Cannot find file to download. Please report a bug on github?"
-            )
-    filename = max(fls)
-    ftp.close()
-    return (server, filepath, filename)

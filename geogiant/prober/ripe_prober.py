@@ -1,7 +1,6 @@
 import time
 import asyncio
 
-from pyasn import pyasn
 from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
@@ -9,8 +8,8 @@ from copy import copy
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from clickhouse import CreatePingTable, Insert
-from ripe_atlas_api import RIPEAtlasAPI
+from geogiant.clickhouse import CreatePingTable, Insert
+from geogiant.prober import RIPEAtlasAPI
 
 from common.files_utils import dump_json, create_tmp_csv_file
 from common.settings import ClickhouseSettings
