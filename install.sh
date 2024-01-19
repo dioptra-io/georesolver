@@ -25,8 +25,8 @@ else
     docker pull clickhouse/clickhouse-server:22.6
 
     docker run -d \
-        -p 8123:8123 \
-        -p 9000:9000 \
+        -p 127.0.0.1:8123:8123 \
+        -p 127.0.0.1:9000:9000 \
         -v /Users/hugo/clickhouse/data:/var/lib/clickhouse/ \
         -v $CONFIG_PATH/logs:/var/log/clickhouse-server/ \
         --ulimit nofile=262144:262144 \
