@@ -12,7 +12,9 @@ measurements/
 tmp/
 results/
 debbuging/
-cdn_redirection_evaluation/
+
+# clickhouse exec file
+configuration/clickhouse/clickhouseso
 
 # Distribution / packaging
 .Python

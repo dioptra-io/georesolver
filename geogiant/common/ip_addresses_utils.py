@@ -1,7 +1,6 @@
 import socket
 import httpx
 
-from pyasn import pyasn
 from pathlib import Path
 from typing import Sequence
 from ipwhois import IPWhois
@@ -109,7 +108,7 @@ async def ripe_stat_bgp_prefix(ip_addr: str) -> str:
     return bgp_prefix
 
 
-def route_view_bgp_prefix(ip_addr: str, asndb: pyasn) -> str:
+def route_view_bgp_prefix(ip_addr: str, asndb) -> str:
     """py-asn lookup on route view RIB table dump"""
     asn = None
     bgp_prefix = None

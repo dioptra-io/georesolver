@@ -1,6 +1,4 @@
-from .ripe_atlas import RIPEAtlasAPI, RIPEAtlasProber
+from .ripe_api import RIPEAtlasAPI
+from .ripe_prober import RIPEAtlasProber
 
-__all__ = (
-    "RIPEAtlasAPI",
-    "RIPEAtlasProber"
-)
+__all__ = ("RIPEAtlasAPI", "RIPEAtlasProber")

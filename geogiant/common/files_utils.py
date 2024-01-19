@@ -8,7 +8,7 @@ from dateutil import parser
 from datetime import datetime
 from pathlib import Path
 
-from common.settings import PathSettings
+from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
 
