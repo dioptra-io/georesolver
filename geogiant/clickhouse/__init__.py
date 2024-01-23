@@ -1,14 +1,46 @@
-from .query import Insert, Query
-from .create_tables import CreateVPsTable, CreatePingTable, CreateDNSMappingTable
-from .get import Get, GetSubnets
+from .query import InsertCSV, InsertFromInFile, Query, Drop
+from .create_tables import (
+    CreateVPsTable,
+    CreatePingTable,
+    CreateDNSMappingTable,
+    CreateDNSMappingWithMetadataTable,
+)
+from .dns_score import (
+    OverallScore,
+    OverallPoPSubnetScore,
+    HostnamePoPFrontendScore,
+    HostnamePoPSubnetScore,
+)
+from .get import (
+    GetSubnets,
+    GetSubnetPerHostname,
+    GetVPSInfo,
+    GetVPSInfoPerSubnet,
+    GetPingsPerTarget,
+    GetAvgRTTPerSubnet,
+    GetDNSMapping,
+)
 
 
 __all__ = (
-    "Insert",
+    "InsertFromInFile",
     "Query",
+    "Drop",
+    "InsertCSV",
     "CreateVPsTable",
     "CreatePingTable",
     "CreateDNSMappingTable",
+    "CreateDNSMappingWithMetadataTable",
     "GetSubnets",
-    "Get",
+    "GetSubnetPerHostname",
+    "GetVPSInfo",
+    "GetVPSInfoPerSubnet",
+    "GetPingsPerTarget",
+    "GetAvgRTTPerSubnet",
+    "GetSubnetScore",
+    "OverallScore",
+    "OverallPoPSubnetScore",
+    "HostnamePoPFrontendScore",
+    "HostnamePoPSubnetScore",
+    "GetDNSMapping",
 )

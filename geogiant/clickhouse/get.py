@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 from geogiant.clickhouse.query import Query
 
 
@@ -9,23 +7,34 @@ class GetSubnets(Query):
         SELECT 
             DISTINCT toString(subnet_v4) as subnet
         FROM 
-            {self.settings.DB}.{table_name}
+            {self.settings.DATABASE}.{table_name}
         """
 
-    # def subnet(self, table_name: str) -> dict:
-    #     """get all vps per pop with RTT info"""
-    #     statement = self.subnet_statement(table_name)
-    #     resp = self.execute_iter(statement)
 
-    #     vps_subnet = [row[0] for row in resp]
-    #     return vps_subnet
-
-
-class Get(Query):
-    def vps_country_per_subnet_statement(self, table_name: str) -> str:
+class GetVPSInfo(Query):
+    def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
-            subnet_v4,
+            toString(address_v4),
+            groupUniqArray(
+                (
+                    lat, 
+                    lon,
+                    country_code
+                )
+            )
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        GROUP BY
+            toString(address_v4)
+        """
+
+
+class GetVPSInfoPerSubnet(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            toString(subnet_v4) as subnet,
             groupUniqArray(
                 (
                     toString(address_v4),
@@ -33,55 +42,87 @@ class Get(Query):
                     lon,
                     country_code
                 )
-            )
+            ) as vps
         FROM 
-            {self.settings.CLICKHOUSE_DB}.{table_name}
+            {self.settings.DATABASE}.{table_name}
         GROUP BY
-            subnet_v4
+            subnet
         """
 
-    def vps_country_per_subnet(self, table_name: str) -> dict:
-        """get all vps per pop with RTT info"""
-        vps_per_subnet = defaultdict(list)
 
-        statement = self.vps_country_per_subnet_statement(table_name)
-        resp = self.execute_iter(statement)
-
-        for row in resp:
-            subnet = row[0]
-            subnet_data = row[1][0]
-
-            vps_per_subnet[subnet].append(
-                {
-                    "address_v4": subnet_data[0],
-                    "lat": subnet_data[1],
-                    "lon": subnet_data[2],
-                    "country_code": subnet_data[3],
-                }
-            )
-
-        return vps_per_subnet
-
-    def subnet_per_hostname_statement(self, table_name: str) -> str:
+class GetSubnetPerHostname(Query):
+    def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
             hostname,
             answer_bgp_prefix,
-            groupUniqArray(subnet)
+            groupUniqArray(subnet) as subnets
         FROM 
-            {self.settings.CLICKHOUSE_DB}.{table_name}
+            {self.settings.DATABASE}.{table_name}
         GROUP BY
             (hostname, answer_bgp_prefix)
         """
 
-    def subnet_per_hostname(self, table_name: str) -> dict[dict]:
-        """get all vps for each given frontend server"""
-        subnet_per_hostname = {}
 
-        statement = self.subnet_per_hostname_statement(table_name)
-        resp = self.execute_iter(statement)
+class GetPingsPerTarget(Query):
+    def statement(
+        self,
+        table_name: str,
+    ) -> str:
+        return f"""
+        SELECT 
+            toString(dst_addr) as target,
+            groupArray((toString(src_addr), min)) as pings
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        WHERE
+            min > -1 
+            AND target != toString(src_addr)
+        GROUP BY 
+            target
+        """
 
-        for row in resp:
-            subnet_per_hostname[(row[0], row[1])] = row[2]
 
-        return subnet_per_hostname
+class GetAvgRTTPerSubnet(Query):
+    """base function for counting classes"""
+
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            subnet,
+            arraySort(
+                x -> x.2,
+                groupArray((vp, avg_rtt))
+            ) as vps_avg_rtt
+            FROM (
+                SELECT 
+                    toString(dst_prefix) as subnet,
+                    toString(src_addr) as vp,
+                    arrayAvg(groupArray(min)) as avg_rtt
+                FROM 
+                    {self.settings.DATABASE}.{table_name}
+                WHERE 
+                    min > -1 
+                    AND toString(dst_addr) != vp
+                GROUP BY 
+                    (subnet, vp)
+                ORDER BY 
+                    subnet
+            )
+        GROUP BY
+            subnet
+        """
+
+
+class GetDNSMapping(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            distinct(
+                toString(client_subnet), 
+                hostname, 
+                toString(answers)
+            ) as data
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
+        """

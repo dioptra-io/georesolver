@@ -8,7 +8,7 @@ class CreateVPsTable(Query):
             "address_v4, asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
         )
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
             (
                 address_v4         IPv4,
                 subnet_v4          IPv4,
@@ -30,7 +30,7 @@ class CreatePingTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -58,7 +58,7 @@ class CreateDNSMappingTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "subnet, netmask, hostname, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {self.settings.DB}.{table_name}
+        CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,
@@ -71,3 +71,25 @@ class CreateDNSMappingTable(Query):
         ENGINE MergeTree
         ORDER BY ({sorting_key})
         """
+
+
+class CreateDNSMappingWithMetadataTable(Query):
+    def statement(self, table_name: str) -> str:
+        sorting_key = "client_subnet, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            (
+                client_subnet          IPv4,
+                hostname               String,
+                answer                 IPv4,
+                answer_subnet          IPv4,
+                answer_bgp_prefix      String,
+                answer_asn             UInt32,
+                pop_ip_info_id         Int32,
+                pop_lat                Float32,
+                pop_lon                Float32,
+                pop_city               String
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
