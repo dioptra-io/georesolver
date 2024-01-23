@@ -12,7 +12,7 @@ from enum import Enum
 from pych_client import AsyncClickHouseClient
 from datetime import datetime, timedelta
 
-from geogiant.clickhouse import CreateVPsTable, Insert
+from geogiant.clickhouse import CreateVPsTable, InsertCSV
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings
@@ -122,7 +122,7 @@ class RIPEAtlasAPI:
 
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
             await CreateVPsTable().execute(client, self.settings.VPS_RAW)
-            await Insert().execute(
+            await InsertCSV().execute(
                 client=client,
                 table_name=table_name,
                 data=tmp_file_path.read_bytes(),
@@ -246,42 +246,42 @@ class RIPEAtlasAPI:
 
         return traceroute_results
 
-    # async def insert_traceroutes(
-    #     self, batch_size: int = 10_000, drop_table: bool = False
-    # ) -> None:
-    #     """retrieve traceroutes from RIPE Atlas and insert results in clickhouse"""
-    #     traceroutes = []
+    async def insert_traceroutes(
+        self, batch_size: int = 10_000, drop_table: bool = False
+    ) -> None:
+        """retrieve traceroutes from RIPE Atlas and insert results in clickhouse"""
+        traceroutes = []
 
-    #     if drop_table:
-    #         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-    #             await Drop().execute(client, self.settings.TRACEROUTE_VPS_TO_TARGET)
+        if drop_table:
+            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                await Drop().execute(client, self.settings.TRACEROUTE_VPS_TO_TARGET)
 
-    #     # drop table for testing
-    #     async for traceroute in self.get_raw_traceroutes():
-    #         parsed_traceroute = self.parse_traceroute(traceroute)
+        # drop table for testing
+        async for traceroute in self.get_raw_traceroutes():
+            parsed_traceroute = self.parse_traceroute(traceroute)
 
-    #         if parsed_traceroute:
-    #             traceroutes.extend(parsed_traceroute)
+            if parsed_traceroute:
+                traceroutes.extend(parsed_traceroute)
 
-    #         # insert every buffer size to avoid losing data
-    #         if len(traceroutes) > batch_size:
-    #             logger.info(f"inserting batch of traceroute: limit = {batch_size}")
+            # insert every buffer size to avoid losing data
+            if len(traceroutes) > batch_size:
+                logger.info(f"inserting batch of traceroute: limit = {batch_size}")
 
-    #             # create table + insert
-    #             tmp_file_path = create_tmp_csv_file(traceroutes)
+                # create table + insert
+                tmp_file_path = create_tmp_csv_file(traceroutes)
 
-    #             async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-    #                 await CreateTracerouteTable().execute(
-    #                     client, self.settings.TRACEROUTE_VPS_TO_TARGET
-    #                 )
-    #                 await Insert().execute(
-    #                     client=client,
-    #                     table_name=self.settings.TRACEROUTE_VPS_TO_TARGET,
-    #                     data=tmp_file_path.read_bytes(),
-    #                 )
+                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                    await CreateTracerouteTable().execute(
+                        client, self.settings.TRACEROUTE_VPS_TO_TARGET
+                    )
+                    await Insert().execute(
+                        client=client,
+                        table_name=self.settings.TRACEROUTE_VPS_TO_TARGET,
+                        data=tmp_file_path.read_bytes(),
+                    )
 
-    #             tmp_file_path.unlink()
-    #             traceroutes = []
+                tmp_file_path.unlink()
+                traceroutes = []
 
     def parse_ping(self, results: list[dict]) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""

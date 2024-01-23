@@ -8,7 +8,7 @@ from copy import copy
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import CreatePingTable, Insert
+from geogiant.clickhouse import CreatePingTable, InsertCSV
 from geogiant.prober import RIPEAtlasAPI
 
 from common.files_utils import dump_json, create_tmp_csv_file
@@ -147,7 +147,7 @@ class RIPEAtlasProber:
 
                 async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
                     await CreatePingTable().execute(self.table_name)
-                    await Insert().execute(
+                    await InsertCSV().execute(
                         client=client,
                         table_name=self.table_name,
                         input_data=tmp_file_path.read_bytes(),
@@ -163,7 +163,7 @@ class RIPEAtlasProber:
         # check if schedule is in accordance with API's parameters
         self.api.check_schedule_validity(schedule)
 
-        # TODO: add caching | replace with a DB?
+        # TODO: add caching | replace with a DATABASE?
         if not config:
             config = self.get_config(schedule)
             self.save_config(config)
