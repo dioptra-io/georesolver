@@ -48,6 +48,22 @@ class PathSettings(BaseSettings):
     # Verpoelofter
     VERPOELOFTER: Path = DATASET / "responsive_addresses_per_subnet.fsdb"
 
+    # IP INFO
+    IP_INFO_CLUSTERING: Path = DATASET / "ips.jsonl"
+
+    # some new
+
+    # ECS-DNS old data
+    OLD_TARGETS: Path = DATASET / "old/ripe/targets.json"
+    OLD_VPS: Path = DATASET / "old/ripe/vps.json"
+    OLD_DATA_PATH: Path = Path("/storage/hugo/ecs-dns-data-old/")
+    OLD_DNS_MAPPING_DATA: Path = OLD_DATA_PATH / "dns_mapping.zst"
+    OLD_PING_VPS_TO_TARGET_DATA: Path = OLD_DATA_PATH / "ping_vps_to_targets.zst"
+    OLD_PING_VPS_TO_SUBNET_DATA: Path = OLD_DATA_PATH / "ping_vps_to_subnet.zst"
+
+    VPS_RAW_DATA: Path = OLD_DATA_PATH / "vps_raw.zst"
+    DNS_MAPPING_VPS_RAW_DATA: Path = OLD_DATA_PATH / "raw_dns_mapping_vps.zst"
+
 
 class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
@@ -57,7 +73,7 @@ class ClickhouseSettings(BaseSettings):
 
     # Clickhouse driver parameters
     BASE_URL: str = "http://localhost:8123"
-    DB: str = "geogiant"
+    DATABASE: str = "geogiant"
     USERNAME: str = "default"
     PASSWORD: str = ""
 
@@ -80,14 +96,17 @@ class ClickhouseSettings(BaseSettings):
     TARGET_GEOLOCATION: str = "target_geolocation"
     POP_GEOLOCATION: str = "pop_geolocation"
 
-    # TODO: create ping measurement models and
-    # TODO: create table with uuid?
+    # ECS-DNS old tables
+    OLD_DNS_MAPPING: str = "old_dns_mapping"
+    OLD_DNS_MAPPING_WITH_METADATA: str = "old_dns_mapping_with_metadata"
+    OLD_PING_VPS_TO_TARGET: str = "old_ping_vps_to_target"
+    OLD_PING_VPS_TO_SUBNET: str = "old_ping_vps_to_subnet"
 
     @property
     def clickhouse(self):
         return {
             "base_url": self.BASE_URL,
-            "database": self.DB,
+            "database": self.DATABASE,
             "username": self.USERNAME,
             "password": self.PASSWORD,
         }
