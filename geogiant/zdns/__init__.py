@@ -1,3 +1,3 @@
-from .zdns import ZDNS, ZDNS_STATUS
+from .zdns import ZDNS
 
-__all__ = ("ZDNS", "ZDNS_STATUS")
+all = ("ZDNS",)

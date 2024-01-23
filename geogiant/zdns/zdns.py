@@ -1,6 +1,6 @@
 import json
-import subprocess
 import pyasn
+import asyncio
 
 from tqdm import tqdm
 from datetime import datetime
@@ -8,17 +8,17 @@ from dateutil import parser
 from enum import Enum
 from pathlib import Path
 from loguru import logger
-from pych_client import ClickHouseClient
+from pych_client import AsyncClickHouseClient
 
-from clickhouse import Insert, CreateDNSMappingTable
+from geogiant.clickhouse import InsertCSV, CreateDNSMappingTable
 
-from common.files_utils import create_tmp_csv_file
-from common.ip_addresses_utils import (
+from geogiant.common.files_utils import create_tmp_csv_file
+from geogiant.common.ip_addresses_utils import (
     is_valid_ipv4,
     get_prefix_from_ip,
     route_view_bgp_prefix,
 )
-from common.settings import ZDNSSettings
+from geogiant.common.settings import ZDNSSettings
 
 
 class ZDNS_STATUS(Enum):
@@ -43,36 +43,30 @@ class ZDNS:
 
         self.settings = ZDNSSettings()
 
-    def get_hostname_cmd(self) -> list:
-        """return the command to ouput process file into zdns"""
-        return ["cat", f"{self.hostname_file}"]
+    def get_zdns_cmd(self, subnet: str) -> str:
+        """parse zdns cmd for a given subnet"""
+        hostname_cmd = f"cat {self.hostname_file}"
+        return (
+            hostname_cmd
+            + " | "
+            + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --name-servers {self.name_servers}"
+        )
 
-    def get_zdns_cmd(self, subnet: str) -> list:
-        """parse and return zdns cmd"""
-        return [
-            f"{self.settings.EXEC_PATH}",
-            f"A",
-            "--client-subnet",
-            f"{subnet}",
-            "--name-servers",
-            f"{self.name_servers}",
-        ]
-
-    def query(self, subnet: str) -> dict:
+    async def query(self, subnet: str) -> dict:
         """run zdns tool and return zdns raw results"""
         query_results = []
 
-        hostname_cmd = self.get_hostname_cmd()
         zdns_cmd = self.get_zdns_cmd(subnet)
 
         # run zdns with pipe, TODO: Not bad, not great, good enough...
-        ps = subprocess.Popen(hostname_cmd, stdout=subprocess.PIPE)
-        output = subprocess.check_output(zdns_cmd, stdin=ps.stdout)
-        ps.wait()
+        ps = await asyncio.subprocess.create_subprocess_shell(
+            zdns_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        output = await ps.communicate()
 
         # get result
         try:
-            output = output.decode().split("\n")
+            output = output[0].decode().split("\n")
             for row in output:
                 query_result = json.loads(row)
                 query_results.append(query_result)
@@ -129,32 +123,35 @@ class ZDNS:
 
         return parsed_data
 
-    def run(self) -> list:
+    async def run(self) -> list:
         """run zdns on a set of client subnet and output data within Clickhouse table"""
         asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
         # run ZDNS on input subnets
         zdns_data = []
         for subnet in tqdm(self.subnets):
-            query_results = self.query(subnet)
+            query_results = await self.query(subnet)
             parsed_data = self.parse(subnet, query_results, asndb)
             zdns_data.extend(parsed_data)
 
         return zdns_data
 
-    def main(self) -> None:
+    async def main(self) -> None:
         """ZNDS measurement entrypoint"""
 
         logger.info(f"ZDNS::Starting resolution on {len(self.subnets)} subnets")
 
-        zdns_data = self.run()
+        zdns_data = await self.run()
 
         # output results
-        with ClickHouseClient(**self.settings.credentials) as client:
+        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            print("hello")
+            for data in zdns_data:
+                print(data)
             tmp_file_path = create_tmp_csv_file(zdns_data)
 
-            CreateDNSMappingTable().execute(client, self.table_name)
-            Insert().execute(
+            await CreateDNSMappingTable().execute(client, self.table_name)
+            await InsertCSV().execute(
                 client=client,
                 table_name=self.table_name,
                 data=tmp_file_path.read_bytes(),
