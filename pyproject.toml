@@ -28,11 +28,14 @@ pyasn = "^1.6.1"
 httpx = "^0.23.0"
 pych_client = "^0.3.0"
 python-dateutil = "^2.8.1"
+matplotlib = "^3.7.0"
+pandas = "^2.1.0"
 
 [tool.poetry.dev-dependencies]
 black = "23.12"
 flake8 = "^5.0.4"
 isort = "^5.10.1"
+ipykernel = "^6.29.0"
 
 [build-system]
 requires = ["poetry-core"]

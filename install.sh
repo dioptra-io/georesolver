@@ -1,5 +1,5 @@
 #!/bin/bash
-
+CLICKHOUSE_PATH="/storage/clickhouse"
 CONFIG_PATH="$PWD/configuration/clickhouse"
 EXEC_PATH="$CONFIG_PATH/clickhouse"
 
@@ -27,17 +27,18 @@ else
     docker run -d \
         -p 127.0.0.1:8123:8123 \
         -p 127.0.0.1:9000:9000 \
-        -v /Users/hugo/clickhouse/data:/var/lib/clickhouse/ \
-        -v $CONFIG_PATH/logs:/var/log/clickhouse-server/ \
+        -p 127.0.0.1:9009:9009 \
+        -v $CLICKHOUSE_PATH/data:/var/lib/clickhouse/ \
+        -v $CLICKHOUSE_PATH/logs:/var/log/clickhouse-server/ \
         --ulimit nofile=262144:262144 \
         clickhouse/clickhouse-server:22.6
 
     sleep 2
     
-    # create the database
+    # create project database
     $EXEC_PATH client --query "CREATE DATABASE IF NOT EXISTS geogiant"
 fi
 
-# install project with poetry
+# install project dependencies with poetry
 poetry lock 
 poetry install
