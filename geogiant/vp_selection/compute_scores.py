@@ -4,7 +4,7 @@ from loguru import logger
 from pych_client import AsyncClickHouseClient
 
 from geogiant.clickhouse import OverallScore
-from geogiant.common.files_utils import dump_pickle, load_json
+from geogiant.common.files_utils import dump_pickle, load_json, load_csv
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import ClickhouseSettings, PathSettings
 
@@ -75,50 +75,6 @@ hostname_filter = (
     "www.google.com.hk",
 )
 
-hostname_filter = (
-    "outlook.live.com",
-    "docs.edgecast.com",
-    "www.office.com",
-    "advancedhosting.com",
-    "tencentcloud.com",
-    "teams.microsoft.com",
-    "news.yahoo.co.jp",
-    "baseball.yahoo.co.jp",
-    "www.yahoo.co.jp",
-    "finance.yahoo.co.jp",
-    "weather.yahoo.co.jp",
-    "cachefly.com",
-    "fastly.com",
-    "forms.office.com",
-    "detail.chiebukuro.yahoo.co.jp",
-    "sports.yahoo.co.jp",
-    "weather.yahoo.co.jp",
-    "auctions.yahoo.co.jp",
-    "page.auctions.yahoo.co.jp",
-    "search.yahoo.co.jp",
-    "www.facebook.com",
-    "www.instagram.com",
-    "www.google.pl",
-    "www.google.ca",
-    "www.google.cl",
-    "www.google.co.in",
-    "www.google.co.jp",
-    "www.google.com.ar",
-    "www.google.co.uk",
-    "www.google.com.tw",
-    "www.google.de",
-    "www.google.fr",
-    "www.google.it",
-    "www.google.nl",
-    "www.google.p",
-    "www.google.com.br",
-    "www.google.es",
-    "www.google.com.mx",
-    "www.google.com.hk",
-    "www.google.co.th",
-    "www.google.com.tr",
-)
-
 
 async def get_score(
     target_subnet: list,
@@ -146,36 +102,37 @@ async def main() -> None:
     target_subnet = list(
         set([get_prefix_from_ip(target["address_v4"]) for target in targets])
     )
+    hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
 
-    # logger.info("#############################################")
-    # logger.info("# OVERALL SCORE:: ANSWERS                   #")
-    # logger.info("#############################################")
-    # answers_score = await get_score(target_subnet, "answer", hostname_filter="")
-    # dump_pickle(
-    #     data=answers_score,
-    #     output_file=path_settings.RESULTS_PATH / "unfiltered_answers_score.pickle",
-    # )
+    logger.info("#############################################")
+    logger.info("# OVERALL SCORE:: ANSWERS                   #")
+    logger.info("#############################################")
+    answers_score = await get_score(target_subnet, "answer", hostname_filter="")
+    dump_pickle(
+        data=answers_score,
+        output_file=path_settings.RESULTS_PATH / "unfiltered_answers_score.pickle",
+    )
 
-    # answers_score = await get_score(target_subnet, "answer", hostname_filter)
-    # dump_pickle(
-    #     data=answers_score,
-    #     output_file=path_settings.RESULTS_PATH / "answers_score.pickle",
-    # )
+    answers_score = await get_score(target_subnet, "answer", hostname_filter)
+    dump_pickle(
+        data=answers_score,
+        output_file=path_settings.RESULTS_PATH / "answers_score.pickle",
+    )
 
-    # logger.info("#############################################")
-    # logger.info("# OVERALL SCORE:: SUBNETS                   #")
-    # logger.info("#############################################")
-    # subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter="")
-    # dump_pickle(
-    #     data=subnet_score,
-    #     output_file=path_settings.RESULTS_PATH / "unfiltered_subnet_score.pickle",
-    # )
+    logger.info("#############################################")
+    logger.info("# OVERALL SCORE:: SUBNETS                   #")
+    logger.info("#############################################")
+    subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter="")
+    dump_pickle(
+        data=subnet_score,
+        output_file=path_settings.RESULTS_PATH / "unfiltered_subnet_score.pickle",
+    )
 
-    # subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter)
-    # dump_pickle(
-    #     data=subnet_score,
-    #     output_file=path_settings.RESULTS_PATH / "subnet_score.pickle",
-    # )
+    subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter)
+    dump_pickle(
+        data=subnet_score,
+        output_file=path_settings.RESULTS_PATH / "subnet_score.pickle",
+    )
 
     logger.info("#############################################")
     logger.info("# OVERALL SCORE:: BGP PREFIXES              #")
@@ -189,7 +146,7 @@ async def main() -> None:
     )
 
     bgp_prefix_score = await get_score(
-        target_subnet, "answer_bgp_prefix", hostname_filter=hostname_filter
+        target_subnet, "answer_bgp_prefix", hostname_filter
     )
     dump_pickle(
         data=bgp_prefix_score,
