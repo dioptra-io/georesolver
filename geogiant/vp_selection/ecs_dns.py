@@ -21,10 +21,68 @@ from geogiant.common.settings import PathSettings
 path_settings = PathSettings()
 
 
+hostname_filter = (
+    "outlook.live.com",
+    "docs.edgecast.com",
+    "advancedhosting.com",
+    "tencentcloud.com",
+    "teams.microsoft.com",
+    "cachefly.com",
+    "chrome.google.com",
+    "calendar.google.com",
+    "business.google.com",
+    "classroom.google.com",
+    "www.youtube.com",
+    "accounts.google.com",
+    "docs.google.com",
+    "drive.google.com",
+    "mail.google.com",
+    "meet.google.com",
+    "news.google.com",
+    "one.google.com",
+    "photos.google.com",
+    "scholar.google.com",
+    "sites.google.com",
+    "studio.youtube.com",
+    "support.google.com",
+    "www.google.ca",
+    "www.google.cl",
+    "www.google.co.in",
+    "www.google.co.jp",
+    "www.google.com.ar",
+    "www.google.co.uk",
+    "www.google.com.tw",
+    "www.google.de",
+    "www.google.fr",
+    "www.google.it",
+    "www.google.nl",
+    "www.google.p",
+    "www.google.co.th",
+    "www.google.pl",
+    "www.google.com.tr",
+    "myactivity.google.com",
+    "translate.google.com",
+    "myaccount.google.com",
+    "play.google.com",
+    "www.google.com.br",
+    "www.google.es",
+    "www.google.com.mx",
+    "www.google.com.hk",
+    "www.yahoo.co.jp",
+    "weather.yahoo.co.jp",
+    "search.yahoo.co.jp",
+    "page.auctions.yahoo.co.jp",
+    "detail.chiebukuro.yahoo.co.jp",
+    "baseball.yahoo.co.jp",
+    "auctions.yahoo.co.jp",
+    "apps.facebook.com",
+)
+
+
 class VPSelectionDNS(VPSelectionBase):
     """use ECS-DNS resolution to select vps"""
 
-    latency_threshold = 2
+    latency_threshold = 1
 
     async def get_subnet_score(self, targets: list) -> dict[list]:
         """for a list of targets return their dns mapping score"""
@@ -39,17 +97,10 @@ class VPSelectionDNS(VPSelectionBase):
         ) as client:
             resp = await OverallScore().execute(
                 client=client,
-                table_name=self.clickhouse_settings.OLD_DNS_MAPPING,
+                table_name=self.clickhouse_settings.OLD_DNS_MAPPING_WITH_METADATA,
                 target_filter=target_subnet,
-                hostname_filter=(
-                    "outlook.live.com",
-                    "docs.edgecast.com",
-                    "advancedhosting.com",
-                    "tencentcloud.com",
-                    "teams.microsoft.com",
-                    "cachefly.com",
-                ),
-                column_name="answers",
+                column_name="answer_bgp_prefix",
+                hostname_filter=hostname_filter,
             )
 
         for row in resp:

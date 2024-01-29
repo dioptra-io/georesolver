@@ -62,11 +62,14 @@ class ZDNS:
         ps = await asyncio.subprocess.create_subprocess_shell(
             zdns_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        output = await ps.communicate()
+        stdout, stderr = await ps.communicate()
+
+        if stderr:
+            raise RuntimeError(stderr)
 
         # get result
         try:
-            output = output[0].decode().split("\n")
+            output = stdout.decode().split("\n")
             for row in output:
                 query_result = json.loads(row)
                 query_results.append(query_result)
@@ -94,7 +97,7 @@ class ZDNS:
                 timestamp = datetime.timestamp(timestamp)
 
                 source_scope = data["additionals"][0]["csubnet"]["source_scope"]
-                if source_scope == 0 and source_scope == 32:
+                if source_scope == 0:
                     continue
 
             except KeyError as e:
@@ -118,7 +121,8 @@ class ZDNS:
                         {hostname},\
                         {answer},\
                         {answer_asn},\
-                        {answer_bgp_prefix}"
+                        {answer_bgp_prefix},\
+                        {source_scope}"
                     )
 
         return parsed_data
@@ -145,9 +149,6 @@ class ZDNS:
 
         # output results
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            print("hello")
-            for data in zdns_data:
-                print(data)
             tmp_file_path = create_tmp_csv_file(zdns_data)
 
             await CreateDNSMappingTable().execute(client, self.table_name)
