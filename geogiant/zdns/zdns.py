@@ -113,6 +113,7 @@ class ZDNS:
 
                     if not answer_asn or not answer_bgp_prefix:
                         logger.info(f"{answer}::Could not retrieve ASN and BGP prefix")
+                        continue
 
                     parsed_data.append(
                         f"{int(timestamp)},\
