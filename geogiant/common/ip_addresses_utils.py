@@ -120,4 +120,18 @@ def route_view_bgp_prefix(ip_addr: str, asndb) -> str:
     return asn, bgp_prefix
 
 
+def get_host_ip_addr() -> str:
+    """get current public IP addr"""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip_addr = str(s.getsockname()[0])
+
+    # check that we got a public IPv4 addr
+
+    if IPv4Address(ip_addr) and not IPv4Address(ip_addr).is_private:
+        return ip_addr
+    else:
+        raise RuntimeError("could not retrieve user IPv4 addr")
+
+
 # generate_subnets("0.0.0.0/0", 24, DATASET_DIR / "all_24_subnets.csv")

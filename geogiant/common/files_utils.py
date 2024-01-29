@@ -13,6 +13,32 @@ from geogiant.common.settings import PathSettings
 path_settings = PathSettings()
 
 
+def dump_csv(data: list[str], output_file: Path) -> None:
+    """output data into output file with json format"""
+    # check that dir exists before writing
+    if not output_file.parent.exists():
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_file.open("w") as f:
+        for row in data:
+            f.write(row + "\n")
+
+
+def load_csv(input_file: Path) -> list[str]:
+    """load csv file, return list of string"""
+    data = []
+    try:
+        with input_file.open("r") as f:
+            for row in f.readlines():
+                data.append(row.strip("\n"))
+    except FileNotFoundError as e:
+        logger.error(f"file does not exists: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"the file you are trying to retrieve is empty: {e}")
+
+    return data
+
+
 def dump_json(data: dict, output_file: Path) -> None:
     """output data into output file with json format"""
     # check that dir exists before writing
@@ -157,7 +183,7 @@ def load_anycatch_data() -> None:
     anycast_prefixes = set()
     with path_settings.ANYCATCH_DATA.open("r") as f:
         for row in f.readlines():
-            prefix = row.split(",")[0]
+            prefix = row.split(",")[0].strip("\n")
             anycast_prefixes.add(prefix)
 
     return anycast_prefixes

@@ -28,8 +28,9 @@ class PathSettings(BaseSettings):
     LOG_PATH: Path = DEFAULT / "../logs"
 
     # hostnames default input files
-    HOSTNAMES_MILLIONS: Path = DATASET / "raw_links_current.csv"
+    HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
     HOSTNAMES_CDN: Path = DATASET / "hostnames_cdn.csv"
+    HOSTNAMES_ECS: Path = DATASET / "hostnames_ecs.csv"
 
     # bgp route views data
     RIB_TABLE: Path = DATASET / "rib_table.dat"
@@ -81,6 +82,7 @@ class ClickhouseSettings(BaseSettings):
     DNS_MAPPING_TARGETS: str = "raw_dns_mapping_targets"
     DNS_MAPPING_VPS: str = "dns_mapping_vps"
     DNS_MAPPING_VPS_RAW: str = "raw_dns_mapping_vps"
+    DNS_MAPPING_ECS: str = "ecs_dns_mapping"
     DNS_MAPPING_METADATA_TARGETS: str = "dns_mapping_metadata_targets"
     DNS_MAPPING_METADATA_VPS: str = "dns_mapping_metadata_vps"
 
