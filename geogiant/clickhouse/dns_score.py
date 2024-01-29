@@ -15,7 +15,7 @@ class OverallScore(Query):
     ) -> str:
         if hostname_filter := kwargs.get("hostname_filter"):
             hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-            hostname_filter = f"AND hostname NOT IN ({hostname_filter})"
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
         else:
             hostname_filter = ""
         if target_filter := kwargs.get("target_filter"):

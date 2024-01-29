@@ -19,6 +19,7 @@ from .get import (
     GetPingsPerTarget,
     GetAvgRTTPerSubnet,
     GetDNSMapping,
+    GetHostnames,
 )
 
 
@@ -43,4 +44,5 @@ __all__ = (
     "HostnamePoPFrontendScore",
     "HostnamePoPSubnetScore",
     "GetDNSMapping",
+    "GetHostnames",
 )

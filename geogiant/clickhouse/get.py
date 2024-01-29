@@ -116,15 +116,24 @@ class GetAvgRTTPerSubnet(Query):
         """
 
 
+class GetHostnames(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            DISTINCT hostname as hostname
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        """
+
+
 class GetDNSMapping(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
-            distinct(
-                toString(client_subnet), 
-                hostname, 
-                toString(answers)
-            ) as data
+            toString(subnet) as subnet, 
+            hostname as hostname, 
+            toString(answer) as answer,
+            toString(answer_bgp_prefix) as answer_bgp_prefix
         FROM 
             {self.settings.DATABASE}.{table_name} 
         """
