@@ -1,21 +1,33 @@
 """create database tables, retrieve vantage points, perform zdns / zmap measurement and populate database"""
 import asyncio
 import schedule
+import time
 
+from uuid import uuid4
+from pathlib import Path
 from dataclasses import dataclass
 from numpy import mean
 from collections import defaultdict
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import GetSubnets, GetSubnetPerHostname, GetVPSInfoPerSubnet
+from geogiant.clickhouse import (
+    GetSubnets,
+    GetSubnetPerHostname,
+    GetVPSInfoPerSubnet,
+    GetHostnames,
+    GetDNSMapping,
+)
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.zdns import ZDNS
 
 from geogiant.common.geoloc import distance
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip, get_host_ip_addr
 from geogiant.common.files_utils import (
     load_countries_info,
     load_anycatch_data,
+    dump_csv,
+    create_tmp_csv_file,
 )
 from common.settings import PathSettings, ClickhouseSettings
 
@@ -61,32 +73,68 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
 
 
 async def resolve_hostnames(
-    repeat: bool = False, end_date: str = "2024-01-23 00:00"
+    subnets: list,
+    hostname_file: Path,
+    output_table: str,
+    repeat: bool = False,
+    end_date: str = "2024-01-23 00:00",
+    chunk_size: int = 1_000,
+    max_hostname: int = 100_000,
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
     # TODO: harmonize logs
-    logger.remove()
-    logger.add(path_settings.LOG_PATH / "resolve_hostnames.log")
+    # logger.remove()
+    # logger.add(path_settings.LOG_PATH / "resolve_hostnames.log")
 
-    async def raw_dns_mapping() -> None:
+    async def raw_dns_mapping(subnets: list) -> None:
         """perform DNS mapping with zdns on VPs subnet"""
-        async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-            vps_subnet = await GetSubnets().execute(
-                client=client, table_name=clickhouse_settings.VPS_RAW
+
+        subnets = [subnet + "/24" for subnet in subnets]
+
+        with hostname_file.open("r") as f:
+            logger.info("raw hostname file already generated")
+
+            # take max hostnames from hostname file
+            all_hostnames = f.readlines()
+            all_hostnames = all_hostnames[:max_hostname]
+
+            # split file
+            partial_hostname_files = []
+            files_uuid = uuid4()
+            for index in range(0, len(all_hostnames), chunk_size):
+                file_path = (
+                    path_settings.TMP_PATH
+                    / f"hostnames_part_{index // chunk_size}_{files_uuid}.csv"
+                )
+
+                hostnames = all_hostnames[index : index + chunk_size]
+
+                with file_path.open("w") as f:
+                    for hostname in hostnames:
+                        f.write(hostname)
+
+                # save file path
+                partial_hostname_files.append(file_path)
+
+        for i, file_path in enumerate(partial_hostname_files):
+            logger.info(
+                f"Starting to resolve hostnames {i * chunk_size} to {(i + 1) * chunk_size} (total: {len(partial_hostname_files * chunk_size)})"
             )
 
-        vps_subnet = [subnet["subnet"] + "/24" for subnet in vps_subnet]
+            zdns = ZDNS(
+                subnets=subnets,
+                hostname_file=file_path,
+                name_servers="8.8.8.8",
+                table_name=output_table,
+            )
+            await zdns.main()
 
-        zdns = ZDNS(
-            subnets=vps_subnet,
-            hostname_file=path_settings.CDN_HOSTNAMES_RAW,
-            name_servers="8.8.8.8",
-            table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW,
-        )
-        await zdns.main()
+            # remove tmp file
+            file_path.unlink()
+            time.sleep(1)
 
-    await raw_dns_mapping()
+    await raw_dns_mapping(subnets)
 
     if repeat:
         # TODO: replace with Crontab module
@@ -319,6 +367,15 @@ async def filter_hostnames() -> None:
         invalid_hostnames,
     ) = await get_hostnames_geographic_influence()
 
+    dump_csv(
+        [hostname for hostname, _, _ in valid_hostnames["country"]],
+        path_settings.DATASET / "valid_hostnames.csv",
+    )
+    dump_csv(
+        [hostname for hostname, _, _ in invalid_hostnames["country"]],
+        path_settings.DATASET / "invalid_hostnames.csv",
+    )
+
     # get rows with valid hostname
     # valid_hostnames_rows = Get().get_valid_hostnames(
     #     table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW,
@@ -338,13 +395,83 @@ async def filter_hostnames() -> None:
     print_hostname_info(valid_hostnames, invalid_hostnames)
 
 
+async def filter_ecs_hostnames() -> None:
+    """perform zdns resolution on host subnet, remove hostnames with source scope equal to 0"""
+    host_addr = get_host_ip_addr()
+    host_subnet = get_prefix_from_ip(host_addr)
+
+    await resolve_hostnames(
+        subnets=[host_subnet],
+        hostname_file=path_settings.HOSTNAMES_MILLIONS,
+        output_table=clickhouse_settings.DNS_MAPPING_ECS,
+        repeat=False,
+        end_date=None,
+    )
+
+
+async def filter_anycast_hostnames() -> None:
+    """get all answers, compare with anycatch database"""
+    anycatch_db = load_anycatch_data()
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        ecs_hostnames = await GetDNSMapping().execute(
+            client=client, table_name=clickhouse_settings.DNS_MAPPING_ECS
+        )
+
+    anycast_hostnames = set()
+    all_hostnames = set()
+    for row in ecs_hostnames:
+        hostname = row["hostname"]
+        answer = row["answer"]
+        bgp_prefix = row["answer_bgp_prefix"]
+
+        all_hostnames.add(hostname)
+
+        if bgp_prefix in anycatch_db:
+            anycast_hostnames.add(hostname)
+            continue
+
+    logger.info(
+        f"Number of unicast hostnames:: {len(anycast_hostnames.symmetric_difference(all_hostnames))}"
+    )
+
+    logger.info(f"Number of Anycast hostnames:: {len(anycast_hostnames)}")
+
+    return anycast_hostnames.symmetric_difference(all_hostnames)
+
+
+async def resolve_vps_subnet() -> None:
+    """perform ECS-DNS resolution one all VPs subnet"""
+    unicast_hostnames = await filter_anycast_hostnames()
+
+    tmp_hostname_file = create_tmp_csv_file(unicast_hostnames)
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        vps_subnet = await GetSubnets().execute(
+            client=client, table_name=clickhouse_settings.VPS_RAW
+        )
+
+    await resolve_hostnames(
+        subnets=[row["subnet"] for row in vps_subnet],
+        hostname_file=tmp_hostname_file,
+        output_table=clickhouse_settings.DNS_MAPPING_VPS_RAW,
+        repeat=False,
+        end_date=None,
+    )
+
+
 async def main() -> None:
     """init main"""
     logger.info("Starting RIPE Atlas prober initialization")
 
     # await init_ripe_atlas_prober()
 
-    await filter_hostnames()
+    # await filter_ecs_hostnames()
+
+    # await filter_anycast_hostnames()
+
+    await resolve_vps_subnet()
+
+    # await filter_hostnames()
 
 
 if __name__ == "__main__":
