@@ -29,7 +29,7 @@ class PathSettings(BaseSettings):
 
     # hostnames default input files
     HOSTNAMES_MILLIONS: Path = DATASET / "raw_links_current.csv"
-    CDN_HOSTNAMES_RAW: Path = DATASET / "cdn_hostnames_raw.csv"
+    HOSTNAMES_CDN: Path = DATASET / "hostnames_cdn.csv"
 
     # bgp route views data
     RIB_TABLE: Path = DATASET / "rib_table.dat"

@@ -179,6 +179,27 @@ def polygon_centroid(points):
     return x / len(points), y / len(points)
 
 
+def weighted_centroid(points: list) -> tuple[float, float]:
+    """
+    Compute polygon centroid using Finit Set of point method.
+    (see https://en.wikipedia.org/wiki/Centroid#Of_a_finite_set_of_points)
+    """
+    x = 0
+    y = 0
+    total_w = 0
+    for point in points:
+        p_x = point[0]
+        p_y = point[1]
+        p_w = point[2]
+
+        x += p_x * p_w
+        y += p_y * p_w
+
+        total_w += p_w
+
+    return x / total_w, y / total_w
+
+
 def haversine(input_location, block_location):
     """Distance between two locations in earth."""
     in_lat, in_lon, block_lat, block_lon = map(
