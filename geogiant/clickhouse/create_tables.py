@@ -66,7 +66,8 @@ class CreateDNSMappingTable(Query):
             hostname               String,
             answer                 IPv4,
             answer_asn             UInt32,
-            answer_bgp_prefix      String
+            answer_bgp_prefix      String,
+            source_scope           UInt8
         )
         ENGINE MergeTree
         ORDER BY ({sorting_key})

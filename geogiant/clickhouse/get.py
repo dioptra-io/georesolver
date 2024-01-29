@@ -1,3 +1,5 @@
+from pych_client import AsyncClickHouseClient
+
 from geogiant.clickhouse.query import Query
 
 

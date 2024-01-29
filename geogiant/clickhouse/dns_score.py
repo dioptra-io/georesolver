@@ -13,18 +13,21 @@ class OverallScore(Query):
         table_name: str,
         **kwargs,
     ) -> str:
-        if hostname_filter := kwargs["hostname_filter"]:
-            hostnames_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname NOT IN ({hostname_filter})"
         else:
             hostname_filter = ""
-        if target_filter := kwargs["target_filter"]:
+        if target_filter := kwargs.get("target_filter"):
             target_filter = "".join([f",toIPv4('{t}')" for t in target_filter])[1:]
         else:
             target_filter = ""
-        if column_name := kwargs["column_name"]:
+        if column_name := kwargs.get("column_name"):
             column_name = column_name
         else:
-            raise RuntimeError(f"Column name is necessary for {__class__}")
+            raise RuntimeError(f"Column name parameter missing for {__class__}")
+
+        # select element from (select element, count(*) as occurrence from (select arrayJoin(['A', 'B', 'B', 'C']) AS element) group by element order by occurrence DESC LIMIT 1);
 
         return f"""
         WITH groupArray((toString(subnet_2), score)) AS subnet_scores
@@ -43,6 +46,9 @@ class OverallScore(Query):
                     client_subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
+                WHERE 
+                    client_subnet IN ({target_filter})
+                    {hostname_filter}
                 GROUP BY client_subnet
             ) AS t1
             CROSS JOIN
@@ -51,7 +57,9 @@ class OverallScore(Query):
                     client_subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
-                WHERE client_subnet NOT IN ({target_filter})
+                WHERE 
+                    client_subnet NOT IN ({target_filter})
+                    {hostname_filter}
                 GROUP BY client_subnet
             ) AS t2
             WHERE t1.client_subnet != t2.client_subnet
