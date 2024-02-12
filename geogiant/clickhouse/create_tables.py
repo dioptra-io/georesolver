@@ -53,6 +53,62 @@ class CreatePingTable(Query):
             """
 
 
+class CreateTracerouteTable(Query):
+    def statement(self, table_name: str) -> str:
+        """returns anchors mapping table query"""
+        sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, ttl, reply_addr, proto, rcvd, sent, min, max, avg, rtts"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            (
+                timestamp          UInt16,
+                src_addr           IPv4,
+                src_prefix         IPv4,
+                src_netmask        UInt8,
+                prb_id             UInt16,
+                msm_id             UInt32, 
+                dst_addr           IPv4,
+                dst_prefix         IPv4,
+                proto              String,
+                reply_addr         IPv4,
+                reply_prefix       IPv4,
+                ttl                UInt32,
+                rcvd               UInt8,
+                sent               UInt8,
+                min                Float32,
+                max                Float32,
+                avg                Float32,
+                rtts               Array(Float32)
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
+class CreateGeolocTable(Query):
+    def statement(self, table_name: str) -> str:
+        """returns anchors mapping table query"""
+        sorting_key = "addr, subnet, bgp_prefix, asn, vp_addr"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            (
+                addr               IPv4,
+                subnet             IPv4,
+                bgp_prefix         String,
+                asn                Int16,
+                lat                Float32, 
+                lon                Float32,
+                country_code       String,
+                vp_addr            IPv4,
+                vp_subnet          IPv4,
+                vp_bgp_prefix      String,
+                min_rtt            Float32,
+                measured_dst       Float32
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
 class CreateDNSMappingTable(Query):
     def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""

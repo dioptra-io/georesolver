@@ -1,5 +1,6 @@
 """all count classes for extracting metrics"""
-from geogiant.clickhouse import Query
+
+from geogiant.clickhouse import Query, NativeQuery
 
 from geogiant.common.settings import ClickhouseSettings, PathSettings
 
@@ -29,6 +30,22 @@ class OverallScore(Query):
 
         # select element from (select element, count(*) as occurrence from (select arrayJoin(['A', 'B', 'B', 'C']) AS element) group by element order by occurrence DESC LIMIT 1);
 
+        # output[target] = [(vp_addr, float)]
+
+        # WITH (WITH groupUniqArray((hostname, answer_bgp_prefix)) as hostname_bgp_prefixes,
+        # groupUniqArray(hostname) as hostnames,
+        # arrayMap(x->(x, arrayFilter(y->y.1=x, hostname_bgp_prefixes)), hostnames) as hostname_bgp_prefixes_map
+        # SELECT groupArray(vp_mapping) FROM (
+        # SELECT (client_subnet, hostname_bgp_prefixes_map) as vp_mapping FROM test_clustering
+        # GROUP BY client_subnet)) as vps_mapping,
+        # groupUniqArray((hostname, answer_bgp_prefix)) as hostname_bgp_prefixes,
+        # groupUniqArray(hostname) as hostnames,
+        # arrayMap(x->(x, arrayFilter(y->y.1=x, hostname_bgp_prefixes)), hostnames) as hostname_bgp_prefixes_map,
+        # arrayMap(x->(x.1, arrayIntersect(x.2, arrayFilter(y->, vps_mapping)
+        # SELECT client_subnet, hostname_bgp_prefixes_map, vps_mapping FROM test_clustering
+        # GROUP BY client_subnet
+        # LIMIT 10
+
         return f"""
         WITH groupArray((toString(subnet_2), score)) AS subnet_scores
         SELECT
@@ -49,6 +66,7 @@ class OverallScore(Query):
                 WHERE 
                     client_subnet IN ({target_filter})
                     {hostname_filter}
+                    -- AND pop_ip_info_id != -1
                 GROUP BY client_subnet
             ) AS t1
             CROSS JOIN
@@ -60,6 +78,7 @@ class OverallScore(Query):
                 WHERE 
                     client_subnet NOT IN ({target_filter})
                     {hostname_filter}
+                    -- AND pop_ip_info_id != -1
                 GROUP BY client_subnet
             ) AS t2
             WHERE t1.client_subnet != t2.client_subnet
@@ -69,75 +88,37 @@ class OverallScore(Query):
         """
 
 
-class OverallPoPSubnetScore(Query):
+class HostnameScore(Query):
     def statement(
         self,
         table_name: str,
-        target_subnets: list,
-        hostname_filter: list[str] = None,
+        **kwargs,
     ) -> str:
-        hostnames_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-        target_filter = "".join([f",toIPv4('{t}')" for t in target_subnets])[1:]
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+        if targets := kwargs.get("targets"):
+            targets = "".join([f",toIPv4('{t}')" for t in targets])[1:]
+            targets = f"client_subnet IN ({targets})"
+        else:
+            targets = ""
+        if target_filter := kwargs.get("target_filter"):
+            target_filter = "".join([f",toIPv4('{t}')" for t in target_filter])[1:]
+            target_filter = f"client_subnet NOT IN ({target_filter})"
+        else:
+            target_filter = ""
+        if column_name := kwargs.get("column_name"):
+            column_name = column_name
+        else:
+            raise RuntimeError(f"Column name parameter missing for {__class__}")
 
         return f"""
         WITH groupArray((toString(subnet_2), score)) AS subnet_scores
         SELECT
-            toString(subnet_1),
-            arraySort(x -> (-(x.2)), subnet_scores)
-        FROM
-        (
-            SELECT
-                t1.client_subnet AS subnet_1,
-                t2.client_subnet AS subnet_2,
-                length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
-            FROM
-            (
-                WITH
-                    IPv4StringToNum('255.255.255.0') AS netmask,
-                    IPv4NumToString(bitAnd(answers, netmask)) AS subnet_answers
-                SELECT
-                    client_subnet,
-                    groupArray(subnet_answers) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter})
-                GROUP BY client_subnet
-            ) AS t1
-            CROSS JOIN
-            (
-                WITH
-                    IPv4StringToNum('255.255.255.0') AS netmask,
-                    IPv4NumToString(bitAnd(answers, netmask)) AS subnet_answers
-                SELECT
-                    client_subnet,
-                    groupArray(subnet_answers) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter}) AND client_subnet NOT IN ({target_filter})
-                GROUP BY client_subnet
-            ) AS t2
-            WHERE t1.client_subnet != t2.client_subnet
-        )
-        WHERE subnet_1 IN ({target_filter})
-        GROUP BY subnet_1
-        """
-
-
-class HostnamePoPFrontendScore(Query):
-    def statement(
-        self,
-        table_name: str,
-        target_subnets: list,
-        hostname_filter: list[str] = None,
-        subset: list = None,
-    ) -> str:
-        hostnames_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-        target_filter = "".join([f",toIPv4('{t}')" for t in target_subnets])[1:]
-        filter_on_subset = "".join([f",toIPv4('{t}')" for t in subset])[1:]
-
-        return f"""
-        WITH groupArray((toString(subnet_2), score)) AS subnet_scores
-        SELECT
-            toString(subnet_1),
-            arraySort(x -> -(x.2), subnet_scores)
+            toString(subnet_1) as target_subnet,
+            arraySort(x -> -(x.2), subnet_scores) as scores
         FROM
         (
             SELECT
@@ -149,9 +130,11 @@ class HostnamePoPFrontendScore(Query):
                 SELECT
                     client_subnet,
                     hostname,
-                    groupUniqArray(answers) AS mapping
+                    groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter})  AND client_subnet IN ({filter_on_subset})
+                WHERE 
+                    {targets}
+                    {hostname_filter}
                 GROUP BY (client_subnet, hostname)
             ) AS t1
             CROSS JOIN
@@ -159,9 +142,11 @@ class HostnamePoPFrontendScore(Query):
                 SELECT
                     client_subnet,
                     hostname,
-                    groupUniqArray(answers) AS mapping
+                    groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter}) AND client_subnet NOT IN ({target_filter})
+                WHERE 
+                    {target_filter}
+                    {hostname_filter}
                 GROUP BY (client_subnet, hostname)
             ) AS t2
             WHERE t1.client_subnet != t2.client_subnet
@@ -170,54 +155,14 @@ class HostnamePoPFrontendScore(Query):
         """
 
 
-class HostnamePoPSubnetScore(Query):
+class CountRows(NativeQuery):
     def statement(
         self,
         table_name: str,
-        target_subnets: list,
-        hostname_filter: list[str] = None,
-        subset: list = None,
     ) -> str:
-        hostnames_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-        target_filter = "".join([f",toIPv4('{t}')" for t in target_subnets])[1:]
-        filter_on_subset = "".join([f",toIPv4('{t}')" for t in subset])[1:]
-
         return f"""
-        WITH groupArray((toString(subnet_2), score)) AS subnet_scores
         SELECT
-            toString(subnet_1),
-            arraySort(x -> -(x.2), subnet_scores)
-        FROM
-        (
-            SELECT
-                t1.client_subnet AS subnet_1,
-                t2.client_subnet AS subnet_2,
-                length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
-            FROM
-            (
-                WITH
-                    IPv4StringToNum('255.255.255.0') AS netmask,
-                    IPv4NumToString(bitAnd(answers, netmask)) AS subnet_answers
-                SELECT
-                    client_subnet,
-                    groupArray(subnet_answers) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter})  AND client_subnet IN ({filter_on_subset})
-                GROUP BY (client_subnet, hostname)
-            ) AS t1
-            CROSS JOIN
-            (
-                WITH
-                    IPv4StringToNum('255.255.255.0') AS netmask,
-                    IPv4NumToString(bitAnd(answers, netmask)) AS subnet_answers
-                SELECT
-                    client_subnet,
-                    groupArray(subnet_answers) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
-                WHERE hostname NOT IN ({hostnames_filter}) AND client_subnet NOT IN ({target_filter})
-                GROUP BY (client_subnet, hostname)
-            ) AS t2
-            WHERE t1.client_subnet != t2.client_subnet
-        )
-        GROUP BY subnet_1
+            count(distinct *)
+        FROM 
+            {self.settings.DATABASE}.{table_name}
         """

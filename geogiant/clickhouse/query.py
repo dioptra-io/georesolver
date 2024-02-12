@@ -1,12 +1,61 @@
 import asyncio
+import json
+
 from pathlib import Path
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 from loguru import logger
 from pych_client import AsyncClickHouseClient
+from clickhouse_driver import Client
 
 from geogiant.common.settings import ClickhouseSettings
+
+
+@dataclass(frozen=True)
+class NativeQuery:
+    settings = ClickhouseSettings()
+
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__
+
+    def statement(self, table_name: str, **kwargs) -> str:
+        raise NotImplementedError
+
+    async def execute(self, table_name: str, **kwargs) -> None:
+        """insert data contained in local file"""
+        cmd = f'clickhouse client --query="{self.statement(table_name, **kwargs)}"'
+
+        ps = await asyncio.subprocess.create_subprocess_shell(
+            cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await ps.communicate()
+
+        if stderr:
+            raise RuntimeError(
+                f"Could not insert data::{cmd}, failed with error: {stderr}"
+            )
+        else:
+            logger.info(f"{cmd}::Successfully executed")
+
+        stdout = stdout.decode()
+
+        data = []
+        for row in stdout.splitlines():
+            row = row.split("\t")
+            data.append(row)
+
+        return data
+
+    def execute_iter(self, table_name: str, **kwargs) -> list:
+        """execute select statement with clickhouse driver"""
+        statement = self.statement(table_name, **kwargs)
+
+        logger.info(f"executing: {statement}")
+
+        client = Client(host="localhost")
+        yield from client.execute_iter(statement)
 
 
 @dataclass(frozen=True)
@@ -47,7 +96,7 @@ class Query:
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
         )
-        logger.info(f"Executing::{statement}")
+        logger.debug(f"Executing::{statement}")
         rows += await client.json(statement, data=data, settings=settings)
 
         return rows
@@ -81,7 +130,7 @@ class Query:
 
         return rows
 
-    def execute_iter(
+    async def execute_iter(
         self,
         client: AsyncClickHouseClient,
         table_name: str,
@@ -99,7 +148,7 @@ class Query:
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
         )
-        yield from client.iter_json(statement, data=data, settings=settings)
+        return client.iter_json(statement, data=data, settings=settings)
 
 
 @dataclass(frozen=True)
@@ -121,6 +170,30 @@ class InsertFromInFile:
 
     def statement(self, table_name: str, in_file: Path) -> str:
         return f"INSERT INTO {self.settings.DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
+
+    async def execute(self, table_name: str, in_file: Path) -> None:
+        """insert data contained in local file"""
+        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
+
+        ps = await asyncio.subprocess.create_subprocess_shell(
+            cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+        )
+        _, stderr = await ps.communicate()
+
+        if stderr:
+            raise RuntimeError(
+                f"Could not insert data::{cmd}, failed with error: {stderr}"
+            )
+        else:
+            logger.info(f"{cmd}::Successfully executed")
+
+
+@dataclass(frozen=True)
+class InsertFromCSV:
+    settings = ClickhouseSettings()
+
+    def statement(self, table_name: str, in_file: Path) -> str:
+        return f"INSERT INTO {self.settings.DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
 
     async def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local file"""

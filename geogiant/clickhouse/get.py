@@ -1,6 +1,36 @@
-from pych_client import AsyncClickHouseClient
+from geogiant.clickhouse.query import Query, NativeQuery
 
-from geogiant.clickhouse.query import Query
+
+class GetVPs(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            toString(address_v4) as vp_addr,
+            toString(subnet_v4) as vp_subnet,
+            bgp_prefix as vp_bgp_prefix,
+            country_code,
+            lat,
+            lon
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE
+            is_anchor == false
+        """
+
+
+class GetTargets(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            toString(address_v4) as target_addr,
+            toString(subnet_v4) as target_subnet,
+            lat,
+            lon
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE
+            is_anchor == true
+        """
 
 
 class GetSubnets(Query):
@@ -53,7 +83,13 @@ class GetVPSInfoPerSubnet(Query):
 
 
 class GetSubnetPerHostname(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(self, table_name: str, anycast_filter: list = None) -> str:
+        if anycast_filter:
+            anycast_filter = "".join([f",'{a}'" for a in anycast_filter])[1:]
+            anycast_filter = f"WHERE answer_bgp_prefix NOT IN ({anycast_filter})"
+        else:
+            anycast_filter = ""
+
         return f"""
         SELECT 
             hostname,
@@ -61,6 +97,7 @@ class GetSubnetPerHostname(Query):
             groupUniqArray(subnet) as subnets
         FROM 
             {self.settings.DATABASE}.{table_name}
+        {anycast_filter}
         GROUP BY
             (hostname, answer_bgp_prefix)
         """
@@ -82,6 +119,28 @@ class GetPingsPerTarget(Query):
             AND target != toString(src_addr)
         GROUP BY 
             target
+        """
+
+
+class GetPingsPerSubnet(Query):
+    def statement(
+        self,
+        table_name: str,
+    ) -> str:
+        return f"""
+        SELECT
+            toString(dst_prefix) as subnet,
+            toString(dst_addr) as target,
+            groupArray((toString(src_addr), min)) as ping_to_target
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        WHERE
+            min > -1 
+            
+            
+            AND toString(dst_addr) != toString(src_addr)
+        GROUP BY 
+            (subnet, target)
         """
 
 
@@ -134,6 +193,53 @@ class GetDNSMapping(Query):
             hostname as hostname, 
             toString(answer) as answer,
             toString(answer_bgp_prefix) as answer_bgp_prefix
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
+        """
+
+
+class GetDNSMappingHostnames(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"client_subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        if column_name := kwargs.get("column_name"):
+            column_name = column_name
+        else:
+            raise RuntimeError(f"Column name parameter missing for {__class__}")
+
+        return f"""
+        SELECT
+            toString(client_subnet) as subnet,
+            hostname,
+            groupUniqArray({column_name}) as mapping
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE 
+            {subnet_filter}
+            {hostname_filter}
+        GROUP BY
+            (subnet, hostname)
+        """
+
+
+class GetDNSMappingOld(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            distinct(
+                toString(client_subnet) as subnet, 
+                hostname as hostname, 
+                toString(answers) as answer
+            ) as data
         FROM 
             {self.settings.DATABASE}.{table_name} 
         """
