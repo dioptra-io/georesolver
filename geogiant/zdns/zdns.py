@@ -1,6 +1,7 @@
 import json
 import pyasn
 import asyncio
+import time
 
 from tqdm import tqdm
 from datetime import datetime
@@ -10,7 +11,7 @@ from pathlib import Path
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import InsertCSV, CreateDNSMappingTable
+from geogiant.clickhouse import InsertFromCSV, CreateDNSMappingTable
 
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import (
@@ -58,7 +59,6 @@ class ZDNS:
 
         zdns_cmd = self.get_zdns_cmd(subnet)
 
-        # run zdns with pipe, TODO: Not bad, not great, good enough...
         ps = await asyncio.subprocess.create_subprocess_shell(
             zdns_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
@@ -67,7 +67,6 @@ class ZDNS:
         if stderr:
             raise RuntimeError(stderr)
 
-        # get result
         try:
             output = stdout.decode().split("\n")
             for row in output:
@@ -100,8 +99,7 @@ class ZDNS:
                 if source_scope == 0:
                     continue
 
-            except KeyError as e:
-                logger.error(f"Invalid zdns query results for IP addr: {subnet}, {e}")
+            except KeyError:
                 continue
 
             # filter answers that are not IP addresses
@@ -132,12 +130,12 @@ class ZDNS:
         """run zdns on a set of client subnet and output data within Clickhouse table"""
         asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
-        # run ZDNS on input subnets
         zdns_data = []
         for subnet in tqdm(self.subnets):
             query_results = await self.query(subnet)
             parsed_data = self.parse(subnet, query_results, asndb)
             zdns_data.extend(parsed_data)
+            time.sleep(1)
 
         return zdns_data
 
@@ -148,17 +146,18 @@ class ZDNS:
 
         zdns_data = await self.run()
 
-        # output results
-        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            tmp_file_path = create_tmp_csv_file(zdns_data)
+        tmp_file_path = create_tmp_csv_file(zdns_data)
 
-            await CreateDNSMappingTable().execute(client, self.table_name)
-            await InsertCSV().execute(
-                client=client,
-                table_name=self.table_name,
-                data=tmp_file_path.read_bytes(),
+        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            await CreateDNSMappingTable().execute(
+                client=client, table_name=self.table_name
             )
 
-            tmp_file_path.unlink()
+            await InsertFromCSV().execute(
+                table_name=self.table_name,
+                in_file=tmp_file_path,
+            )
+
+        tmp_file_path.unlink()
 
         logger.info(f"ZDNS::Resolution done")
