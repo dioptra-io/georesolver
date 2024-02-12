@@ -1,4 +1,5 @@
 """main functions for analyzing geolocation results"""
+
 import asyncio
 
 from collections import defaultdict
@@ -7,76 +8,13 @@ from tqdm import tqdm
 from pych_client import AsyncClickHouseClient
 
 from geogiant.vp_selection import VPSelectionBase
-from geogiant.clickhouse import (
-    OverallScore,
-    OverallPoPSubnetScore,
-    HostnamePoPFrontendScore,
-    HostnamePoPSubnetScore,
-)
+from geogiant.clickhouse import OverallScore
 
-from geogiant.common.files_utils import load_json, load_pickle
+from geogiant.common.files_utils import load_json, load_csv
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
-
-
-hostname_filter = (
-    "outlook.live.com",
-    "docs.edgecast.com",
-    "advancedhosting.com",
-    "tencentcloud.com",
-    "teams.microsoft.com",
-    "cachefly.com",
-    "chrome.google.com",
-    "calendar.google.com",
-    "business.google.com",
-    "classroom.google.com",
-    "www.youtube.com",
-    "accounts.google.com",
-    "docs.google.com",
-    "drive.google.com",
-    "mail.google.com",
-    "meet.google.com",
-    "news.google.com",
-    "one.google.com",
-    "photos.google.com",
-    "scholar.google.com",
-    "sites.google.com",
-    "studio.youtube.com",
-    "support.google.com",
-    "www.google.ca",
-    "www.google.cl",
-    "www.google.co.in",
-    "www.google.co.jp",
-    "www.google.com.ar",
-    "www.google.co.uk",
-    "www.google.com.tw",
-    "www.google.de",
-    "www.google.fr",
-    "www.google.it",
-    "www.google.nl",
-    "www.google.p",
-    "www.google.co.th",
-    "www.google.pl",
-    "www.google.com.tr",
-    "myactivity.google.com",
-    "translate.google.com",
-    "myaccount.google.com",
-    "play.google.com",
-    "www.google.com.br",
-    "www.google.es",
-    "www.google.com.mx",
-    "www.google.com.hk",
-    "www.yahoo.co.jp",
-    "weather.yahoo.co.jp",
-    "search.yahoo.co.jp",
-    "page.auctions.yahoo.co.jp",
-    "detail.chiebukuro.yahoo.co.jp",
-    "baseball.yahoo.co.jp",
-    "auctions.yahoo.co.jp",
-    "apps.facebook.com",
-)
 
 
 class VPSelectionDNS(VPSelectionBase):
@@ -84,9 +22,12 @@ class VPSelectionDNS(VPSelectionBase):
 
     latency_threshold = 1
 
-    async def get_subnet_score(self, targets: list) -> dict[list]:
+    async def get_subnet_score(self, targets: list, granularity: str) -> dict[list]:
         """for a list of targets return their dns mapping score"""
         subnet_score = {}
+        hostname_filter = load_csv(
+            self.path_settings.DATASET / "valid_hostnames_cdn.csv"
+        )
 
         target_subnet = list(
             set([get_prefix_from_ip(t["address_v4"]) for t in targets])
@@ -99,7 +40,7 @@ class VPSelectionDNS(VPSelectionBase):
                 client=client,
                 table_name=self.clickhouse_settings.OLD_DNS_MAPPING_WITH_METADATA,
                 target_filter=target_subnet,
-                column_name="answer_bgp_prefix",
+                column_name=granularity,
                 hostname_filter=hostname_filter,
             )
 
@@ -113,44 +54,44 @@ class VPSelectionDNS(VPSelectionBase):
         vps_per_subnet: dict,
         ping_vps_to_target: dict,
         target_subnet_score: list,
-        max_probing_budget: int = 50,
+        probing_budget: int = 50,
     ) -> None:
         """for a given target, select vps function of ecs-dns resolution"""
 
-        for probing_budget in range(10, max_probing_budget + 10, 10):
-            highest_score_subnets = target_subnet_score[:probing_budget]
+        highest_score_subnets = target_subnet_score[:probing_budget]
 
-            vp_addrs, vp_coordinates = self.get_parsed_associated_vps(
-                highest_score_subnets, vps_per_subnet
-            )
+        vp_addrs, vp_coordinates = self.get_parsed_associated_vps(
+            highest_score_subnets, vps_per_subnet
+        )
 
-            # get pings corresponding to the selected vps
-            vp_selection = self.get_ping_to_target(
-                target_associated_vps=vp_addrs,
-                ping_to_target=ping_vps_to_target,
-            )
+        # get pings corresponding to the selected vps
+        vp_selection = self.get_ping_to_target(
+            target_associated_vps=vp_addrs,
+            ping_to_target=ping_vps_to_target,
+        )
 
-            if not vp_selection:
-                continue
+        if not vp_selection:
+            return None, None
 
-            _, min_rtt = min(vp_selection, key=lambda x: x[-1])
-
-            # check if dns vp selection sufficient
-            if min_rtt < self.latency_threshold:
-                break
+        _, min_rtt = min(vp_selection, key=lambda x: x[-1])
 
         # filter out vps that are in the same city/AS
         vp_selection = self.select_one_vp_per_as_city(vp_selection, vp_coordinates)
 
         return vp_selection, probing_budget
 
-    async def select_vps_per_target(self) -> [dict, set]:
+    async def select_vps_per_target(
+        self, probing_budget: int = 50, granularity: str = "answer_bgp_prefix"
+    ) -> [dict, set]:
         """return a sorted list of pair (vp,rtt) per target using ECS-DNS algo"""
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)
         vps = load_json(self.path_settings.OLD_VPS)
+
         vps_per_subnet = self.get_vps_per_subnet(vps)
-        subnet_score = await self.get_subnet_score(targets=targets)
+        subnet_score = await self.get_subnet_score(
+            targets=targets, granularity=granularity
+        )
         ping_vps_to_targets = await self.get_pings_per_target(
             self.clickhouse_settings.OLD_PING_VPS_TO_TARGET
         )
@@ -168,28 +109,38 @@ class VPSelectionDNS(VPSelectionBase):
             target_subnet = get_prefix_from_ip(target_addr)
 
             (
-                target_vp_selection[target_addr],
-                target_measurement_cost[target_addr],
+                vp_selection,
+                measurement_cost,
             ) = self.ecs_dns_vp_selection(
                 vps_per_subnet=vps_per_subnet,
                 ping_vps_to_target=pings,
                 target_subnet_score=subnet_score[target_subnet],
+                probing_budget=probing_budget,
             )
 
-            if not target_vp_selection[target_addr]:
+            if not vp_selection:
                 target_unmapped.add(target_addr)
+                continue
+
+            target_vp_selection[target_addr] = vp_selection
+            target_measurement_cost[target_addr] = measurement_cost
 
         return target_vp_selection, target_measurement_cost, target_unmapped
 
-    async def select_vps_per_subnet(self) -> [dict, set]:
+    async def select_vps_per_subnet(
+        self, granularity: str = "answer_bgp_prefix"
+    ) -> [dict, set]:
         """return a sorted list of pair (vp, median_rtt) per subnet ECS-DNS algo"""
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)
         vps = load_json(self.path_settings.OLD_VPS)
         vps_per_subnet = self.get_vps_per_subnet(vps)
-        subnet_score = await self.get_subnet_score(targets=targets)
-        ping_vps_to_subnet = await self.get_avg_rtt_per_subnet(
+
+        ping_vps_to_subnet = await self.get_pings_per_subnet(
             self.clickhouse_settings.OLD_PING_VPS_TO_SUBNET
+        )
+        subnet_score = await self.get_subnet_score(
+            targets=targets, granularity=granularity
         )
 
         logger.info(f"VP selection on {len(ping_vps_to_subnet)} subnets")
@@ -198,10 +149,7 @@ class VPSelectionDNS(VPSelectionBase):
         subnet_measurement_cost = defaultdict(int)
         subnet_unmapped = set()
 
-        for row in ping_vps_to_subnet:
-            subnet = row["subnet"]
-            vp = row["vp"]
-            vps_avg_rtt = row["vps_avg_rtt"]
+        for subnet in ping_vps_to_subnet:
 
             min_rtts_per_vp = defaultdict(list)
             # get all vps rtt for the three representative, so we can calculate median error
@@ -213,7 +161,7 @@ class VPSelectionDNS(VPSelectionBase):
                     measurement_cost,
                 ) = self.ecs_dns_vp_selection(
                     vps_per_subnet=vps_per_subnet,
-                    ping_vps_to_target=ping_vps_to_subnet[target_subnet],
+                    ping_vps_to_target=ping_vps_to_target,
                     target_subnet_score=subnet_score[target_subnet],
                 )
 

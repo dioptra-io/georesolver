@@ -1,4 +1,5 @@
 """main functions for analyzing geolocation results"""
+
 import asyncio
 
 from pathlib import Path
@@ -8,11 +9,7 @@ from loguru import logger
 from abc import ABC, abstractmethod
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import (
-    GetPingsPerTarget,
-    GetAvgRTTPerSubnet,
-    # GetDNSMapping,
-)
+from geogiant.clickhouse import GetPingsPerTarget, GetAvgRTTPerSubnet, GetPingsPerSubnet
 
 from geogiant.common.geoloc import distance
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
@@ -63,6 +60,28 @@ class VPSelectionBase(ABC):
         return resp
 
     @classmethod
+    async def get_pings_per_subnet(self, table_name: str) -> dict[dict]:
+        """
+        get meshed pings between targets and vps
+        ping_vps_to_subnet[subnet][target_addr] = [(vp_addr, min_rtt)]
+        """
+        ping_vps_to_subnet = defaultdict(dict)
+        async with AsyncClickHouseClient(
+            **self.clickhouse_settings.clickhouse
+        ) as client:
+            resp = await GetPingsPerSubnet().execute(
+                client=client,
+                table_name=table_name,
+            )
+
+        for row in resp:
+            target = row["target"]
+            subnet = row["subnet"]
+            ping_vps_to_subnet[subnet][target] = row["ping_to_target"]
+
+        return ping_vps_to_subnet
+
+    @classmethod
     async def get_avg_rtt_per_subnet(self, table_name: str) -> dict[dict]:
         """
         get meshed pings between targets and vps
@@ -77,41 +96,6 @@ class VPSelectionBase(ABC):
             )
 
         return resp
-
-    @classmethod
-    def get_assigned_pops(
-        self,
-        table_name: str,
-        hostname_filter: str,
-    ) -> None:
-        """return each subnet's assigned pops"""
-        # TODO: clean up dns mapping functions
-        target_pop = defaultdict(set)
-        filter_statement = ""
-        if hostname_filter:
-            filter_statement = " or ".join(
-                [f"hostname LIKE '%{hostname}%'" for hostname in hostname_filter]
-            )
-        statement = f"""
-        SELECT toString(client_subnet),
-            hostname,
-            groupUniqArray(toString(answers))
-        FROM {self.clickhouse_settings.DATABASE}.{table_name}
-        {f'WHERE {filter_statement}' if filter_statement else ""}
-        GROUP BY (client_subnet, hostname)
-        """
-        req_results = Clickhouse.execute_iter(statement)
-
-        # elect one pop
-        for row_data in req_results:
-            subnet = row_data[0]
-            hostname = row_data[1]
-            assigned_pops = row_data[2]
-
-            for pop in assigned_pops:
-                target_pop[subnet].add(pop)
-
-        return target_pop
 
     @classmethod
     def get_ping_to_target(
@@ -159,7 +143,7 @@ class VPSelectionBase(ABC):
         """return a list of selected VPs ordered by median error"""
         # calculate all median errors
         median_rtt_subnet = []
-        for vp_addr, min_rtts in min_rtt_per_vp:
+        for vp_addr, min_rtts in min_rtt_per_vp.items():
             median_rtt_subnet.append((vp_addr, median(min_rtts)))
 
         # sort median error for validation
@@ -285,6 +269,7 @@ class VPSelectionBase(ABC):
         return the estimated error for each target
         """
         geolocation_errors = dict()
+        min_latencies = dict()
 
         logger.info(f"Geolocation error for {len(targets)} targets")
 
@@ -314,8 +299,9 @@ class VPSelectionBase(ABC):
             geolocation_errors[target["address_v4"]] = distance(
                 target_lat, vp_lat, target_lon, vp_lon
             )
+            min_latencies[target["address_v4"]] = min_rtt
 
-        return geolocation_errors
+        return geolocation_errors, min_latencies
 
     @classmethod
     def geoloc_error_subnet(self, targets: dict, vps: dict, vp_selection: dict) -> dict:
@@ -323,6 +309,7 @@ class VPSelectionBase(ABC):
         return the estimated error for each target
         """
         geolocation_errors = dict()
+        min_latencies = dict()
 
         logger.info(f"Geolocation error for {len(targets)} targets")
 
@@ -359,7 +346,9 @@ class VPSelectionBase(ABC):
                 target_lat, vp_lat, target_lon, vp_lon
             )
 
-        return geolocation_errors
+            min_latencies[target["address_v4"]] = min_rtt
+
+        return geolocation_errors, min_latencies
 
     @abstractmethod
     async def select_vps_per_target(self) -> [dict, set]:
@@ -394,7 +383,7 @@ class VPSelectionBase(ABC):
             ) = await self.select_vps_per_target(**kwargs)
 
             logger.info(
-                f"vp selection for : {sum([1 for vp_selection in vp_target_selection.values() if len(vp_selection) > 0])} targets using direct method"
+                f"vp selection for : {sum([1 for vp_selection in vp_target_selection.values() if vp_selection])} targets using direct method"
             )
 
             if measurement_cost and target_unmapped:
@@ -404,7 +393,7 @@ class VPSelectionBase(ABC):
                 )
 
             # evaluate geolocation error
-            geoloc_error_target = self.geoloc_error_target(
+            geoloc_error_target, min_latencies = self.geoloc_error_target(
                 targets=targets,
                 vps=vps,
                 vp_selection=vp_target_selection,
@@ -432,6 +421,14 @@ class VPSelectionBase(ABC):
                 / f"{output_path}_target_geoloc_error.pickle",
             )
 
+            dump_pickle(
+                min_latencies,
+                self.path_settings.RESULTS_PATH
+                / f"{output_path}_target_min_latencies.pickle",
+            )
+
+            return geoloc_error_target, min_latencies
+
         if subnet_selection:
             (
                 vp_subnet_selection,
@@ -444,7 +441,7 @@ class VPSelectionBase(ABC):
             )
 
             # evaluate geolocation error
-            geoloc_error_subnet = self.geoloc_error_subnet(
+            geoloc_error_subnet, min_latencies = self.geoloc_error_subnet(
                 targets=targets,
                 vps=vps,
                 vp_selection=vp_subnet_selection,
@@ -470,6 +467,12 @@ class VPSelectionBase(ABC):
                 geoloc_error_subnet,
                 self.path_settings.RESULTS_PATH
                 / f"{output_path}_subnet_geoloc_error.pickle",
+            )
+
+            dump_pickle(
+                min_latencies,
+                self.path_settings.RESULTS_PATH
+                / f"{output_path}_subnet_min_latencies.pickle",
             )
 
 
@@ -517,7 +520,7 @@ if __name__ == "__main__":
             targets=targets,
             vps=vps,
             output_path="ref",
-            target_selection=False,
-            subnet_selection=True,
+            target_selection=True,
+            subnet_selection=False,
         )
     )
