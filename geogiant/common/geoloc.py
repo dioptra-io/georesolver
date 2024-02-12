@@ -8,8 +8,9 @@ from math import asin, cos, log, radians, sin, sqrt, pi
 
 def internet_speed(rtt, speed_threshold):
     if speed_threshold is not None:
-        return speed_threshold
+        return 2 / 3
 
+    # TODO: find if speed threshold really has an influence
     if rtt >= 80:
         speed_threshold = 4 / 9
     if rtt >= 5 and rtt < 80:
@@ -21,7 +22,8 @@ def internet_speed(rtt, speed_threshold):
 
 
 def rtt_to_km(rtt, speed_threshold=None, c=300):
-    return internet_speed(rtt, speed_threshold) * rtt * c / 2
+    """use the formula of 2/3 of the speed of light to calculate the estimated distance"""
+    return 2 / 3 * c * rtt / 2
 
 
 def is_within_cirle(vp_geo, rtt, candidate_geo, speed_threshold=None):

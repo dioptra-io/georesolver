@@ -2,6 +2,7 @@
 import json
 import pickle
 
+from typing import Iterator
 from uuid import uuid4
 from loguru import logger
 from dateutil import parser
@@ -11,6 +12,15 @@ from pathlib import Path
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
+
+
+def iter_file(file: str, *, read_size: int = 2**20) -> Iterator[bytes]:
+    with open(file, "rb") as f:
+        while True:
+            chunk = f.read(read_size)
+            if not chunk:
+                break
+            yield chunk
 
 
 def dump_csv(data: list[str], output_file: Path) -> None:

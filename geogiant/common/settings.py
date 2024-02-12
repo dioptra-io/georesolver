@@ -1,4 +1,5 @@
 """general tool settings"""
+
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional
@@ -97,6 +98,10 @@ class ClickhouseSettings(BaseSettings):
     # Geoloc tables
     TARGET_GEOLOCATION: str = "target_geolocation"
     POP_GEOLOCATION: str = "pop_geolocation"
+
+    # Public RIPE Atlas data
+    RIPE_ATLAS_TRACEROUTES: str = "ripe_atlas_traceroute"
+    RIPE_ATLAS_TRACEROUTE_GEOLOC: str = "ripe_atlas_traceroute_geoloc"
 
     # ECS-DNS old tables
     OLD_DNS_MAPPING: str = "old_dns_mapping"
