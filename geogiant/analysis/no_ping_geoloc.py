@@ -3,21 +3,128 @@ import numpy as np
 
 from collections import defaultdict
 from loguru import logger
+from pych_client import AsyncClickHouseClient
 
-from geogiant.analysis.utils import get_pings_per_target
+from geogiant.clickhouse import GetTargets, GetVPs, Query
 from geogiant.analysis.plot import plot_median_error_per_finger_printing_method
 from geogiant.common.geoloc import (
-    rtt_to_km,
     distance,
     polygon_centroid,
     weighted_centroid,
 )
 from geogiant.common.settings import PathSettings, ClickhouseSettings
-from geogiant.common.files_utils import load_json, load_pickle
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip
+from geogiant.common.files_utils import load_pickle, dump_pickle, load_csv
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+class OverallScore(Query):
+    def statement(
+        self,
+        table_name: str,
+        **kwargs,
+    ) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+        if target_filter := kwargs.get("target_filter"):
+            target_filter = "".join([f",toIPv4('{t}')" for t in target_filter])[1:]
+        else:
+            target_filter = ""
+        if column_name := kwargs.get("column_name"):
+            column_name = column_name
+        else:
+            raise RuntimeError(f"Column name parameter missing for {__class__}")
+
+        return f"""
+        WITH groupArray((toString(subnet_2), score)) AS subnet_scores
+        SELECT
+            toString(subnet_1) as target_subnet,
+            arraySort(x -> -(x.2), subnet_scores) as scores
+        FROM
+        (
+            SELECT
+                t1.subnet AS subnet_1,
+                t2.subnet AS subnet_2,
+                length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
+            FROM
+            (
+                SELECT
+                    subnet,
+                    groupUniqArray({column_name}) AS mapping
+                FROM {self.settings.DATABASE}.{table_name}
+                WHERE 
+                    subnet IN ({target_filter})
+                    {hostname_filter}
+                GROUP BY subnet
+            ) AS t1
+            CROSS JOIN
+            (
+                SELECT
+                    subnet,
+                    groupUniqArray({column_name}) AS mapping
+                FROM {self.settings.DATABASE}.{table_name}
+                WHERE 
+                    subnet NOT IN ({target_filter})
+                    {hostname_filter}
+                GROUP BY subnet
+            ) AS t2
+            WHERE t1.subnet != t2.subnet
+        )
+        WHERE subnet_1 IN ({target_filter})
+        GROUP BY subnet_1
+        """
+
+
+async def get_score(
+    target_subnet: list,
+    column_name: str,
+    hostname_filter: tuple[str],
+) -> None:
+    subnet_score = {}
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = await OverallScore().execute(
+            client=client,
+            table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW,
+            target_filter=target_subnet,
+            column_name=column_name,
+            hostname_filter=hostname_filter,
+        )
+
+    for row in resp:
+        subnet_score[row["target_subnet"]] = row["scores"]
+
+    return subnet_score
+
+
+async def compute_scores(targets: list) -> None:
+
+    hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
+
+    logger.info("#############################################")
+    logger.info("# OVERALL SCORE:: SUBNETS                   #")
+    logger.info("#############################################")
+    # subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter)
+    # dump_pickle(
+    #     data=subnet_score,
+    #     output_file=path_settings.RESULTS_PATH / "subnet_score.pickle",
+    # )
+
+    logger.info("#############################################")
+    logger.info("# OVERALL SCORE:: BGP PREFIXES              #")
+    logger.info("#############################################")
+    bgp_prefix_score = await get_score(
+        [target["target_subnet"] for target in targets],
+        "answer_bgp_prefix",
+        hostname_filter,
+    )
+    dump_pickle(
+        data=bgp_prefix_score,
+        output_file=path_settings.RESULTS_PATH / "bgp_prefix_score_1M_hostnames.pickle",
+    )
 
 
 def ecs_target_geoloc(
@@ -110,9 +217,9 @@ def no_pings_eval(
     w_results = {}
     b_results = {}
     for target in targets:
-        target_addr = target["address_v4"]
-        target_subnet = get_prefix_from_ip(target_addr)
-        target_lon, target_lat = target["geometry"]["coordinates"]
+        target_addr = target["target_addr"]
+        target_subnet = target["target_subnet"]
+        target_lon, target_lat = target["lon"], target["lat"]
         target_scores = subnet_scores[target_subnet]
 
         # retrieve all vps belonging to subnets with highest mapping scores
@@ -174,58 +281,52 @@ def get_metrics(
     return overall_results
 
 
-async def main(targets: list, vps: list) -> None:
-    probing_budgets = [i for i in range(5, 50, 1)]
+async def main() -> None:
+    probing_budgets = [1]
+    probing_budgets.extend([i for i in range(5, 50, 1)])
     probing_budgets.extend([i for i in range(50, 100, 10)])
 
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        targets = await GetTargets().execute(
+            client=client,
+            table_name=clickhouse_settings.VPS_RAW,
+        )
+
+        vps = await GetVPs().execute(
+            client=client,
+            table_name=clickhouse_settings.VPS_RAW,
+        )
+
+    # parse
     vps_coordinates = {}
     vps_subnet = defaultdict(list)
-    for vp in vps:
-        addr = vp["address_v4"]
-        subnet = get_prefix_from_ip(addr)
-        vp_lon, vp_lat = vp["geometry"]["coordinates"]
+    for row in vps:
+        addr = row["vp_addr"]
+        subnet = row["vp_subnet"]
+        vp_lon, vp_lat = row["lon"], row["lat"]
+
         vps_coordinates[addr] = (vp_lat, vp_lon)
         vps_subnet[subnet].append(addr)
 
+    if not (
+        path_settings.RESULTS_PATH / "bgp_prefix_score_1M_hostnames.pickle"
+    ).exists():
+        logger.info("BGP prefix score with all hostnames not yet calculated")
+        await compute_scores(targets)
+
+    subnet_scores = load_pickle(
+        path_settings.RESULTS_PATH / "bgp_prefix_score_1M_hostnames.pickle"
+    )
+
     eval_results = {}
-
-    logger.info("Answers score geoloc evaluation")
-    eval_results["answers"] = get_metrics(
-        targets=targets,
-        vps_subnet=vps_subnet,
-        subnet_scores=load_pickle(path_settings.RESULTS_PATH / "answers_score.pickle"),
-        vps_coordinates=vps_coordinates,
-        probing_budgets=probing_budgets,
-    )
-
-    logger.info("Subnet score geoloc evaluation")
-    eval_results["subnet"] = get_metrics(
-        targets=targets,
-        vps_subnet=vps_subnet,
-        subnet_scores=load_pickle(path_settings.RESULTS_PATH / "subnet_score.pickle"),
-        vps_coordinates=vps_coordinates,
-        probing_budgets=probing_budgets,
-    )
-
     logger.info("BGP prefix score geoloc evaluation")
     eval_results["bgp_prefix"] = get_metrics(
         targets=targets,
         vps_subnet=vps_subnet,
-        subnet_scores=load_pickle(
-            path_settings.RESULTS_PATH / "bgp_prefix_score.pickle"
-        ),
+        subnet_scores=subnet_scores,
         vps_coordinates=vps_coordinates,
         probing_budgets=probing_budgets,
     )
-
-    # logger.info("POP id score geoloc evaluation")
-    # eval_results["pop_id"] = get_metrics(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     subnet_scores=load_pickle(path_settings.RESULTS_PATH / "pop_id_score.pickle"),
-    #     vps_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
 
     plot_median_error_per_finger_printing_method(
         eval_results, out_file="no_pings_evaluation.pdf"
@@ -233,7 +334,4 @@ async def main(targets: list, vps: list) -> None:
 
 
 if __name__ == "__main__":
-    targets = load_json(path_settings.OLD_TARGETS)
-    vps = load_json(path_settings.OLD_VPS)
-
-    asyncio.run(main(targets, vps))
+    asyncio.run(main())

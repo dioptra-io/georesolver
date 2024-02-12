@@ -7,9 +7,9 @@ from loguru import logger
 
 from geogiant.analysis.utils import get_pings_per_target
 from geogiant.analysis.plot import plot_median_error_per_finger_printing_method
-from geogiant.common.geoloc import rtt_to_km, distance
+from geogiant.common.geoloc import distance
 from geogiant.common.settings import PathSettings, ClickhouseSettings
-from geogiant.common.files_utils import load_json, load_pickle, load_csv
+from geogiant.common.files_utils import load_json, load_pickle, load_csv, dump_pickle
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 
 path_settings = PathSettings()
@@ -54,10 +54,15 @@ def ecs_dns_vp_selection_eval(
             unmapped_t.add(target_addr)
             continue
 
+        # if np.mean([score for _, score in target_scores[:10]]) < 0.5:
+        #     continue
+
         # retrieve all vps belonging to subnets with highest mapping scores
         vps_assigned = []
         for vp_subnet, _ in target_scores[:probing_budget]:
             vps_assigned.extend([vp_addr for vp_addr in vps_subnet[vp_subnet]])
+
+        # logger.debug(target_scores[:probing_budget])
 
         # get vps and pings associated to the dns mapping selection
         try:
@@ -76,11 +81,19 @@ def ecs_dns_vp_selection_eval(
 
         # get the best vp, min rtt and compute distance error
         best_elected_vp = min(vp_selection, key=lambda x: x[-1])
-        best_vp_addr, best_min_rtt = min(
+        best_vp_addr, best_rtt = min(
             ping_vps_to_target[target_addr], key=lambda x: x[-1]
         )
+
+        for index, vp in enumerate(ping_vps_to_target[target_addr]):
+            min_rtt = vp[-1]
+            if min_rtt <= 2:
+                break
+
+        threshold_vp_index = index
+        threshold_vp = vp
+
         best_vp_subnet = get_prefix_from_ip(best_vp_addr)
-        best_d_error = rtt_to_km(best_min_rtt)
 
         best_vp_score = -1
         best_vp_index = -1
@@ -97,7 +110,6 @@ def ecs_dns_vp_selection_eval(
                 break
 
         min_elected_rtt = best_elected_vp[-1]
-        rtt_to_dist_elected = rtt_to_km(min_elected_rtt)
 
         target_lon, target_lat = target["geometry"]["coordinates"]
         elect_vp_lat, elect_vp_lon = vp_coordinates[best_elected_vp[0]]
@@ -123,6 +135,8 @@ def ecs_dns_vp_selection_eval(
             "best_vp_score": best_vp_score,
             "best_vp_index": best_vp_index,
             "best_d_error": best_d_error,
+            "threshold_vp": threshold_vp,
+            "threshold_vp_index": threshold_vp_index,
         }
 
     return results, unmapped_t
@@ -139,9 +153,9 @@ def get_metrics_vp_selection(
 ) -> dict:
     """calculate some basic metrics from a vp selection"""
     overall_results = {}
-    hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
+    hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames_cdn.csv")
     hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-    hostname_filter = f"AND hostname NOT IN ({hostname_filter})"
+    hostname_filter = f"AND hostname IN ({hostname_filter})"
     for budget in probing_budgets:
         if budget == 0:
             continue
@@ -162,7 +176,7 @@ def get_metrics_vp_selection(
             np.std([r["elected_d_error"] for r in ecs_results.values()]), 2
         )
 
-        overall_results[budget] = (median_distance, deviation)
+        overall_results[budget] = ecs_results
 
         # Debugging
         if verbose:
@@ -188,7 +202,7 @@ def get_metrics_vp_selection(
                     logger.info(f"d error = {target_results['best_d_error']}")
                     logger.info(f"diff error dist: {diff_error}")
                     logger.info(
-                        f"SELECT client_subnet, hostname, answer_subnet, answer_bgp_prefix, pop_ip_info_id from {clickhouse_settings.DATABASE}.{clickhouse_settings.OLD_DNS_MAPPING_WITH_METADATA} where (client_subnet == toIPv4('{target_results['target_subnet']}') OR client_subnet == toIPv4('{get_prefix_from_ip(target_results['best_elected_vp'])}') OR client_subnet == toIPv4('{get_prefix_from_ip(target_results['best_vp'])}')) {hostname_filter} order by (hostname, client_subnet)"
+                        f"SELECT client_subnet, hostname, answer_subnet, answer_bgp_prefix, pop_ip_info_id, pop_city from {clickhouse_settings.DATABASE}.{'test_clustering'} where (client_subnet == toIPv4('{target_results['target_subnet']}') OR client_subnet == toIPv4('{get_prefix_from_ip(target_results['best_elected_vp'])}') OR client_subnet == toIPv4('{get_prefix_from_ip(target_results['best_vp'])}')) {hostname_filter} order by (hostname, client_subnet)"
                     )
                     logger.info("######################################")
 
@@ -200,9 +214,11 @@ def get_metrics_vp_selection(
 
 
 async def main(targets: list, vps: list) -> None:
-    probing_budgets = [i for i in range(0, 100, 10)]
-    probing_budgets.extend([i for i in range(100, 500, 50)])
-    probing_budgets = [50]
+    probing_budgets = [1]
+    probing_budgets.extend([i for i in range(10, 100, 10)])
+    probing_budgets.extend([i for i in range(100, 500, 100)])
+
+    # probing_budgets = [10]
 
     vps_coordinates = {}
     vps_subnet = defaultdict(list)
@@ -219,49 +235,55 @@ async def main(targets: list, vps: list) -> None:
     )
 
     eval_results = {}
-    # logger.info("Answers score evaluation")
-    # eval_results["answers"] = get_metrics_vp_selection(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     ping_vps_to_target=ping_vps_to_target,
-    #     subnet_scores=load_pickle(path_settings.RESULTS_PATH / "answers_score.pickle"),
-    #     vp_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
+    unfiltered_eval_results = {}
+    logger.info("Answers score evaluation")
+    eval_results["answers"] = get_metrics_vp_selection(
+        targets=targets,
+        vps_subnet=vps_subnet,
+        ping_vps_to_target=ping_vps_to_target,
+        subnet_scores=load_pickle(
+            path_settings.RESULTS_PATH / "overall_answers_score.pickle"
+        ),
+        vp_coordinates=vps_coordinates,
+        probing_budgets=probing_budgets,
+    )
 
-    # logger.info("Unfiltered Answers score evaluation")
-    # eval_results["unfiltered_answers"] = get_metrics_vp_selection(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     ping_vps_to_target=ping_vps_to_target,
-    #     subnet_scores=load_pickle(
-    #         path_settings.RESULTS_PATH / "unfiltered_answers_score.pickle"
-    #     ),
-    #     vp_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
+    logger.info("Unfiltered Answers score evaluation")
+    unfiltered_eval_results["unfiltered_answers"] = get_metrics_vp_selection(
+        targets=targets,
+        vps_subnet=vps_subnet,
+        ping_vps_to_target=ping_vps_to_target,
+        subnet_scores=load_pickle(
+            path_settings.RESULTS_PATH / "unfiltered_overall_answers_score.pickle"
+        ),
+        vp_coordinates=vps_coordinates,
+        probing_budgets=probing_budgets,
+    )
 
-    # logger.info("Subnet score evaluation")
-    # eval_results["subnet"] = get_metrics_vp_selection(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     ping_vps_to_target=ping_vps_to_target,
-    #     subnet_scores=load_pickle(path_settings.RESULTS_PATH / "subnet_score.pickle"),
-    #     vp_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
+    logger.info("Subnet score evaluation")
+    eval_results["subnet"] = get_metrics_vp_selection(
+        targets=targets,
+        vps_subnet=vps_subnet,
+        ping_vps_to_target=ping_vps_to_target,
+        subnet_scores=load_pickle(
+            path_settings.RESULTS_PATH / "overall_subnet_score.pickle"
+        ),
+        vp_coordinates=vps_coordinates,
+        probing_budgets=probing_budgets,
+        verbose=False,
+    )
 
-    # logger.info("Unfiltered Subnet score evaluation")
-    # eval_results["unfiltered_subnet"] = get_metrics_vp_selection(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     ping_vps_to_target=ping_vps_to_target,
-    #     subnet_scores=load_pickle(
-    #         path_settings.RESULTS_PATH / "unfiltered_subnet_score.pickle"
-    #     ),
-    #     vp_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
+    logger.info("Unfiltered Subnet score evaluation")
+    unfiltered_eval_results["unfiltered_subnet"] = get_metrics_vp_selection(
+        targets=targets,
+        vps_subnet=vps_subnet,
+        ping_vps_to_target=ping_vps_to_target,
+        subnet_scores=load_pickle(
+            path_settings.RESULTS_PATH / "unfiltered_overall_subnet_score.pickle"
+        ),
+        vp_coordinates=vps_coordinates,
+        probing_budgets=probing_budgets,
+    )
 
     logger.info("BGP prefix score evaluation")
     eval_results["bgp_prefix"] = get_metrics_vp_selection(
@@ -269,24 +291,24 @@ async def main(targets: list, vps: list) -> None:
         vps_subnet=vps_subnet,
         ping_vps_to_target=ping_vps_to_target,
         subnet_scores=load_pickle(
-            path_settings.RESULTS_PATH / "bgp_prefix_score.pickle"
+            path_settings.RESULTS_PATH / "overall_bgp_prefix_score.pickle"
         ),
         vp_coordinates=vps_coordinates,
         probing_budgets=probing_budgets,
-        verbose=True,
+        verbose=False,
     )
 
-    # logger.info("Unfiltered BGP prefix score evaluation")
-    # eval_results["unfiltered_bgp_prefix"] = get_metrics_vp_selection(
-    #     targets=targets,
-    #     vps_subnet=vps_subnet,
-    #     ping_vps_to_target=ping_vps_to_target,
-    #     subnet_scores=load_pickle(
-    #         path_settings.RESULTS_PATH / "unfiltered_bgp_prefix_score.pickle"
-    #     ),
-    #     vp_coordinates=vps_coordinates,
-    #     probing_budgets=probing_budgets,
-    # )
+    logger.info("Unfiltered BGP prefix score evaluation")
+    unfiltered_eval_results["unfiltered_bgp_prefix"] = get_metrics_vp_selection(
+        targets=targets,
+        vps_subnet=vps_subnet,
+        ping_vps_to_target=ping_vps_to_target,
+        subnet_scores=load_pickle(
+            path_settings.RESULTS_PATH / "unfiltered_overall_bgp_prefix_score.pickle"
+        ),
+        vp_coordinates=vps_coordinates,
+        probing_budgets=probing_budgets,
+    )
 
     # eval_results["pop_id"] = get_metrics_vp_selection(
     #     targets=targets,
@@ -297,9 +319,7 @@ async def main(targets: list, vps: list) -> None:
     #     probing_budgets=probing_budgets,
     # )
 
-    plot_median_error_per_finger_printing_method(
-        eval_results, out_file="mapping_scores_evaluation.pdf"
-    )
+    dump_pickle(eval_results, path_settings.RESULTS_PATH / "ecs_dns_eval.pickle")
 
 
 if __name__ == "__main__":
