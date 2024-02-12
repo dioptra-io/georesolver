@@ -1,34 +1,39 @@
-"""create database tables, retrieve vantage points, perform zdns / zmap measurement and populate database"""
-import asyncio
-import schedule
-import time
+"""
+create database tables, 
+retrieve vantage points, 
+retrieve RIPE Atlas public traceroutes,
+evaluate probe connectivity,
+insert all data 
+"""
 
-from uuid import uuid4
+import httpx
+import json
+import asyncio
+
+from pyasn import pyasn
+from ipaddress import IPv4Address
+from typing import Generator
 from pathlib import Path
-from dataclasses import dataclass
 from numpy import mean
 from collections import defaultdict
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import (
-    GetSubnets,
-    GetSubnetPerHostname,
-    GetVPSInfoPerSubnet,
-    GetHostnames,
-    GetDNSMapping,
-)
-from geogiant.prober import RIPEAtlasAPI
-from geogiant.zdns import ZDNS
 
-from geogiant.common.geoloc import distance
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip, get_host_ip_addr
-from geogiant.common.files_utils import (
-    load_countries_info,
-    load_anycatch_data,
-    dump_csv,
-    create_tmp_csv_file,
+from geogiant.prober import RIPEAtlasAPI
+from geogiant.clickhouse import (
+    GetVPs,
+    GetSubnets,
+    CreateGeolocTable,
+    CreateTracerouteTable,
+    InsertFromCSV,
+    GetProbeConnectivity,
+    GetGeolocFromTraceroute,
 )
+
+from geogiant.common.geoloc import distance, rtt_to_km
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
+from geogiant.common.files_utils import load_countries_info, create_tmp_csv_file
 from common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -72,78 +77,6 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
     return valid_vps
 
 
-async def resolve_hostnames(
-    subnets: list,
-    hostname_file: Path,
-    output_table: str,
-    repeat: bool = False,
-    end_date: str = "2024-01-23 00:00",
-    chunk_size: int = 1_000,
-    max_hostname: int = 100_000,
-) -> None:
-    """repeat zdns measurement on set of VPs"""
-
-    # TODO: harmonize logs
-    # logger.remove()
-    # logger.add(path_settings.LOG_PATH / "resolve_hostnames.log")
-
-    async def raw_dns_mapping(subnets: list) -> None:
-        """perform DNS mapping with zdns on VPs subnet"""
-
-        subnets = [subnet + "/24" for subnet in subnets]
-
-        with hostname_file.open("r") as f:
-            logger.info("raw hostname file already generated")
-
-            # take max hostnames from hostname file
-            all_hostnames = f.readlines()
-            all_hostnames = all_hostnames[:max_hostname]
-
-            # split file
-            partial_hostname_files = []
-            files_uuid = uuid4()
-            for index in range(0, len(all_hostnames), chunk_size):
-                file_path = (
-                    path_settings.TMP_PATH
-                    / f"hostnames_part_{index // chunk_size}_{files_uuid}.csv"
-                )
-
-                hostnames = all_hostnames[index : index + chunk_size]
-
-                with file_path.open("w") as f:
-                    for hostname in hostnames:
-                        f.write(hostname)
-
-                # save file path
-                partial_hostname_files.append(file_path)
-
-        for i, file_path in enumerate(partial_hostname_files):
-            logger.info(
-                f"Starting to resolve hostnames {i * chunk_size} to {(i + 1) * chunk_size} (total: {len(partial_hostname_files * chunk_size)})"
-            )
-
-            zdns = ZDNS(
-                subnets=subnets,
-                hostname_file=file_path,
-                name_servers="8.8.8.8",
-                table_name=output_table,
-            )
-            await zdns.main()
-
-            # remove tmp file
-            file_path.unlink()
-            time.sleep(1)
-
-    await raw_dns_mapping(subnets)
-
-    if repeat:
-        # TODO: replace with Crontab module
-        schedule.every(4).hours.until(end_date).do(raw_dns_mapping)
-
-        while True:
-            schedule.run_pending()
-
-
 def filter_vps(vps: list) -> None:
     """filter vps based on 1) default geolocation 2) DNS resolution"""
     # 1. filter default location VPs
@@ -153,310 +86,218 @@ def filter_vps(vps: list) -> None:
     return vps
 
 
-def in_anycatch(bgp_prefix: str, anycast_prefixes: list) -> bool:
-    """check if a bgp prefix is anycast or not based on anycatch data"""
-    if set(bgp_prefix).intersection(anycast_prefixes):
-        return True
-    return False
+def parse_traceroute(traceroute: dict) -> str:
+    """retrieve all measurement, parse data and return for clickhouse insert"""
+    traceroute_results = []
+    for ttl_results in traceroute["result"]:
+        ttl = ttl_results["hop"]
 
-
-def get_geographic_mapping(
-    subnets: dict, vps_per_subnet: dict, countries_info: dict
-) -> tuple[list, list]:
-    """get vps country and continent for a given hostname bgp prefix"""
-    mapping_continents = []
-    mapping_countries = []
-    for subnet in subnets:
-        for vp in vps_per_subnet[subnet]:
-            country_code = vp[-1]
-            continent = countries_info[country_code]["continent"]
-
-            mapping_countries.append(country_code)
-            mapping_continents.append(continent)
-
-    return mapping_countries, mapping_continents
-
-
-def get_geographic_ratio(geographic_mapping: list) -> float:
-    """return the ratio of the most represented geographic granularity (country/continent)"""
-    return max(
-        [
-            (region, geographic_mapping.count(region) / len(geographic_mapping))
-            for region in geographic_mapping
-        ],
-        key=lambda x: x[-1],
-    )
-
-
-@dataclass
-class HostnameMappingGeo:
-    bgp_prefix: str
-    countries: set()
-    continents: set()
-    major_country: str
-    major_country_ratio: float
-    major_continent: str
-    major_continent_ratio: float
-
-
-def filter_on_geo_distribution(
-    hostnames_geo_mapping: dict[list],
-    threshold_country: float = 0.7,
-    threshold_continent: float = 0.9,
-) -> dict:
-    """
-    get hostnames and their major geographical region of influence.
-    Return True if the average ratio for each hostname's BGP prefix is above
-    a given threshold (80% of VPs in the same region by default)
-    """
-    valid_hostnames = defaultdict(list)
-    invalid_hostnames = defaultdict(list)
-    hostname_cov_countries = set()
-    hostname_cov_continents = set()
-    for hostname, geo_mappings in hostnames_geo_mapping.items():
-        avg_ratio_country = []
-        avg_ratio_continent = []
-        mapping: HostnameMappingGeo = None
-        for mapping in geo_mappings:
-            avg_ratio_country.append(mapping.major_country_ratio)
-            avg_ratio_continent.append(mapping.major_continent_ratio)
-
-            for country in mapping.countries:
-                hostname_cov_countries.add(country)
-
-            for continent in mapping.continents:
-                hostname_cov_continents.add(continent)
-
-        avg_ratio_country = mean(avg_ratio_country)
-        if avg_ratio_country > threshold_country:
-            valid_hostnames["country"].append(
-                (hostname, hostname_cov_countries, avg_ratio_country)
-            )
-        else:
-            invalid_hostnames["country"].append(
-                (hostname, hostname_cov_countries, avg_ratio_country)
-            )
-
-        avg_ratio_continent = mean(avg_ratio_continent)
-        if avg_ratio_continent > threshold_continent:
-            valid_hostnames["continent"].append(
-                (hostname, hostname_cov_continents, avg_ratio_continent)
-            )
-        else:
-            invalid_hostnames["continent"].append(
-                (hostname, hostname_cov_continents, avg_ratio_continent)
-            )
-
-    return valid_hostnames, invalid_hostnames
-
-
-async def get_hostnames_geographic_influence() -> tuple[dict, dict]:
-    """
-    for each hostname, get vps mapped per BGP prefix and get hostname geographical area of influence
-    Assumption: hostnames that perform ECS-DNS resolution based on geographical information
-    associate BGP prefixes to vps in the same region (either country or continent).
-    """
-    anycatch_prefixes = load_anycatch_data()
-    countries_info = load_countries_info()
-
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        resp = await GetVPSInfoPerSubnet().execute(
-            client=client, table_name=clickhouse_settings.VPS_RAW
-        )
-        vps_per_subnet = {}
-        for row in resp:
-            vps_per_subnet[row["subnet"]] = row["vps"]
-
-        subnet_per_hostname = await GetSubnetPerHostname().execute(
-            client=client, table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW
-        )
-
-    anycatch_filter = set()
-    hostname_mapping_geo = defaultdict(list)
-
-    for row in subnet_per_hostname:
-        hostname = row["hostname"]
-        answer_bgp_prefix = row["answer_bgp_prefix"]
-        subnets = row["subnets"]
-
-        if in_anycatch(answer_bgp_prefix, anycatch_prefixes):
-            anycatch_filter.add(hostname)
+        # hop 255, junk data
+        if ttl == 255:
             continue
 
-        # get the set of countries and continent present in the mapping
-        # TODO: compute distance?
-        mapping_countries, mapping_continents = get_geographic_mapping(
-            subnets, vps_per_subnet, countries_info
-        )
+        # retrieve rtt from response
+        rcvd = 0
+        sent = len(ttl_results["result"])
+        responses = defaultdict(list)
+        for resp in ttl_results["result"]:
+            if "rtt" in resp:
+                responses[resp["from"]].append(resp["rtt"])
+                rcvd += 1
 
-        major_country, major_country_ratio = get_geographic_ratio(mapping_countries)
-        major_continent, major_continent_ratio = get_geographic_ratio(
-            mapping_continents
-        )
-
-        # get and store hostname bgp prefix analysis
-        hostname_mapping_geo[hostname].append(
-            HostnameMappingGeo(
-                bgp_prefix=answer_bgp_prefix,
-                countries=set(mapping_countries),
-                continents=set(mapping_continents),
-                major_country=major_country,
-                major_country_ratio=major_country_ratio,
-                major_continent=major_continent,
-                major_continent_ratio=major_continent_ratio,
-            )
-        )
-
-    # filter hostnames based on geographic distribution
-    valid_hostnames, invalid_hostnames = filter_on_geo_distribution(
-        hostname_mapping_geo,
-        threshold_country=0.7,
-        threshold_continent=0.9,
-    )
-
-    return valid_hostnames, invalid_hostnames
-
-
-def print_hostname_info(
-    valid_hostnames: dict[list], invalid_hostnames: dict[list]
-) -> None:
-    """print info on hostname filtering analysis"""
-    # load all VPs raw DNS mapping data, filter, insert results
-    logger.info("##########################################################")
-    logger.info("# HOSTNAMES GEO VALIDATION: COUNTRY EVAL #################")
-    logger.info("##########################################################")
-    logger.info(f"Valid hostnames = {len(valid_hostnames['country'])}")
-    for hostname, cov, avg_ratio in valid_hostnames["country"]:
-        logger.info(
-            f"Hostname = {hostname} coverage =  {len(cov)} avg ratio = {avg_ratio}"
-        )
-
-    logger.info("\n")
-
-    logger.info(f"Invalid hostnames = {len(invalid_hostnames['country'])}")
-    for hostname, country_cov, avg_ratio in invalid_hostnames["country"]:
-        logger.info(
-            f"Hostname = {hostname} coverage =  {len(cov)} avg ratio = {avg_ratio}"
-        )
-
-    logger.info("##########################################################")
-    logger.info("# HOSTNAMES GEO VALIDATION: CONTINENT EVAL ###############")
-    logger.info("##########################################################")
-    for hostname, cov, avg_ratio in valid_hostnames["continent"]:
-        logger.info(
-            f"Hostname = {hostname}  coverage =  {len(cov)} avg ratio = {avg_ratio}"
-        )
-
-    logger.info("\n")
-
-    logger.info(f"Invalid hostnames = {len(invalid_hostnames['continent'])}")
-    for hostname, country_cov, avg_ratio in invalid_hostnames["continent"]:
-        logger.info(
-            f"Hostname = {hostname} coverage =  {len(country_cov)} avg ratio = {avg_ratio}"
-        )
-
-
-async def filter_hostnames() -> None:
-    """
-    from clickhouse vps dns mapping table, extract geo information from hostname resolution
-    valid hostname: hostname that carry geo information
-    invalid hostname: hostname that does not carry geo information
-    """
-    (
-        valid_hostnames,
-        invalid_hostnames,
-    ) = await get_hostnames_geographic_influence()
-
-    dump_csv(
-        [hostname for hostname, _, _ in valid_hostnames["country"]],
-        path_settings.DATASET / "valid_hostnames.csv",
-    )
-    dump_csv(
-        [hostname for hostname, _, _ in invalid_hostnames["country"]],
-        path_settings.DATASET / "invalid_hostnames.csv",
-    )
-
-    # get rows with valid hostname
-    # valid_hostnames_rows = Get().get_valid_hostnames(
-    #     table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW,
-    #     valid_hostnames=[hostname for hostname, _, _ in valid_hostnames["country"]],
-    # )
-
-    # create_table_statement = DNSMappingTable().create_table_statement(
-    #     table_name="filtered_hostname_mapping"
-    # )
-
-    # DNSMappingTable().insert(
-    #     input_data=valid_hostnames_rows,
-    #     table_name="filtered_hostname_mapping",
-    #     create_table_statement=create_table_statement,
-    # )
-
-    print_hostname_info(valid_hostnames, invalid_hostnames)
-
-
-async def filter_ecs_hostnames() -> None:
-    """perform zdns resolution on host subnet, remove hostnames with source scope equal to 0"""
-    host_addr = get_host_ip_addr()
-    host_subnet = get_prefix_from_ip(host_addr)
-
-    await resolve_hostnames(
-        subnets=[host_subnet],
-        hostname_file=path_settings.HOSTNAMES_MILLIONS,
-        output_table=clickhouse_settings.DNS_MAPPING_ECS,
-        repeat=False,
-        end_date=None,
-    )
-
-
-async def filter_anycast_hostnames() -> None:
-    """get all answers, compare with anycatch database"""
-    anycatch_db = load_anycatch_data()
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        ecs_hostnames = await GetDNSMapping().execute(
-            client=client, table_name=clickhouse_settings.DNS_MAPPING_ECS
-        )
-
-    anycast_hostnames = set()
-    all_hostnames = set()
-    for row in ecs_hostnames:
-        hostname = row["hostname"]
-        answer = row["answer"]
-        bgp_prefix = row["answer_bgp_prefix"]
-
-        all_hostnames.add(hostname)
-
-        if bgp_prefix in anycatch_db:
-            anycast_hostnames.add(hostname)
+        # no response for current TTL
+        if not responses:
             continue
 
-    logger.info(
-        f"Number of unicast hostnames:: {len(anycast_hostnames.symmetric_difference(all_hostnames))}"
-    )
+        for ip_addr, rtts in responses.items():
+            # remove private ip addresses
+            if IPv4Address(ip_addr).is_private:
+                continue
 
-    logger.info(f"Number of Anycast hostnames:: {len(anycast_hostnames)}")
+            min_rtt = min(rtts)
+            max_rtt = max(rtts)
+            avg_rtt = mean(rtts)
 
-    return anycast_hostnames.symmetric_difference(all_hostnames)
+            traceroute_results.append(
+                f"{traceroute['timestamp']},\
+                    {traceroute['from']},\
+                    {get_prefix_from_ip(traceroute['from'])},\
+                    {24},\
+                    {traceroute['prb_id']},\
+                    {traceroute['msm_id']},\
+                    {traceroute['dst_addr']},\
+                    {get_prefix_from_ip(traceroute['dst_addr'])},\
+                    {traceroute['proto']},\
+                    {ip_addr},\
+                    {get_prefix_from_ip(ip_addr)},\
+                    {ttl},\
+                    {rcvd},\
+                    {sent},\
+                    {min_rtt},\
+                    {max_rtt},\
+                    {avg_rtt},\
+                    \"{rtts}\""
+            )
+
+    return traceroute_results
 
 
-async def resolve_vps_subnet() -> None:
-    """perform ECS-DNS resolution one all VPs subnet"""
-    unicast_hostnames = await filter_anycast_hostnames()
+def load_iter(in_file: Path) -> Generator:
+    """load iter large file"""
+    for row in in_file.open("r"):
+        yield json.loads(row)
 
-    tmp_hostname_file = create_tmp_csv_file(unicast_hostnames)
+
+async def download() -> None:
+    """download public measurement from RIPE Atlas FTP, output results into clickhouse"""
+    base_url = "https://data-store.ripe.net/datasets/atlas-daily-dumps/"
+    dump_url = "2024-02-06/"
+    file_url = base_url + dump_url + "traceroute-2024-02-06T2300.bz2"
+    output_file = path_settings.DATASET / "traceroute-2024-02-06T2300.bz2"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(file_url)
+        print(file_url)
+
+    with output_file.open("wb") as f:
+        f.write(resp.content)
+
+
+async def insert() -> None:
+    """from a decompressed traceroute file, parse them"""
+    in_file = path_settings.DATASET / "traceroute-2024-02-06T2300"
+    batch_size = 100_000
+    traceroutes = []
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps_subnet = await GetSubnets().execute(
-            client=client, table_name=clickhouse_settings.VPS_RAW
+        await CreateTracerouteTable().execute(
+            client, clickhouse_settings.RIPE_ATLAS_TRACEROUTES
         )
 
-    await resolve_hostnames(
-        subnets=[row["subnet"] for row in vps_subnet],
-        hostname_file=tmp_hostname_file,
-        output_table=clickhouse_settings.DNS_MAPPING_VPS_RAW,
-        repeat=False,
-        end_date=None,
+    for traceroute in load_iter(in_file):
+
+        # remove IPv6 and corrupted traceroutes
+        if (
+            traceroute["af"] != 4
+            or not traceroute["from"]
+            or not traceroute["destination_ip_responded"]
+        ):
+            continue
+
+        traceroute = parse_traceroute(traceroute)
+        traceroutes.extend(traceroute)
+
+        if len(traceroutes) > batch_size:
+            logger.info(f"inserting batch of traceroute: limit = {batch_size}")
+
+            tmp_file_path = create_tmp_csv_file(traceroutes)
+
+            await InsertFromCSV().execute(
+                table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
+                in_file=tmp_file_path,
+            )
+
+            tmp_file_path.unlink()
+            traceroutes = []
+
+
+async def probe_connectivity() -> None:
+    """get VPs connectivity based on avg first reply rtt from RIPE Atlas public traceroutes"""
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        i = 0
+        resp = await GetProbeConnectivity().execute_iter(
+            client=client,
+            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
+        )
+
+        async for row in resp:
+            vp = row["src_addr"]
+            connectivity = row["connectivity"]
+            logger.info(f"vp = {vp}, connectivity = {connectivity}")
+
+            i += 1
+            if i > 10:
+                break
+
+    # TODO: get entire VPs table, add connectivity
+
+
+async def get_geoloc_from_traceroute() -> None:
+    """
+    retrieve all IPs with latency below a given threshold
+    (default = 2ms) from RIPE Atlas public traceroutes
+    """
+    asndb = pyasn(str(path_settings.RIB_TABLE))
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        vps = {}
+        resp = await GetVPs().execute_iter(
+            client=client,
+            table_name=clickhouse_settings.VPS_RAW,
+        )
+        async for row in resp:
+            vps[row["vp_addr"]] = row
+
+        geoloc_ip_addrs = []
+        resp = await GetGeolocFromTraceroute().execute_iter(
+            client=client,
+            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
+        )
+
+        async for row in resp:
+
+            addr = row["reply_addr"]
+            subnet = get_prefix_from_ip(addr)
+            asn, bgp_prefix = route_view_bgp_prefix(addr, asndb)
+
+            # filter anycast IP addrs
+
+            # TODO: Get all VPs present in measurement
+            vp_addr = row["src_addr"]
+            try:
+                vp_info = vps[vp_addr]
+            except KeyError:
+                logger.info(f"VP::{vp_addr} not in VPs table")
+                continue
+
+            logger.info("at least we geolocate one...")
+
+            # TODO: get asn and bgp prefix from RIPE if not found?
+            if not asn:
+                asn = -1
+            if not bgp_prefix:
+                bgp_prefix = "Unknown"
+
+            min_rtt = row["min_rtt"]
+            measured_dst = rtt_to_km(min_rtt)
+
+            geoloc_ip_addrs.append(
+                f"{row['reply_addr']},\
+                {subnet},\
+                {bgp_prefix},\
+                {asn},\
+                {vp_info['lat']},\
+                {vp_info['lon']},\
+                {vp_info['country_code']},\
+                {vp_addr},\
+                {vp_info['vp_subnet']},\
+                {vp_info['vp_bgp_prefix']},\
+                {min_rtt},\
+                {measured_dst}"
+            )
+
+        await CreateGeolocTable().execute(
+            client=client,
+            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTE_GEOLOC,
+        )
+
+    tmp_file = create_tmp_csv_file(geoloc_ip_addrs)
+    await InsertFromCSV().execute(
+        table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTE_GEOLOC,
+        in_file=tmp_file,
     )
+
+    tmp_file.unlink()
 
 
 async def main() -> None:
@@ -465,13 +306,12 @@ async def main() -> None:
 
     # await init_ripe_atlas_prober()
 
-    # await filter_ecs_hostnames()
+    # await download()
 
-    # await filter_anycast_hostnames()
+    # await insert()
 
-    await resolve_vps_subnet()
-
-    # await filter_hostnames()
+    # await probe_connectivity()
+    await get_geoloc_from_traceroute()
 
 
 if __name__ == "__main__":
