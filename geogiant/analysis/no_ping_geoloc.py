@@ -12,8 +12,8 @@ from geogiant.common.geoloc import (
     polygon_centroid,
     weighted_centroid,
 )
-from geogiant.common.settings import PathSettings, ClickhouseSettings
 from geogiant.common.files_utils import load_pickle, dump_pickle, load_csv
+from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
@@ -103,15 +103,9 @@ async def get_score(
 async def compute_scores(targets: list) -> None:
 
     hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
+    hostname_filter = [row.split(",")[0] for row in hostname_filter]
 
-    logger.info("#############################################")
-    logger.info("# OVERALL SCORE:: SUBNETS                   #")
-    logger.info("#############################################")
-    # subnet_score = await get_score(target_subnet, "answer_subnet", hostname_filter)
-    # dump_pickle(
-    #     data=subnet_score,
-    #     output_file=path_settings.RESULTS_PATH / "subnet_score.pickle",
-    # )
+    logger.info(f"No ping geolocation using {len(hostname_filter)} hostnames")
 
     logger.info("#############################################")
     logger.info("# OVERALL SCORE:: BGP PREFIXES              #")
@@ -154,18 +148,20 @@ def get_vp_weight(
     get vp weight for centroid calculation.
     we take w = 1 / sum(d_i_j)
     """
-    vp_i_lat, vp_i_lon = vps_coordinate[vp_i]
     sum_d = 0
+    vp_i_lat, vp_i_lon = vps_coordinate[vp_i]
     for vp_j in vps_assigned:
         if vp_j == vp_i:
             continue
-
         try:
             vp_j_lat, vp_j_lon = vps_coordinate[vp_j]
         except KeyError:
             continue
 
         sum_d += distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+
+    if not sum_d:
+        return 0
 
     return 1 / sum_d
 
@@ -187,8 +183,7 @@ def weighted_ecs_target_geoloc(
         except KeyError:
             logger.info(f"{vp_addr} missing from ripe atlas set")
 
-    target_lat, target_lon = weighted_centroid(points)
-    return (target_lat, target_lon)
+    return weighted_centroid(points)
 
 
 def best_ecs_target_geoloc(
@@ -234,12 +229,17 @@ def no_pings_eval(
 
         # compare true target geolocation with estimated one
         d_error = distance(target_lat, ecs_lat, target_lon, ecs_lon)
-        w_d_error = distance(target_lat, w_ecs_lat, target_lon, w_ecs_lon)
         b_d_error = distance(target_lat, b_ecs_lat, target_lon, b_ecs_lon)
 
         results[target_addr] = d_error
-        w_results[target_addr] = w_d_error
         b_results[target_addr] = b_d_error
+
+        # TODO: find why sometimes no output for weighted geoloc
+        if not w_ecs_lat or not w_ecs_lon:
+            continue
+
+        w_d_error = distance(target_lat, w_ecs_lat, target_lon, w_ecs_lon)
+        w_results[target_addr] = w_d_error
 
     return results, w_results, b_results
 
