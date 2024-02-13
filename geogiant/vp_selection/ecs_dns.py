@@ -82,7 +82,7 @@ class VPSelectionDNS(VPSelectionBase):
 
     async def select_vps_per_target(
         self, probing_budget: int = 50, granularity: str = "answer_bgp_prefix"
-    ) -> [dict, set]:
+    ) -> tuple[dict, set]:
         """return a sorted list of pair (vp,rtt) per target using ECS-DNS algo"""
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)
@@ -129,7 +129,7 @@ class VPSelectionDNS(VPSelectionBase):
 
     async def select_vps_per_subnet(
         self, granularity: str = "answer_bgp_prefix"
-    ) -> [dict, set]:
+    ) -> tuple[dict, set]:
         """return a sorted list of pair (vp, median_rtt) per subnet ECS-DNS algo"""
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)

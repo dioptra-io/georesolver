@@ -1,16 +1,17 @@
 """main functions for analyzing geolocation results"""
 
 import asyncio
-from collections import defaultdict
 
+from collections import defaultdict
 from loguru import logger
 from tqdm import tqdm
 
+from geogiant.vp_selection import VPSelectionDNS
+
 from geogiant.common.files_utils import load_json
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.settings import PathSettings
 from geogiant.common.geoloc import cbg, rtt_to_km, distance
-from geogiant.vp_selection import VPSelectionDNS
+from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
 
@@ -30,7 +31,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         center_coordinates: tuple,
         radius: float,
         threshold: int = 20,
-    ) -> list:
+    ) -> list[str]:
         """From a pop geolocation, return all vps within this area"""
         target_associated_vps = []
         selected_vps_per_asn = defaultdict(list)
@@ -75,12 +76,11 @@ class VPSelectionMultiIteration(VPSelectionDNS):
 
     def distance_vp_selection(
         self,
-        target_addr: str,
         center_coordinates: tuple,
         vps_coordinate: list,
         ping_vps_to_target: dict,
         radius: int = 1000,
-    ) -> [list, int]:
+    ) -> tuple[list, int]:
         """select the set of vps within a geographical area"""
         vp_selection = []
         measurement_cost = 0
@@ -107,7 +107,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         vps_coordinate: dict,
         prev_vp_selection: list,
         ping_vps_to_target: dict,
-    ) -> [list, int]:
+    ) -> tuple[list, int]:
         multi_iter_m_cost = 0
         closest_vp_addr, min_rtt = min(prev_vp_selection, key=lambda x: x[-1])
 
@@ -171,7 +171,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         vps_coordinate: dict,
         prev_vp_selection: list,
         ping_vps_to_target: dict,
-    ) -> [list, int]:
+    ) -> tuple[list, int]:
         # perform CBG with results from previous stage
         centroid_lat, centroid_lon = cbg(
             vp_coordinates=vps_coordinate,
