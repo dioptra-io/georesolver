@@ -36,14 +36,14 @@ class OverallScore(Query):
         # groupUniqArray(hostname) as hostnames,
         # arrayMap(x->(x, arrayFilter(y->y.1=x, hostname_bgp_prefixes)), hostnames) as hostname_bgp_prefixes_map
         # SELECT groupArray(vp_mapping) FROM (
-        # SELECT (client_subnet, hostname_bgp_prefixes_map) as vp_mapping FROM test_clustering
-        # GROUP BY client_subnet)) as vps_mapping,
+        # SELECT (subnet, hostname_bgp_prefixes_map) as vp_mapping FROM test_clustering
+        # GROUP BY subnet)) as vps_mapping,
         # groupUniqArray((hostname, answer_bgp_prefix)) as hostname_bgp_prefixes,
         # groupUniqArray(hostname) as hostnames,
         # arrayMap(x->(x, arrayFilter(y->y.1=x, hostname_bgp_prefixes)), hostnames) as hostname_bgp_prefixes_map,
         # arrayMap(x->(x.1, arrayIntersect(x.2, arrayFilter(y->, vps_mapping)
-        # SELECT client_subnet, hostname_bgp_prefixes_map, vps_mapping FROM test_clustering
-        # GROUP BY client_subnet
+        # SELECT subnet, hostname_bgp_prefixes_map, vps_mapping FROM test_clustering
+        # GROUP BY subnet
         # LIMIT 10
 
         return f"""
@@ -54,34 +54,34 @@ class OverallScore(Query):
         FROM
         (
             SELECT
-                t1.client_subnet AS subnet_1,
-                t2.client_subnet AS subnet_2,
+                t1.subnet AS subnet_1,
+                t2.subnet AS subnet_2,
                 length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
             FROM
             (
                 SELECT
-                    client_subnet,
+                    subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
-                    client_subnet IN ({target_filter})
+                    subnet IN ({target_filter})
                     {hostname_filter}
                     -- AND pop_ip_info_id != -1
-                GROUP BY client_subnet
+                GROUP BY subnet
             ) AS t1
             CROSS JOIN
             (
                 SELECT
-                    client_subnet,
+                    subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
-                    client_subnet NOT IN ({target_filter})
+                    subnet NOT IN ({target_filter})
                     {hostname_filter}
                     -- AND pop_ip_info_id != -1
-                GROUP BY client_subnet
+                GROUP BY subnet
             ) AS t2
-            WHERE t1.client_subnet != t2.client_subnet
+            WHERE t1.subnet != t2.subnet
         )
         WHERE subnet_1 IN ({target_filter})
         GROUP BY subnet_1
@@ -101,12 +101,12 @@ class HostnameScore(Query):
             hostname_filter = ""
         if targets := kwargs.get("targets"):
             targets = "".join([f",toIPv4('{t}')" for t in targets])[1:]
-            targets = f"client_subnet IN ({targets})"
+            targets = f"subnet IN ({targets})"
         else:
             targets = ""
         if target_filter := kwargs.get("target_filter"):
             target_filter = "".join([f",toIPv4('{t}')" for t in target_filter])[1:]
-            target_filter = f"client_subnet NOT IN ({target_filter})"
+            target_filter = f"subnet NOT IN ({target_filter})"
         else:
             target_filter = ""
         if column_name := kwargs.get("column_name"):
@@ -122,34 +122,34 @@ class HostnameScore(Query):
         FROM
         (
             SELECT
-                t1.client_subnet AS subnet_1,
-                t2.client_subnet AS subnet_2,
+                t1.subnet AS subnet_1,
+                t2.subnet AS subnet_2,
                 length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
             FROM
             (
                 SELECT
-                    client_subnet,
+                    subnet,
                     hostname,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
                     {targets}
                     {hostname_filter}
-                GROUP BY (client_subnet, hostname)
+                GROUP BY (subnet, hostname)
             ) AS t1
             CROSS JOIN
             (
                 SELECT
-                    client_subnet,
+                    subnet,
                     hostname,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
                     {target_filter}
                     {hostname_filter}
-                GROUP BY (client_subnet, hostname)
+                GROUP BY (subnet, hostname)
             ) AS t2
-            WHERE t1.client_subnet != t2.client_subnet
+            WHERE t1.subnet != t2.subnet
         )
         GROUP BY subnet_1
         """

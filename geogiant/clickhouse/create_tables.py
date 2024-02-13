@@ -132,11 +132,13 @@ class CreateDNSMappingTable(Query):
 
 class CreateDNSMappingWithMetadataTable(Query):
     def statement(self, table_name: str) -> str:
-        sorting_key = "client_subnet, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn"
+        sorting_key = "client_subnet,client_bgp_prefix, client_asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"
         return f"""
             CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
             (
                 client_subnet          IPv4,
+                client_bgp_prefix      String,
+                client_asn             UInt32,
                 hostname               String,
                 answer                 IPv4,
                 answer_subnet          IPv4,
@@ -145,7 +147,9 @@ class CreateDNSMappingWithMetadataTable(Query):
                 pop_ip_info_id         Int32,
                 pop_lat                Float32,
                 pop_lon                Float32,
-                pop_city               String
+                pop_city               String,
+                pop_country            String,
+                pop_continent          String
             )
             ENGINE MergeTree
             ORDER BY ({sorting_key})

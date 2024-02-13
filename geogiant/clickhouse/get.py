@@ -93,13 +93,21 @@ class GetSubnetPerHostname(Query):
         return f"""
         SELECT 
             hostname,
-            answer_bgp_prefix,
-            groupUniqArray(subnet) as subnets
-        FROM 
+            groupArray((answer_bgp_prefix, subnets)) AS vps_per_bgp_prefix
+        FROM(
+            SELECT
+                hostname,
+                answer_bgp_prefix,
+                groupUniqArray(subnet) as subnets
+            FROM 
             {self.settings.DATABASE}.{table_name}
-        {anycast_filter}
+            {anycast_filter}
+            GROUP BY
+                (hostname, answer_bgp_prefix)
+        )
         GROUP BY
-            (hostname, answer_bgp_prefix)
+            hostname
+        
         """
 
 
@@ -198,6 +206,27 @@ class GetDNSMapping(Query):
         """
 
 
+class GetPoPInfo(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"WHERE hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+
+        return f"""
+        SELECT 
+            toString(answer) as answer,
+            toString(answer_subnet) as answer_subnet,
+            toString(answer_bgp_prefix) as answer_bgp_prefix,
+            pop_country,
+            pop_continent
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
+        {hostname_filter}
+        """
+
+
 class GetDNSMappingHostnames(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if hostname_filter := kwargs.get("hostname_filter"):
@@ -211,23 +240,24 @@ class GetDNSMappingHostnames(Query):
         else:
             raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
 
-        if column_name := kwargs.get("column_name"):
-            column_name = column_name
-        else:
+        try:
+            answer_granularity = kwargs["answer_granularity"]
+            client_granularity = kwargs["client_granularity"]
+        except KeyError:
             raise RuntimeError(f"Column name parameter missing for {__class__}")
 
         return f"""
         SELECT
-            toString(client_subnet) as subnet,
+            toString({client_granularity}) as client_granularity,
             hostname,
-            groupUniqArray({column_name}) as mapping
+            groupUniqArray({answer_granularity}) as mapping
         FROM
             {self.settings.DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
         GROUP BY
-            (subnet, hostname)
+            (client_granularity, hostname)
         """
 
 
@@ -236,7 +266,7 @@ class GetDNSMappingOld(Query):
         return f"""
         SELECT
             distinct(
-                toString(client_subnet) as subnet, 
+                toString(client_subnet) as client_subnet, 
                 hostname as hostname, 
                 toString(answers) as answer
             ) as data

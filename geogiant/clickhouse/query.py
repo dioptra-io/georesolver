@@ -1,6 +1,6 @@
 import asyncio
-import json
 
+from typing import Generator
 from pathlib import Path
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -48,7 +48,7 @@ class NativeQuery:
 
         return data
 
-    def execute_iter(self, table_name: str, **kwargs) -> list:
+    def execute_iter(self, table_name: str, **kwargs) -> Generator:
         """execute select statement with clickhouse driver"""
         statement = self.statement(table_name, **kwargs)
 
