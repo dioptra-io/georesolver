@@ -103,14 +103,14 @@ def get_geographic_ratio(geographic_mapping: list) -> float:
     """return the ratio of the most represented geographic granularity (country/continent)"""
     return max(
         [
-            (region, geographic_mapping.count(region) / len(geographic_mapping))
+            geographic_mapping.count(region) / len(geographic_mapping)
             for region in geographic_mapping
-        ],
-        key=lambda x: x[-1],
+        ]
     )
 
 
 def filter_on_geo_distribution(
+    bgp_prefix_country_ratio: list[float],
     hostnames_geo_mapping: dict[list],
     threshold_country: float = 0.7,
 ) -> dict:
@@ -121,7 +121,7 @@ def filter_on_geo_distribution(
     """
     valid_hostnames = []
     invalid_hostnames = []
-    for hostname, bgp_prefix_country_ratio in hostnames_geo_mapping.items():
+    for country_ratio in hostnames_geo_mapping.items():
         avg_ratio_country = []
 
         for major_country_ratio in bgp_prefix_country_ratio:
@@ -129,9 +129,9 @@ def filter_on_geo_distribution(
 
         avg_ratio_country = mean(avg_ratio_country)
         if avg_ratio_country > threshold_country:
-            valid_hostnames.append((hostname, avg_ratio_country))
+            valid_hostnames.append((avg_ratio_country))
         else:
-            invalid_hostnames.append((hostname, avg_ratio_country))
+            invalid_hostnames.append((avg_ratio_country))
 
     return valid_hostnames, invalid_hostnames
 
@@ -142,8 +142,11 @@ async def get_hostnames_geographic_influence() -> tuple[dict, dict]:
     Assumption: hostnames that perform ECS-DNS resolution based on geographical information
     associate BGP prefixes to vps in the same region (either country or continent).
     """
-    batch_size = 100_000
-    hostname_geo_country_ratio = defaultdict(list)
+    valid_hostnames = set()
+    invalid_hostnames = set()
+
+    batch = 0
+    threshold_country = 0.7
     anycatch_prefixes = load_anycatch_data()
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
@@ -162,22 +165,40 @@ async def get_hostnames_geographic_influence() -> tuple[dict, dict]:
 
     logger.info(f"Number of hostnames loaded: {len(subnet_per_hostname)}")
 
-    for i in range(0, len(subnet_per_hostname), batch_size):
-        logger.info(f"Hostname Geo Info:: {i} -> {i + batch_size}")
+    for row in tqdm(subnet_per_hostname):
+        hostname = row["hostname"]
+        vps_per_bgp_prefix = row["vps_per_bgp_prefix"]
 
-        for row in tqdm(subnet_per_hostname[i : i + batch_size]):
-            hostname = row["hostname"]
-            subnets = row["subnets"]
+        hostname_country_ratio = []
+        for _, subnets in vps_per_bgp_prefix:
 
             mapping_countries = get_geographic_mapping(subnets, vps_per_subnet)
             major_country_ratio = get_geographic_ratio(mapping_countries)
 
-            hostname_geo_country_ratio[hostname].append(major_country_ratio)
+            hostname_country_ratio.append(major_country_ratio)
 
-    valid_hostnames, invalid_hostnames = filter_on_geo_distribution(
-        hostname_geo_country_ratio,
-        threshold_country=0.7,
-    )
+        avg_mapping_ratio = mean(hostname_country_ratio)
+        if avg_mapping_ratio > threshold_country:
+            valid_hostnames.add((f"{hostname}, {avg_mapping_ratio}"))
+            logger.debug(
+                f"Hostname::{hostname} valid, mapping ratio = {avg_mapping_ratio}"
+            )
+        else:
+            invalid_hostnames.add(f"{hostname}, {avg_mapping_ratio}")
+            logger.debug(
+                f"Hostname::{hostname} invalid, mapping ratio = {avg_mapping_ratio}"
+            )
+
+        batch += 1
+        if batch > 10:
+            dump_csv(
+                valid_hostnames,
+                path_settings.DATASET / "valid_hostnames.csv",
+            )
+            dump_csv(
+                invalid_hostnames,
+                path_settings.DATASET / "invalid_hostnames.csv",
+            )
 
     return valid_hostnames, invalid_hostnames
 
