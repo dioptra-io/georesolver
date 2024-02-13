@@ -199,6 +199,9 @@ def weighted_centroid(points: list) -> tuple[float, float]:
 
         total_w += p_w
 
+    if not total_w:
+        return 0, 0
+
     return x / total_w, y / total_w
 
 
@@ -406,3 +409,8 @@ def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
     ]
     total_distance = sum(distances_log)
     return probe, total_distance
+
+
+def get_continent(country_code, country_info: dict) -> str:
+    """return the corresponding continent for a given country"""
+    return country_info[country_code]["continent"]

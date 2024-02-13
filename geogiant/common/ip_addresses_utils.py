@@ -108,7 +108,7 @@ async def ripe_stat_bgp_prefix(ip_addr: str) -> str:
     return bgp_prefix
 
 
-def route_view_bgp_prefix(ip_addr: str, asndb) -> str:
+def route_view_bgp_prefix(ip_addr: str, asndb) -> tuple[int, str]:
     """py-asn lookup on route view RIB table dump"""
     asn = None
     bgp_prefix = None
