@@ -2,6 +2,7 @@
 
 import asyncio
 
+from dataclasses import dataclass
 from collections import defaultdict
 from loguru import logger
 from tqdm import tqdm
@@ -10,21 +11,29 @@ from pych_client import AsyncClickHouseClient
 from geogiant.vp_selection import VPSelectionBase
 from geogiant.clickhouse import OverallScore
 
-from geogiant.common.files_utils import load_json, load_csv
+from geogiant.common.files_utils import load_json, load_csv, load_pickle
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
 
 
+@dataclass(frozen=True)
+class ResultsScore:
+    client_granularity: str
+    answer_granularity: str
+    scores: list
+    inconsistent_mappings: list
+
+
 class VPSelectionDNS(VPSelectionBase):
     """use ECS-DNS resolution to select vps"""
 
-    latency_threshold = 1
+    latency_threshold = 2
 
-    async def get_subnet_score(self, targets: list, granularity: str) -> dict[list]:
+    async def get_overall_scores(self, targets: list, granularity: str) -> dict[list]:
         """for a list of targets return their dns mapping score"""
-        subnet_score = {}
+        scores = {}
         hostname_filter = load_csv(
             self.path_settings.DATASET / "valid_hostnames_cdn.csv"
         )
@@ -45,9 +54,17 @@ class VPSelectionDNS(VPSelectionBase):
             )
 
         for row in resp:
-            subnet_score[row["target_subnet"]] = row["scores"]
+            scores[row["target_subnet"]] = row["scores"]
 
-        return subnet_score
+        return scores
+
+    async def get_hostname_scores(self) -> dict[list]:
+        """either calculate or simply return score file content"""
+        scores: ResultsScore = load_pickle(
+            path_settings.RESULTS_PATH
+            / "score_not_extended_filtered_hostname_subnet.pickle"
+        )
+        return scores.scores
 
     def ecs_dns_vp_selection(
         self,
@@ -71,7 +88,7 @@ class VPSelectionDNS(VPSelectionBase):
         )
 
         if not vp_selection:
-            return None, None
+            return None, probing_budget
 
         _, min_rtt = min(vp_selection, key=lambda x: x[-1])
 
@@ -89,19 +106,16 @@ class VPSelectionDNS(VPSelectionBase):
         vps = load_json(self.path_settings.OLD_VPS)
 
         vps_per_subnet = self.get_vps_per_subnet(vps)
-        subnet_score = await self.get_subnet_score(
-            targets=targets, granularity=granularity
-        )
+        subnet_score = await self.get_hostname_scores()
         ping_vps_to_targets = await self.get_pings_per_target(
             self.clickhouse_settings.OLD_PING_VPS_TO_TARGET
         )
 
         logger.info(f"VP selection on {len(ping_vps_to_targets)} targets")
 
+        target_unmapped = set()
         target_vp_selection = defaultdict(list)
         target_measurement_cost = defaultdict(int)
-        target_unmapped = set()
-
         for row in tqdm(ping_vps_to_targets):
             target_addr = row["target"]
             pings = row["pings"]
@@ -134,24 +148,21 @@ class VPSelectionDNS(VPSelectionBase):
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)
         vps = load_json(self.path_settings.OLD_VPS)
-        vps_per_subnet = self.get_vps_per_subnet(vps)
 
+        vps_per_subnet = self.get_vps_per_subnet(vps)
         ping_vps_to_subnet = await self.get_pings_per_subnet(
             self.clickhouse_settings.OLD_PING_VPS_TO_SUBNET
         )
-        subnet_score = await self.get_subnet_score(
-            targets=targets, granularity=granularity
-        )
+        subnet_score = await self.get_hostname_scores()
 
         logger.info(f"VP selection on {len(ping_vps_to_subnet)} subnets")
 
+        subnet_unmapped = set()
         subnet_vp_selection = defaultdict(list)
         subnet_measurement_cost = defaultdict(int)
-        subnet_unmapped = set()
-
         for subnet in ping_vps_to_subnet:
-
             min_rtts_per_vp = defaultdict(list)
+
             # get all vps rtt for the three representative, so we can calculate median error
             for target_addr, ping_vps_to_target in ping_vps_to_subnet[subnet].items():
                 target_subnet = get_prefix_from_ip(target_addr)
@@ -166,6 +177,9 @@ class VPSelectionDNS(VPSelectionBase):
                 )
 
                 subnet_measurement_cost[subnet] += measurement_cost
+
+                if not vp_selection:
+                    continue
 
                 # get rtts to each representative for each subnet target
                 for vp_addr, min_rtt in vp_selection:
@@ -187,6 +201,6 @@ if __name__ == "__main__":
             vps=vps,
             output_path="ecs_dns",
             target_selection=True,
-            subnet_selection=False,
+            subnet_selection=True,
         )
     )

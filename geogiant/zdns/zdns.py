@@ -34,24 +34,36 @@ class ZDNS:
         self,
         subnets: list[str],
         hostname_file: Path,
-        name_servers: list,
         table_name: str,
+        name_servers: list,
+        iterative: bool = False,
+        timeout: float = 0.5,
     ) -> None:
         self.subnets = subnets
         self.hostname_file = hostname_file
         self.name_servers = name_servers
         self.table_name = table_name
+        self.timeout = timeout
+        self.iterative = iterative
 
         self.settings = ZDNSSettings()
 
     def get_zdns_cmd(self, subnet: str) -> str:
         """parse zdns cmd for a given subnet"""
         hostname_cmd = f"cat {self.hostname_file}"
-        return (
-            hostname_cmd
-            + " | "
-            + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --name-servers {self.name_servers}"
-        )
+
+        if self.iterative:
+            return (
+                hostname_cmd
+                + " | "
+                + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --iterative"
+            )
+        else:
+            return (
+                hostname_cmd
+                + " | "
+                + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --name-servers {self.name_servers}"
+            )
 
     async def query(self, subnet: str) -> dict:
         """run zdns tool and return zdns raw results"""
@@ -107,6 +119,7 @@ class ZDNS:
                 answer = answer["answer"]
                 if is_valid_ipv4(answer):
                     subnet_addr = get_prefix_from_ip(subnet)
+                    answer_subnet = get_prefix_from_ip(answer)
                     answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
 
                     if not answer_asn or not answer_bgp_prefix:
@@ -119,8 +132,9 @@ class ZDNS:
                         24,\
                         {hostname},\
                         {answer},\
-                        {answer_asn},\
+                        {answer_subnet},\
                         {answer_bgp_prefix},\
+                        {answer_asn},\
                         {source_scope}"
                     )
 
@@ -135,7 +149,7 @@ class ZDNS:
             query_results = await self.query(subnet)
             parsed_data = self.parse(subnet, query_results, asndb)
             zdns_data.extend(parsed_data)
-            time.sleep(1)
+            time.sleep(self.timeout)
 
         return zdns_data
 

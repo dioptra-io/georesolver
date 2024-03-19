@@ -229,7 +229,7 @@ class VPSelectionBase(ABC):
         raw_vp_selection: list,
         vp_coordinates: dict,
         threshold: int = 20,
-    ) -> None:
+    ) -> list:
         """from a list of VP, select one per AS and per city"""
         filtered_vp_selection = []
         selected_vps_per_asn = defaultdict(list)
@@ -351,14 +351,14 @@ class VPSelectionBase(ABC):
         return geolocation_errors, min_latencies
 
     @abstractmethod
-    async def select_vps_per_target(self) -> [dict, set]:
+    async def select_vps_per_target(self) -> tuple[dict, set]:
         """for each targets, select a set of vps to perform measurements"""
         raise NotImplementedError(
             f"Function: {__name__} must be implemented for class: {__class__}"
         )
 
     @abstractmethod
-    async def select_vps_per_subnet(self) -> [dict, set]:
+    async def select_vps_per_subnet(self) -> tuple[dict, set]:
         """for each targets, select a set of vps to perform measurements"""
         raise NotImplementedError(
             f"Function: {__name__} must be implemented for class: {__class__}"
@@ -426,8 +426,6 @@ class VPSelectionBase(ABC):
                 self.path_settings.RESULTS_PATH
                 / f"{output_path}_target_min_latencies.pickle",
             )
-
-            return geoloc_error_target, min_latencies
 
         if subnet_selection:
             (
@@ -521,6 +519,6 @@ if __name__ == "__main__":
             vps=vps,
             output_path="ref",
             target_selection=True,
-            subnet_selection=False,
+            subnet_selection=True,
         )
     )

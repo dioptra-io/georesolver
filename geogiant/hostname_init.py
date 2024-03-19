@@ -1,18 +1,18 @@
 """create database tables, retrieve vantage points, perform zdns / zmap measurement and populate database"""
 
+import json
 import asyncio
 import schedule
 import time
 
+from pyasn import pyasn
 from tqdm import tqdm
 from pathlib import Path
-from dataclasses import dataclass
 from numpy import mean
-from collections import defaultdict
 from loguru import logger
 from pych_client import AsyncClickHouseClient
-from multiprocessing import Pool, cpu_count
-
+from ipwhois import IPWhois
+from collections import defaultdict
 
 from geogiant.zdns import ZDNS
 from geogiant.clickhouse import (
@@ -20,13 +20,19 @@ from geogiant.clickhouse import (
     GetSubnetPerHostname,
     GetVPSInfoPerSubnet,
     GetDNSMapping,
+    GetHostnamesAnswerSubnet,
 )
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip, get_host_ip_addr
+from geogiant.common.ip_addresses_utils import (
+    get_prefix_from_ip,
+    get_host_ip_addr,
+    route_view_bgp_prefix,
+)
 from geogiant.common.files_utils import (
-    load_countries_info,
     load_anycatch_data,
     dump_csv,
     create_tmp_csv_file,
+    load_csv,
+    dump_json,
 )
 from common.settings import PathSettings, ClickhouseSettings
 
@@ -40,8 +46,7 @@ async def resolve_hostnames(
     output_table: str,
     repeat: bool = False,
     end_date: str = "2024-01-23 00:00",
-    chunk_size: int = 1_000,
-    max_hostname: int = 100_000,
+    chunk_size: int = 100,
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
@@ -53,9 +58,11 @@ async def resolve_hostnames(
         with hostname_file.open("r") as f:
             logger.info("raw hostname file already generated")
 
-            # take max hostnames from hostname file
             all_hostnames = f.readlines()
-            all_hostnames = all_hostnames[:max_hostname]
+
+            logger.info(
+                f"Resolving:: {len(all_hostnames)} hostnames on {len(subnets)} subnets"
+            )
 
             # split file
             for index in range(0, len(all_hostnames), chunk_size):
@@ -64,19 +71,20 @@ async def resolve_hostnames(
                 tmp_hostname_file = create_tmp_csv_file(hostnames)
 
                 logger.info(
-                    f"Starting to resolve hostnames {index * chunk_size} to {(index + 1) * chunk_size} (total={len(all_hostnames * chunk_size)})"
+                    f"Starting to resolve hostnames {index} to {index + chunk_size} (total={len(all_hostnames)})"
                 )
 
                 zdns = ZDNS(
                     subnets=subnets,
                     hostname_file=tmp_hostname_file,
-                    name_servers="8.8.8.8",
                     table_name=output_table,
+                    name_servers="8.8.8.8",
+                    iterative=True,
+                    timeout=0,
                 )
                 await zdns.main()
 
                 tmp_hostname_file.unlink()
-                time.sleep(1)
 
     await raw_dns_mapping(subnets)
 
@@ -101,12 +109,15 @@ def get_geographic_mapping(subnets: dict, vps_per_subnet: dict) -> tuple[list, l
 
 def get_geographic_ratio(geographic_mapping: list) -> float:
     """return the ratio of the most represented geographic granularity (country/continent)"""
-    return max(
-        [
-            geographic_mapping.count(region) / len(geographic_mapping)
-            for region in geographic_mapping
-        ]
-    )
+    try:
+        return max(
+            [
+                geographic_mapping.count(region) / len(geographic_mapping)
+                for region in geographic_mapping
+            ]
+        )
+    except ValueError:
+        return 0
 
 
 def filter_on_geo_distribution(
@@ -136,7 +147,7 @@ def filter_on_geo_distribution(
     return valid_hostnames, invalid_hostnames
 
 
-async def get_hostnames_geographic_influence() -> tuple[dict, dict]:
+async def filter_geo_hostnames() -> tuple[dict, dict]:
     """
     for each hostname, get vps mapped per BGP prefix and get hostname geographical area of influence
     Assumption: hostnames that perform ECS-DNS resolution based on geographical information
@@ -165,9 +176,22 @@ async def get_hostnames_geographic_influence() -> tuple[dict, dict]:
 
     logger.info(f"Number of hostnames loaded: {len(subnet_per_hostname)}")
 
+    valid_hostnames = load_csv(path_settings.DATASET / "valid_hostnames.csv")
+    invalid_hostnames = load_csv(path_settings.DATASET / "invalid_hostnames.csv")
+    treated_hostnames = valid_hostnames + invalid_hostnames
+    valid_hostnames = set(valid_hostnames)
+    invalid_hostnames = set(invalid_hostnames)
+    treated_hostnames = set([row.split(",")[0] for row in treated_hostnames])
+
+    logger.info(f"{len(treated_hostnames)}:: Hostnames were already analyzed")
+
     for row in tqdm(subnet_per_hostname):
         hostname = row["hostname"]
         vps_per_bgp_prefix = row["vps_per_bgp_prefix"]
+
+        if hostname in treated_hostnames:
+            logger.debug(f"{hostname} already analyzed")
+            continue
 
         hostname_country_ratio = []
         for _, subnets in vps_per_bgp_prefix:
@@ -222,46 +246,7 @@ def print_hostname_info(
         logger.info(f"Hostname = {hostname}, avg ratio = {avg_ratio}")
 
 
-async def filter_hostnames() -> None:
-    """
-    from clickhouse vps dns mapping table, extract geo information from hostname resolution
-    valid hostname: hostname that carry geo information
-    invalid hostname: hostname that does not carry geo information
-    """
-    (
-        valid_hostnames,
-        invalid_hostnames,
-    ) = await get_hostnames_geographic_influence()
-
-    dump_csv(
-        [hostname for hostname in valid_hostnames["country"]],
-        path_settings.DATASET / "valid_hostnames.csv",
-    )
-    dump_csv(
-        [hostname for hostname in invalid_hostnames["country"]],
-        path_settings.DATASET / "invalid_hostnames.csv",
-    )
-
-    # get rows with valid hostname
-    # valid_hostnames_rows = Get().get_valid_hostnames(
-    #     table_name=clickhouse_settings.DNS_MAPPING_VPS_RAW,
-    #     valid_hostnames=[hostname for hostname, _, _ in valid_hostnames["country"]],
-    # )
-
-    # create_table_statement = DNSMappingTable().create_table_statement(
-    #     table_name="filtered_hostname_mapping"
-    # )
-
-    # DNSMappingTable().insert(
-    #     input_data=valid_hostnames_rows,
-    #     table_name="filtered_hostname_mapping",
-    #     create_table_statement=create_table_statement,
-    # )
-
-    print_hostname_info(valid_hostnames, invalid_hostnames)
-
-
-async def filter_ecs_hostnames() -> None:
+async def filter_ecs_hostnames(output_table: str) -> None:
     """perform zdns resolution on host subnet, remove hostnames with source scope equal to 0"""
     host_addr = get_host_ip_addr()
     host_subnet = get_prefix_from_ip(host_addr)
@@ -269,18 +254,19 @@ async def filter_ecs_hostnames() -> None:
     await resolve_hostnames(
         subnets=[host_subnet],
         hostname_file=path_settings.HOSTNAMES_MILLIONS,
-        output_table=clickhouse_settings.DNS_MAPPING_ECS,
+        output_table=output_table,
         repeat=False,
         end_date=None,
+        chunk_size=10_000,
     )
 
 
-async def filter_anycast_hostnames() -> None:
+async def filter_anycast_hostnames(input_table: str) -> None:
     """get all answers, compare with anycatch database"""
     anycatch_db = load_anycatch_data()
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         ecs_hostnames = await GetDNSMapping().execute(
-            client=client, table_name=clickhouse_settings.DNS_MAPPING_ECS
+            client=client, table_name=input_table
         )
 
     anycast_hostnames = set()
@@ -304,9 +290,9 @@ async def filter_anycast_hostnames() -> None:
     return anycast_hostnames.symmetric_difference(all_hostnames)
 
 
-async def resolve_vps_subnet() -> None:
+async def resolve_vps_subnet(input_table: str, output_table: str) -> None:
     """perform ECS-DNS resolution one all VPs subnet"""
-    unicast_hostnames = await filter_anycast_hostnames()
+    unicast_hostnames = await filter_anycast_hostnames(input_table)
     unicast_hostnames = list(unicast_hostnames)
 
     tmp_hostname_file = create_tmp_csv_file(unicast_hostnames)
@@ -319,20 +305,75 @@ async def resolve_vps_subnet() -> None:
     await resolve_hostnames(
         subnets=[row["subnet"] for row in vps_subnet],
         hostname_file=tmp_hostname_file,
-        output_table=clickhouse_settings.DNS_MAPPING_VPS_RAW,
+        output_table=output_table,
         repeat=False,
         end_date=None,
-        chunk_size=1_000,
+        chunk_size=10_000,
     )
 
     tmp_hostname_file.unlink()
 
 
+async def get_hostname_cdn() -> None:
+    """for each IP address returned by a hostname, retrieve the CDN behind"""
+    asndb = pyasn(str(path_settings.RIB_TABLE))
+    # hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
+    # hostname_filter = [row.split(",")[0] for row in hostname_filter]
+
+    asn_to_org = {}
+    with (path_settings.DATASET / "20240101.as-org2info.jsonl").open("r") as f:
+        for row in f.readlines():
+            row = json.loads(row)
+            if "asn" in row and "name" in row:
+                asn_to_org[int(row["asn"])] = row["name"]
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = await GetHostnamesAnswerSubnet().execute_iter(
+            client=client,
+            table_name="filtered_hostnames_ecs_mapping",
+            hostname_filter="",
+        )
+
+        org_per_hostname = defaultdict(dict)
+        async for row in resp:
+            hostname = row["hostname"]
+            answers = row["answer"]
+
+            for answer in answers:
+                asn, bgp_prefix = route_view_bgp_prefix(answer, asndb)
+
+                if "/" not in bgp_prefix:
+                    logger.error("Invalid bgp prefix")
+                    continue
+
+                if asn:
+                    try:
+                        org = asn_to_org[asn]
+                        try:
+                            org_per_hostname[hostname][org].append(bgp_prefix)
+                        except KeyError:
+                            org_per_hostname[hostname][org] = [bgp_prefix]
+                    except KeyError:
+                        # logger.error(f"Cannot retrieve org for AS:: {asn}")
+                        continue
+
+            # logger.info(f"{hostname=}, {org_per_hostname[hostname]=}")
+
+        # set are not json compatible
+        for hostname in org_per_hostname:
+            for org, bgp_prefixes in org_per_hostname[hostname].items():
+                org_per_hostname[hostname][org] = list(set(bgp_prefixes))
+
+        dump_json(
+            org_per_hostname, path_settings.DATASET / "hostname_1M_organization.json"
+        )
+
+
 async def main() -> None:
     """init main"""
-    # logger.info("Starting Geolocation hostnames initialization")
+    logger.info("Starting Geolocation hostnames initialization")
 
-    # await filter_ecs_hostnames()
+    # await filter_ecs_hostnames(output_table="zdns_resolver_ecs_CrUX")
 
     # logger.info("Retrieved ECS hostnames")
 
@@ -340,17 +381,17 @@ async def main() -> None:
 
     logger.info("Filtered anycast hostnames")
 
-    # await resolve_vps_subnet()
+    await resolve_vps_subnet(
+        input_table="zdns_resolver_ecs_CrUX", output_table="filtered_hostnames_ecs_zdns"
+    )
 
     logger.info("Hostname resolution done for every VPs")
 
-    await filter_hostnames()
+    # await filter_geo_hostnames()
 
-    logger.info("Geographically valid hostname done")
+    # logger.info("Geographically valid hostname done")
 
-    # await filter_greedy_hostname()
-
-    # await filter_cdn_diversity_hostname()
+    # await get_hostname_cdn()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 import asyncio
 
+from dataclasses import dataclass
 from collections import defaultdict
 from loguru import logger
 from tqdm import tqdm
@@ -10,10 +11,23 @@ from geogiant.vp_selection import VPSelectionDNS
 
 from geogiant.common.files_utils import load_json
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.geoloc import cbg, rtt_to_km, distance
+from geogiant.common.geoloc import (
+    rtt_to_km,
+    distance,
+    select_best_guess_centroid,
+    is_within_cirle,
+)
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
+
+
+@dataclass(frozen=True)
+class ResultsScore:
+    client_granularity: str
+    answer_granularity: str
+    scores: list
+    inconsistent_mappings: list
 
 
 class VPSelectionMultiIteration(VPSelectionDNS):
@@ -21,9 +35,9 @@ class VPSelectionMultiIteration(VPSelectionDNS):
     then use geographical location around vp with the lowest latency
     """
 
-    latency_threshold: int = 1
+    latency_threshold: int = 2
     nb_round: int = 1
-    probing_budget: int = 30
+    probing_budget: int = 10
 
     def get_vp_within_geographical_area(
         self,
@@ -127,7 +141,6 @@ class VPSelectionMultiIteration(VPSelectionDNS):
                 vp_selection,
                 _,
             ) = self.distance_vp_selection(
-                target_addr=target_addr,
                 center_coordinates=(closest_vp_lat, closest_vp_lon),
                 vps_coordinate=vps_coordinate,
                 ping_vps_to_target=ping_vps_to_target,
@@ -136,8 +149,8 @@ class VPSelectionMultiIteration(VPSelectionDNS):
 
             # in case we have too many VPs selected, simply return the previous results
             # we know that, in some cases, we cannot geolocate an IP address with precision
-            if len(vp_selection) > 150:
-                return prev_vp_selection, 0
+            # if len(vp_selection) > 150:
+            #     return prev_vp_selection, 0
 
             # remove duplicated measurement (we do not probe from a VP that probed already)
             vp_selection = list(set(prev_vp_selection + vp_selection))
@@ -164,38 +177,72 @@ class VPSelectionMultiIteration(VPSelectionDNS):
                 new_min_rtt,
             )
 
+        vp_selection.extend(prev_vp_selection)
+
         return vp_selection, multi_iter_m_cost
 
     def multi_iteration_cbg(
         self,
+        target_addr: str,
         vps_coordinate: dict,
         prev_vp_selection: list,
         ping_vps_to_target: dict,
     ) -> tuple[list, int]:
-        # perform CBG with results from previous stage
-        centroid_lat, centroid_lon = cbg(
-            vp_coordinates=vps_coordinate,
-            vp_selection=prev_vp_selection,
+
+        closest_vp_addr, min_rtt = min(prev_vp_selection, key=lambda x: x[-1])
+
+        # check if dns vp selection sufficient
+        if min_rtt < self.latency_threshold:
+            return prev_vp_selection, 0
+
+        selected_vp_coordinates = {}
+        for vp_addr, _ in prev_vp_selection:
+            vp_lat, vp_lon, _ = vps_coordinate[vp_addr]
+            selected_vp_coordinates[vp_addr] = (vp_lat, vp_lon)
+
+        guessed_geolocation_circles = select_best_guess_centroid(
+            target_addr, selected_vp_coordinates, ping_vps_to_target
         )
 
-        # only get vps that are closed to the center of the centroid
-        closest_vps = self.get_closest_vps(
-            centroid_lat,
-            centroid_lon,
-            vps_coordinate,
-            self.probing_budget,
-        )
+        # no intersection found for CBG
+        if guessed_geolocation_circles is None:
+            return prev_vp_selection, len(prev_vp_selection)
+
+        _, circles = guessed_geolocation_circles
+
+        # Then take one probe per AS, city in the zone
+        vp_in_intersection = {}
+        for vp_addr, (vp_lat, vp_lon, asn) in vps_coordinate.items():
+            is_in_intersection = True
+            for circle in circles:
+                lat_c, long_c, rtt_c, d_c, r_c = circle
+                if not is_within_cirle(
+                    (lat_c, long_c), rtt_c, (vp_lat, vp_lon), speed_threshold=2 / 3
+                ):
+                    is_in_intersection = False
+                    break
+            if is_in_intersection:
+                vp_in_intersection[vp_addr] = (vp_lat, vp_lon, asn)
 
         # get ping results
         vp_selection = self.get_ping_to_target(
-            target_associated_vps=[vp[0] for vp in closest_vps],
+            target_associated_vps=[vp_addr for vp_addr in vp_in_intersection],
             ping_to_target=ping_vps_to_target,
         )
 
-        # filter out vps that are in the same city/AS
-        vp_selection = self.select_one_vp_per_as_city(vp_selection, vps_coordinate)
+        if vp_selection:
+            logger.info(f"{target_addr}:: new vp selection = {len(vp_selection)}")
+        else:
+            logger.info(f"{target_addr}:: No new vps")
 
-        return vp_selection, len(vp_selection)
+        # filter out vps that are in the same city/AS
+        vp_selection: list = self.select_one_vp_per_as_city(
+            vp_selection, vps_coordinate
+        )
+
+        vp_selection.extend(prev_vp_selection)
+
+        return vp_selection, len(vp_selection) - len(prev_vp_selection)
 
     def multi_iteration_vp_selection(
         self,
@@ -204,8 +251,8 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         vps_per_subnet: dict,
         subnet_score: dict,
         ping_vps_to_target: dict,
-        cbg_approximation: bool = False,
-    ) -> [list, int]:
+        cbg_vp_selection: bool = False,
+    ) -> tuple[list, int]:
         """for a given target, select vps function of ecs-dns resolution"""
         vp_selection = []
         m_cost = 0
@@ -220,6 +267,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
             vps_per_subnet=vps_per_subnet,
             ping_vps_to_target=ping_vps_to_target,
             target_subnet_score=subnet_score[target_subnet],
+            probing_budget=self.probing_budget,
         )
 
         # TODO: change algo if ECS-DNS does not give results
@@ -229,15 +277,15 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         # After ECS-DNS VP selection, we perform a second measurement step.
         # Either we use the CBG area defined by the previous measurement, either we take the
         # single radius. Both of these methods are multi-iterative.
-        if cbg_approximation:
+        if cbg_vp_selection:
             vp_selection, multi_iter_m_cost = self.multi_iteration_cbg(
+                target_addr=target_addr,
                 vps_coordinate=vps_coordinate,
                 prev_vp_selection=dns_vp_selection,
                 ping_vps_to_target=ping_vps_to_target,
             )
 
         else:
-            vp_selection.extend(dns_vp_selection)
             vp_selection, multi_iter_m_cost = self.multi_iteration(
                 target_addr=target_addr,
                 vps_coordinate=vps_coordinate,
@@ -249,7 +297,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
 
     async def select_vps_per_target(
         self, granularity: str = "answer_bgp_prefix"
-    ) -> [dict, set]:
+    ) -> tuple[dict, dict, set]:
         """return a sorted list of pair (vp,rtt) per target using ECS-DNS algo"""
         # load datasets
         targets = load_json(self.path_settings.OLD_TARGETS)
@@ -257,7 +305,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         vps_per_subnet = self.get_vps_per_subnet(vps)
         vps_coordinate = self.get_vp_coordinates(vps)
 
-        subnet_score = await self.get_subnet_score(targets, granularity)
+        subnet_score = await self.get_hostname_scores()
         ping_vps_to_targets = await self.get_pings_per_target(
             self.clickhouse_settings.OLD_PING_VPS_TO_TARGET
         )
@@ -267,7 +315,6 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         target_vp_selection = defaultdict(list)
         target_m_cost = defaultdict(int)
         target_unmapped = set()
-
         for row in tqdm(ping_vps_to_targets):
             target_addr = row["target"]
             ping_vps_to_target = row["pings"]
@@ -281,6 +328,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
                 vps_per_subnet=vps_per_subnet,
                 subnet_score=subnet_score,
                 ping_vps_to_target=ping_vps_to_target,
+                cbg_vp_selection=True,
             )
 
             if not target_vp_selection[target_addr]:
@@ -290,7 +338,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
 
     async def select_vps_per_subnet(
         self, granularity: str = "answer_bgp_prefix"
-    ) -> [dict, set]:
+    ) -> tuple[dict, set]:
         """return a sorted list of pair (vp, median_rtt) per subnet ECS-DNS algo"""
         # load datasets
         vps = load_json(self.path_settings.OLD_VPS)
@@ -300,7 +348,7 @@ class VPSelectionMultiIteration(VPSelectionDNS):
         ping_vps_to_subnet = await self.get_pings_per_subnet(
             self.clickhouse_settings.OLD_PING_VPS_TO_SUBNET
         )
-        subnet_score = await self.get_subnet_score(targets, granularity)
+        subnet_score = await self.get_hostname_scores()
 
         logger.info(f"VP selection on {len(ping_vps_to_subnet)} subnets")
 
@@ -345,6 +393,6 @@ if __name__ == "__main__":
             vps=vps,
             output_path="multi_iter",
             target_selection=True,
-            subnet_selection=True,
+            subnet_selection=False,
         )
     )
