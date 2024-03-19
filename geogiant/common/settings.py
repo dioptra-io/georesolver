@@ -27,6 +27,7 @@ class PathSettings(BaseSettings):
     FIGURE_PATH: Path = DEFAULT / "../figures"
     TMP_PATH: Path = DEFAULT / "../tmp/"
     LOG_PATH: Path = DEFAULT / "../logs"
+    RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
 
     # hostnames default input files
     HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
@@ -58,6 +59,9 @@ class PathSettings(BaseSettings):
     # ECS-DNS old data
     OLD_TARGETS: Path = DATASET / "old/ripe/targets.json"
     OLD_VPS: Path = DATASET / "old/ripe/vps.json"
+    OLD_VPS_PAIRWISE_DISTANCE: Path = (
+        DATASET / "old/ripe/old_vps_pairwise_distance.json"
+    )
     OLD_DATA_PATH: Path = Path("/storage/hugo/ecs-dns-data-old/")
     OLD_DNS_MAPPING_DATA: Path = OLD_DATA_PATH / "dns_mapping.zst"
     OLD_PING_VPS_TO_TARGET_DATA: Path = OLD_DATA_PATH / "ping_vps_to_targets.zst"

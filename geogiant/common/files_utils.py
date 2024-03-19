@@ -180,9 +180,8 @@ def load_countries_continent() -> dict:
     with path_settings.COUNTRIES_INFO.open("r") as f:
         for row in f.readlines()[1:]:
             row = row.split(",")
-            country_code = row[1]
-            country_code = country_code[:2]
-            continent = str(row[3]).strip("\n")
+            continent = row[1]
+            country_code = row[2]
 
             countries_continent[country_code] = continent
 

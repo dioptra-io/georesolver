@@ -26,7 +26,7 @@ def rtt_to_km(rtt, speed_threshold=None, c=300):
     return 2 / 3 * c * rtt / 2
 
 
-def is_within_cirle(vp_geo, rtt, candidate_geo, speed_threshold=None):
+def is_within_cirle(vp_geo, rtt, candidate_geo, speed_threshold=2 / 3):
     d = rtt_to_km(rtt, speed_threshold)
     d_vp_candidate = haversine(vp_geo, candidate_geo)
     if d < d_vp_candidate:
@@ -320,13 +320,12 @@ def select_best_guess_centroid(target_ip, vp_coordinates_per_ip, rtt_per_vp_to_t
     probe_circles = {}
     closest_vp = None
     min_rtt_per_vp_ip = {}
-    for vp_ip, rtts in rtt_per_vp_to_target.items():
+    for vp_ip, min_rtt in rtt_per_vp_to_target:
         if target_ip == vp_ip:
             continue
         if vp_ip not in vp_coordinates_per_ip:
             continue
         lat, lon = vp_coordinates_per_ip[vp_ip]
-        min_rtt = min(rtts)
         if min_rtt > 100:
             continue
         min_rtt_per_vp_ip[vp_ip] = min_rtt
@@ -340,8 +339,6 @@ def select_best_guess_centroid(target_ip, vp_coordinates_per_ip, rtt_per_vp_to_t
                 None,
                 None,
             )
-            # print(f"vp_anchor = {vp_ip} with results: {min_rtt}")
-    # print()
 
     # draw circles
     if not probe_circles:

@@ -1,6 +1,7 @@
 import socket
 import httpx
 
+from pyasn import pyasn
 from pathlib import Path
 from typing import Sequence
 from ipwhois import IPWhois
@@ -10,6 +11,21 @@ from ipaddress import (
     IPv4Network,
     ip_network,
 )
+
+
+def get_addr_granularity(client_granularity: str, target: dict, asndb: pyasn) -> str:
+    """return the desired target/vp granularity (subnet or bgp prefix)"""
+    match client_granularity:
+        case "client_subnet":
+            target_granularity = get_prefix_from_ip(target["address_v4"])
+        case "subnet":
+            target_granularity = get_prefix_from_ip(target["address_v4"])
+        case "client_bgp_prefix":
+            _, target_granularity = route_view_bgp_prefix(
+                target["address_v4"],
+                asndb,
+            )
+    return target_granularity
 
 
 def is_valid_ipv4(ip_addr: str) -> str:
