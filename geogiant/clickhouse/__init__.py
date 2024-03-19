@@ -13,6 +13,7 @@ from .get import (
     GetSubnets,
     GetTargets,
     GetVPs,
+    GetVPsAndAnchors,
     GetSubnetPerHostname,
     GetVPSInfo,
     GetVPSInfoPerSubnet,
@@ -21,9 +22,11 @@ from .get import (
     GetAvgRTTPerSubnet,
     GetDNSMapping,
     GetPoPInfo,
+    GetPoPPerHostname,
     GetDNSMappingOld,
     GetDNSMappingHostnames,
     GetHostnames,
+    GetHostnamesAnswerSubnet,
 )
 
 
@@ -43,6 +46,7 @@ __all__ = (
     "GetSubnets",
     "GetTargets",
     "GetVPs",
+    "GetVPsAndAnchors",
     "GetSubnetPerHostname",
     "GetVPSInfo",
     "GetVPSInfoPerSubnet",
@@ -57,7 +61,9 @@ __all__ = (
     "GetDNSMappingOld",
     "GetDNSMappingHostnames",
     "GetPoPInfo",
+    "GetPoPPerHostname",
     "GetHostnames",
+    "GetHostnamesAnswerSubnet",
     "GetProbeConnectivity",
     "GetGeolocFromTraceroute",
 )

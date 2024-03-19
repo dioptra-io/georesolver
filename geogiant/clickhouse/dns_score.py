@@ -54,34 +54,34 @@ class OverallScore(Query):
         FROM
         (
             SELECT
-                t1.subnet AS subnet_1,
-                t2.subnet AS subnet_2,
+                t1.client_subnet AS subnet_1,
+                t2.client_subnet AS subnet_2,
                 length(arrayIntersect(t1.mapping, t2.mapping)) / least(length(t1.mapping), length(t2.mapping)) AS score
             FROM
             (
                 SELECT
-                    subnet,
+                    client_subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
-                    subnet IN ({target_filter})
+                    client_subnet IN ({target_filter})
                     {hostname_filter}
                     -- AND pop_ip_info_id != -1
-                GROUP BY subnet
+                GROUP BY client_subnet
             ) AS t1
             CROSS JOIN
             (
                 SELECT
-                    subnet,
+                    client_subnet,
                     groupUniqArray({column_name}) AS mapping
                 FROM {self.settings.DATABASE}.{table_name}
                 WHERE 
-                    subnet NOT IN ({target_filter})
+                    client_subnet NOT IN ({target_filter})
                     {hostname_filter}
                     -- AND pop_ip_info_id != -1
-                GROUP BY subnet
+                GROUP BY client_subnet
             ) AS t2
-            WHERE t1.subnet != t2.subnet
+            WHERE t1.client_subnet != t2.client_subnet
         )
         WHERE subnet_1 IN ({target_filter})
         GROUP BY subnet_1

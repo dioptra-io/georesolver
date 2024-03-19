@@ -121,8 +121,9 @@ class CreateDNSMappingTable(Query):
             netmask                UInt8,
             hostname               String,
             answer                 IPv4,
-            answer_asn             UInt32,
+            answer_subnet          IPv4,
             answer_bgp_prefix      String,
+            answer_asn             UInt32,
             source_scope           UInt8
         )
         ENGINE MergeTree

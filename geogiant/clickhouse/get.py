@@ -5,7 +5,7 @@ class GetVPs(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT
-            toString(address_v4) as vp_addr,
+            toString(address_v4) as address_v4,
             toString(subnet_v4) as vp_subnet,
             bgp_prefix as vp_bgp_prefix,
             country_code,
@@ -18,11 +18,26 @@ class GetVPs(Query):
         """
 
 
+class GetVPsAndAnchors(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            toString(address_v4) as address_v4,
+            toString(subnet_v4) as vp_subnet,
+            bgp_prefix as vp_bgp_prefix,
+            country_code,
+            lat,
+            lon
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        """
+
+
 class GetTargets(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT
-            toString(address_v4) as target_addr,
+            toString(address_v4) as address_v4,
             toString(subnet_v4) as target_subnet,
             lat,
             lon
@@ -193,6 +208,24 @@ class GetHostnames(Query):
         """
 
 
+class GetHostnamesAnswerSubnet(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"WHERE hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+        return f"""
+        SELECT 
+            hostname,
+            groupUniqArray(toString(answer)) as answer
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        {hostname_filter}
+        GROUP BY hostname
+        """
+
+
 class GetDNSMapping(Query):
     def statement(self, table_name: str) -> str:
         return f"""
@@ -216,9 +249,13 @@ class GetPoPInfo(Query):
 
         return f"""
         SELECT 
+            hostname,
             toString(answer) as answer,
             toString(answer_subnet) as answer_subnet,
             toString(answer_bgp_prefix) as answer_bgp_prefix,
+            pop_lat,
+            pop_lon,
+            pop_city,
             pop_country,
             pop_continent
         FROM 
@@ -227,7 +264,62 @@ class GetPoPInfo(Query):
         """
 
 
+class GetPoPPerHostname(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"WHERE hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+
+        return f"""
+        SELECT 
+            hostname,
+            groupUniqArray((answer_subnet, pop_lat, pop_lon)) as pop
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
+        {hostname_filter}
+        GROUP BY
+            hostname
+        """
+
+
 class GetDNSMappingHostnames(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        try:
+            answer_granularity = kwargs["answer_granularity"]
+            client_granularity = kwargs["client_granularity"]
+        except KeyError:
+            raise RuntimeError(f"Column name parameter missing for {__class__}")
+
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"{client_granularity} IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        return f"""
+        SELECT
+            toString({client_granularity}) as client_granularity,
+            hostname,
+            groupUniqArray({answer_granularity}) as mapping
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE 
+            {subnet_filter}
+            {hostname_filter}
+        GROUP BY
+            (client_granularity, hostname)
+        """
+
+
+class GetDNSMappingHostnamesNew(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if hostname_filter := kwargs.get("hostname_filter"):
             hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
