@@ -16,7 +16,7 @@ from geogiant.clickhouse import GetSubnets, GetVPsAndAnchors
 from geogiant.ecs_vp_selection.query import get_subnets_mapping
 from geogiant.ecs_vp_selection.utils import Score, get_parsed_vps
 from geogiant.common.geoloc import distance
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.files_utils import (
     dump_pickle,
     load_csv,
@@ -105,6 +105,8 @@ class VPSelectionECS:
                 reverse=True,
             )
 
+            target_scores[target_subnet] = target_scores[target_subnet][:1_000]
+
         return Score(
             answer_granularity=self.answer_granularity,
             scores=target_scores,
@@ -141,10 +143,10 @@ async def compute_scores() -> None:
     )
     hostname_filter = [row.split(",")[0] for row in hostname_filter]
 
-    target_subnets = target_subnets[:1_000]
     logger.info("#############################################")
     logger.info("# HOSTNAME SCORE:: ROUTERS 2ms              #")
     logger.info("#############################################")
+    logger.info(f"Scores output file: {output_file}")
     score_all_hostnames = await VPSelectionECS(
         hostname_filter=hostname_filter,
         answer_granularity=answer_granularity,
@@ -193,6 +195,25 @@ async def load_vps(dns_table: str) -> dict:
         )
 
         return vps
+
+
+def get_parsed_vps(vps: list, asndb: pyasn) -> dict:
+    """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
+    vps_coordinates = {}
+    vps_subnet = defaultdict(list)
+    vps_bgp_prefix = defaultdict(list)
+
+    for vp in vps:
+        vp_addr = vp["address_v4"]
+        subnet = get_prefix_from_ip(vp_addr)
+        vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
+        vp_lat, vp_lon = vp["lat"], vp["lon"]
+
+        vps_subnet[subnet].append(vp_addr)
+        vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
+        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_asn)
+
+    return vps_subnet, vps_bgp_prefix, vps_coordinates
 
 
 async def geoloc_error() -> None:
@@ -271,12 +292,12 @@ async def geoloc_error() -> None:
             d = distance(target_info["lat"], vp_lat, target_info["lon"], vp_lon)
             elected_vps.append((vp_addr, d))
 
-        elected_vps_10 = []
-        for vp_subnet, score in ecs_vps_10:
-            vp_addr = vps_per_subnet[vp_subnet][0]
-            vp_lat, vp_lon, _ = vps_coordinates[vp_addr]
-            d = distance(target_info["lat"], vp_lat, target_info["lon"], vp_lon)
-            elected_vps_10.append((vp_addr, d))
+        # elected_vps_10 = []
+        # for vp_subnet, score in ecs_vps_10:
+        #     vp_addr = vps_per_subnet[vp_subnet][0]
+        #     vp_lat, vp_lon, _ = vps_coordinates[vp_addr]
+        #     d = distance(target_info["lat"], vp_lat, target_info["lon"], vp_lon)
+        #     elected_vps_10.append((vp_addr, d))
 
         closest_ecs_vp_addr, _ = min(elected_vps, key=lambda x: x[1])
         closest_ecs_vp = get_vp_info(
@@ -286,13 +307,13 @@ async def geoloc_error() -> None:
             vps_coordinates=vps_coordinates,
         )
 
-        closest_ecs_vp_addr_10, _ = min(elected_vps_10, key=lambda x: x[1])
-        closest_ecs_vp_10 = get_vp_info(
-            target=target_info,
-            target_score=ecs_scores[target_subnet][0],
-            vp_addr=closest_ecs_vp_addr_10,
-            vps_coordinates=vps_coordinates,
-        )
+        # closest_ecs_vp_addr_10, _ = min(elected_vps_10, key=lambda x: x[1])
+        # closest_ecs_vp_10 = get_vp_info(
+        #     target=target_info,
+        #     target_score=ecs_scores[target_subnet][0],
+        #     vp_addr=closest_ecs_vp_addr_10,
+        #     vps_coordinates=vps_coordinates,
+        # )
 
         no_ping_vp = get_vp_info(
             target=target_info,
@@ -303,10 +324,9 @@ async def geoloc_error() -> None:
 
         results[target] = {
             "target": target_info,
-            "ref_vp": ref_vp,
+            "ref_shortest_ping_vp": ref_vp,
+            "ecs_shortest_ping_vp": closest_ecs_vp,
             "no_ping_vp": no_ping_vp,
-            "closest_ecs_vp": closest_ecs_vp,
-            "closest_ecs_vp_10": closest_ecs_vp_10,
         }
 
     dump_pickle(
@@ -316,7 +336,7 @@ async def geoloc_error() -> None:
 
 
 async def main() -> None:
-    await compute_scores()
+    # await compute_scores()
     await geoloc_error()
 
 

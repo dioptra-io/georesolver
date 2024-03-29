@@ -29,34 +29,70 @@ def select_one_vp_per_as_city(
 ) -> list:
     """from a list of VP, select one per AS and per city"""
     filtered_vp_selection = []
-    selected_vps_per_asn = defaultdict(list)
-
+    vps_per_as = defaultdict(list)
     for vp_addr, score in raw_vp_selection:
         vp_lat, vp_lon, vp_asn = vp_coordinates[vp_addr]
 
-        # take at least one probe per AS
-        if vp_asn not in selected_vps_per_asn:
-            filtered_vp_selection.append((vp_addr, score))
+        vps_per_as[vp_asn].append((vp_addr, score))
 
-            selected_vps_per_asn[vp_asn].append((vp_addr, vp_lat, vp_lon))
+    # select one VP per AS, take maximum VP score in AS
+    selected_vps_per_as = defaultdict(list)
+    for asn, vps in vps_per_as.items():
+        vps_per_as[asn] = sorted(vps, key=lambda x: x[-1])
+        for vp_i, score in vps_per_as[asn]:
+            vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
 
-        else:
-            # check if we already selected a VP in the same area (threshold)
-            selected_close = False
-            for _, selected_probe_lat, selected_probe_lon in selected_vps_per_asn[
-                vp_asn
-            ]:
-                probe_distance = distance(
-                    vp_lat, selected_probe_lat, vp_lon, selected_probe_lon
-                )
+            if not selected_vps_per_as[asn]:
+                selected_vps_per_as[asn].append((vp_i, score))
+                filtered_vp_selection.append((vp_i, score))
+            else:
+                already_found = False
 
-                # do not select two VPs that are close together
-                if probe_distance < threshold:
-                    selected_close = True
-                    break
+                for vp_j, score in selected_vps_per_as[asn]:
 
-            if not selected_close:
-                filtered_vp_selection.append((vp_addr, score))
+                    vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
+
+                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+
+                    if d < threshold:
+                        already_found = True
+                        break
+
+                if not already_found:
+                    selected_vps_per_as[asn].append((vp_i, score))
+                    filtered_vp_selection.append((vp_i, score))
+
+    # for asn, vps in vps_per_as.items():
+    #     for (vp_addr, score) in vps:
+
+    #     for vp_addr, score in one_vp_per_as_selection[asn]:
+    #         one_vp_per_as_selection
+
+    # # select one VP per city
+    # for vp_addr, score in one_vp_per_as_selection:
+
+    #     # take at least one probe per AS
+    #     if vp_asn not in selected_vps_per_asn:
+    #         filtered_vp_selection.append((vp_addr, score))
+    #         selected_vps_per_asn[vp_asn].append((vp_addr, vp_lat, vp_lon))
+
+    #     else:
+    #         # check if we already selected a VP in the same area (threshold)
+    #         selected_close = False
+    #         for _, selected_probe_lat, selected_probe_lon in selected_vps_per_asn[
+    #             vp_asn
+    #         ]:
+    #             probe_distance = distance(
+    #                 vp_lat, selected_probe_lat, vp_lon, selected_probe_lon
+    #             )
+
+    #             # do not select two VPs that are close together
+    #             if probe_distance < threshold:
+    #                 selected_close = True
+    #                 break
+
+    #         if not selected_close:
+    #             filtered_vp_selection.append((vp_addr, score))
 
     return filtered_vp_selection
 
@@ -108,16 +144,16 @@ def get_parsed_vps(vps: list, asndb: pyasn) -> dict:
     vps_bgp_prefix = defaultdict(list)
 
     for vp in vps:
-        vp_addr = vp["address_v4"]
+        vp_addr = vp["addr"]
         subnet = get_prefix_from_ip(vp_addr)
         vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
-        vp_lon, vp_lat = vp["lon"], vp["lat"]
+        vp_lat, vp_lon = vp["lat"], vp["lon"]
 
         vps_subnet[subnet].append(vp_addr)
         vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
         vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_asn)
 
-    return vps_subnet, vps_bgp_prefix, vps_coordinates
+    return vps_subnet, vps_coordinates
 
 
 def ecs_target_geoloc(

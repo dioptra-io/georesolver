@@ -36,8 +36,8 @@ class ZDNS:
         hostname_file: Path,
         table_name: str,
         name_servers: list,
+        timeout: float = 0.1,
         iterative: bool = False,
-        timeout: float = 0.5,
     ) -> None:
         self.subnets = subnets
         self.hostname_file = hostname_file
@@ -123,7 +123,7 @@ class ZDNS:
                     answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
 
                     if not answer_asn or not answer_bgp_prefix:
-                        logger.info(f"{answer}::Could not retrieve ASN and BGP prefix")
+                        logger.info(f"{answer}:: Could not retrieve ASN and BGP prefix")
                         continue
 
                     parsed_data.append(
@@ -149,12 +149,14 @@ class ZDNS:
             query_results = await self.query(subnet)
             parsed_data = self.parse(subnet, query_results, asndb)
             zdns_data.extend(parsed_data)
-            time.sleep(self.timeout)
+
+            if not self.iterative:
+                time.sleep(self.timeout)
 
         return zdns_data
 
     async def main(self) -> None:
-        """ZNDS measurement entrypoint"""
+        """ZDNS measurement entrypoint"""
 
         logger.info(f"ZDNS::Starting resolution on {len(self.subnets)} subnets")
 
@@ -163,7 +165,7 @@ class ZDNS:
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreateDNSMappingTable().execute(
+            await CreateDNSMappingTable().aio_execute(
                 client=client, table_name=self.table_name
             )
 

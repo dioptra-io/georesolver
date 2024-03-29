@@ -22,7 +22,7 @@ async def get_pings_per_target(table_name: str) -> dict:
     """
     ping_vps_to_target = {}
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        resp = await GetPingsPerTarget().execute(
+        resp = await GetPingsPerTarget().aio_execute(
             client=client,
             table_name=table_name,
         )
@@ -35,7 +35,6 @@ async def get_pings_per_target(table_name: str) -> dict:
 
 async def get_subnets_mapping(
     dns_table: str,
-    answer_granularity: str,
     subnets: list[str],
     hostname_filter: list[str] = None,
 ) -> dict:
@@ -44,19 +43,25 @@ async def get_subnets_mapping(
         resp = await GetDNSMappingHostnames().execute_iter(
             client=client,
             table_name=dns_table,
-            client_granularity="subnet",
-            answer_granularity=answer_granularity,
             subnet_filter=[s for s in subnets],
             hostname_filter=hostname_filter,
         )
 
         subnets_mapping = defaultdict(dict)
         async for row in resp:
-            subnet = row["client_granularity"]
+            subnet = row["client_subnet"]
+            answers = row["answers"]
+            answer_subnets = row["answer_subnets"]
+            answer_bgp_prefixes = row["answer_bgp_prefixes"]
             hostname = row["hostname"]
-            mapping = row["mapping"]
+            source_scope = row["source_scope"]
 
-            subnets_mapping[subnet][hostname] = mapping
+            subnets_mapping[subnet][hostname] = {
+                "answers": answers,
+                "answer_subnets": answer_subnets,
+                "answer_bgp_prefixes": answer_bgp_prefixes,
+                "source_scope": source_scope,
+            }
 
     return subnets_mapping
 
@@ -136,7 +141,7 @@ async def get_subnet_per_pop(
 
 async def load_targets(dns_table: str) -> dict:
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        targets = await GetTargets().execute(
+        targets = await GetTargets().aio_execute(
             client=client,
             table_name=dns_table,
         )
@@ -146,7 +151,7 @@ async def load_targets(dns_table: str) -> dict:
 
 async def load_vps(dns_table: str) -> dict:
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps = await GetVPs().execute(
+        vps = await GetVPs().aio_execute(
             client=client,
             table_name=dns_table,
         )

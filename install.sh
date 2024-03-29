@@ -2,6 +2,7 @@
 CLICKHOUSE_PATH="/storage/clickhouse"
 CONFIG_PATH="$PWD/configuration/clickhouse"
 EXEC_PATH="$CONFIG_PATH/clickhouse"
+$CONFIG_FILE="$PWD/configuration/clickhouse/config.d"
 
 # check if clickhouse client installed
 if [ -f $EXEC_PATH ]; then
@@ -30,6 +31,7 @@ else
         -p 127.0.0.1:9009:9009 \
         -v $CLICKHOUSE_PATH/data:/var/lib/clickhouse/ \
         -v $CLICKHOUSE_PATH/logs:/var/log/clickhouse-server/ \
+        -v $PWD/configuration/clickhouse/config.xml:/etc/clickhouse-server/user.xml \
         --ulimit nofile=262144:262144 \
         clickhouse/clickhouse-server:22.6
 
@@ -40,5 +42,5 @@ else
 fi
 
 # install project dependencies with poetry
-poetry lock 
-poetry install
+# poetry lock 
+# poetry install

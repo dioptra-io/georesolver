@@ -2,19 +2,22 @@ from geogiant.clickhouse.query import Query, NativeQuery
 
 
 class GetVPs(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(self, table_name: str, is_anchor: bool = False) -> str:
+        if is_anchor:
+            anchor_statement = "WHERE is_anchor == true"
+        else:
+            anchor_statement = ""
         return f"""
         SELECT
-            toString(address_v4) as address_v4,
-            toString(subnet_v4) as vp_subnet,
-            bgp_prefix as vp_bgp_prefix,
+            toString(address_v4) as addr,
+            toString(subnet_v4) as subnet,
+            id,
             country_code,
             lat,
             lon
         FROM
             {self.settings.DATABASE}.{table_name}
-        WHERE
-            is_anchor == false
+        {anchor_statement}
         """
 
 
@@ -45,6 +48,22 @@ class GetTargets(Query):
             {self.settings.DATABASE}.{table_name}
         WHERE
             is_anchor == true
+        """
+
+
+class GetVPsSubnets(Query):
+    def statement(self, table_name: str, is_anchor: bool = False) -> str:
+        if is_anchor:
+            anchor_statement = "WHERE is_anchor == true"
+        else:
+            anchor_statement = ""
+
+        return f"""
+        SELECT 
+            DISTINCT toString(subnet_v4) as subnet
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        {anchor_statement}
         """
 
 
@@ -208,6 +227,22 @@ class GetHostnames(Query):
         """
 
 
+class GetAllDNSMapping(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"WHERE hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+        return f"""
+        SELECT 
+            *
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        {hostname_filter}
+        """
+
+
 class GetHostnamesAnswerSubnet(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if hostname_filter := kwargs.get("hostname_filter"):
@@ -218,7 +253,7 @@ class GetHostnamesAnswerSubnet(Query):
         return f"""
         SELECT 
             hostname,
-            groupUniqArray(toString(answer)) as answer
+            groupUniqArray(toString(answer)) as answers
         FROM 
             {self.settings.DATABASE}.{table_name}
         {hostname_filter}
@@ -286,12 +321,6 @@ class GetPoPPerHostname(Query):
 
 class GetDNSMappingHostnames(Query):
     def statement(self, table_name: str, **kwargs) -> str:
-        try:
-            answer_granularity = kwargs["answer_granularity"]
-            client_granularity = kwargs["client_granularity"]
-        except KeyError:
-            raise RuntimeError(f"Column name parameter missing for {__class__}")
-
         if hostname_filter := kwargs.get("hostname_filter"):
             hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
             hostname_filter = f"AND hostname IN ({hostname_filter})"
@@ -300,22 +329,24 @@ class GetDNSMappingHostnames(Query):
 
         if subnet_filter := kwargs.get("subnet_filter"):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
-            subnet_filter = f"{client_granularity} IN ({subnet_filter})"
+            subnet_filter = f"subnet IN ({subnet_filter})"
         else:
             raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
 
         return f"""
         SELECT
-            toString({client_granularity}) as client_granularity,
+            toString(subnet) as client_subnet,
             hostname,
-            groupUniqArray({answer_granularity}) as mapping
+            groupUniqArray((answer)) as answers,
+            groupUniqArray((answer_subnet)) as answer_subnets,
+            groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
         FROM
             {self.settings.DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
         GROUP BY
-            (client_granularity, hostname)
+            (client_subnet, hostname)
         """
 
 

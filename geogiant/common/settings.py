@@ -27,6 +27,7 @@ class PathSettings(BaseSettings):
     FIGURE_PATH: Path = DEFAULT / "../figures"
     TMP_PATH: Path = DEFAULT / "../tmp/"
     LOG_PATH: Path = DEFAULT / "../logs"
+    CONFIG_PATH: Path = DEFAULT / "../config"
     RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
 
     # hostnames default input files
@@ -54,7 +55,8 @@ class PathSettings(BaseSettings):
     # IP INFO
     IP_INFO_CLUSTERING: Path = DATASET / "ips.jsonl"
 
-    # some new
+    # Others
+    VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
 
     # ECS-DNS old data
     OLD_TARGETS: Path = DATASET / "old/ripe/targets.json"
@@ -79,6 +81,8 @@ class ClickhouseSettings(BaseSettings):
 
     # Clickhouse driver parameters
     BASE_URL: str = "http://localhost:8123"
+    DATABASE_OLD: str = "geogiant"
+    DATABASE: str = "imc2024"
     DATABASE: str = "geogiant"
     USERNAME: str = "default"
     PASSWORD: str = ""
@@ -130,20 +134,22 @@ class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
     DEFAULT: Path = Path(__file__).resolve().parent
 
     # credentials
-    USERNAME: str = ""
-    SECRET_KEY: str = ""
+    RIPE_ATLAS_USERNAME: str = ""
+    RIPE_ATLAS_SECRET_KEY: str = ""
     IP_VERSION: int = 4
 
     # default ripe atlas parameters
-    MAX_VP: int = 1000
-    MAX_MEASUREMENT: int = 99
+    MAX_VP: int = 1_000
+    MAX_MEASUREMENT: int = 1_500
     PING_NB_PACKETS: int = 3
+    PROTOCOL: str = "ICMP"
 
     # debugging
     MEASUREMENTS_CONFIG: Path = DEFAULT / "../measurements/config"
+    MEASUREMENTS_SCHEDULE: Path = DEFAULT / "../measurements/schedule"
 
     API_URL: str = "https://atlas.ripe.net/api/v2"
-    KEY_URL: str = f"?key={SECRET_KEY}"
+    KEY_URL: str = f"?key={RIPE_ATLAS_SECRET_KEY}"
 
     MEASUREMENT_URL: str = f"{API_URL}/measurements/{KEY_URL}"
 

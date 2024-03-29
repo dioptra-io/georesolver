@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 from loguru import logger
-from pych_client import AsyncClickHouseClient
+from pych_client import AsyncClickHouseClient, ClickHouseClient
 from clickhouse_driver import Client
 
 from geogiant.common.settings import ClickhouseSettings
@@ -52,8 +52,6 @@ class NativeQuery:
         """execute select statement with clickhouse driver"""
         statement = self.statement(table_name, **kwargs)
 
-        logger.info(f"executing: {statement}")
-
         client = Client(host="localhost")
         yield from client.execute_iter(statement)
 
@@ -71,7 +69,7 @@ class Query:
     def statement(self, table_name: str, **kwargs) -> str:
         raise NotImplementedError
 
-    async def execute(
+    async def aio_execute(
         self,
         client: AsyncClickHouseClient,
         table_name: str,
@@ -96,8 +94,36 @@ class Query:
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
         )
-        logger.debug(f"Executing::{statement}")
         rows += await client.json(statement, data=data, settings=settings)
+
+        return rows
+
+    def execute(
+        self,
+        client: ClickHouseClient,
+        table_name: str,
+        data: Any = None,
+        limit=None,
+        **kwargs,
+    ) -> list[dict]:
+        """
+        Execute the query and return each row as a dict.
+        Args:
+            client: ClickHouse client.
+            measurement_id: Measurement id.
+            data: str or bytes iterator containing data to send.
+            limit: (limit, offset) tuple.
+            subsets: Iterable of IP networks on which to execute the query independently.
+        """
+        rows = []
+        statement = self.statement(table_name, **kwargs)
+
+        logger.info(f"query={self.name} table_name={table_name}  limit={limit}")
+        settings = dict(
+            limit=limit[0] if limit else 0,
+            offset=limit[1] if limit else 0,
+        )
+        rows += client.json(statement, data=data, settings=settings)
 
         return rows
 
@@ -125,12 +151,11 @@ class Query:
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
         )
-        logger.info(f"Executing::{statement}")
         rows += await client.bytes(statement, data=data, settings=settings)
 
         return rows
 
-    async def execute_iter(
+    async def aio_execute_iter(
         self,
         client: AsyncClickHouseClient,
         table_name: str,
@@ -143,6 +168,25 @@ class Query:
         """
         statement = self.statement(table_name, **kwargs)
 
+        logger.info(f"query={self.name} table_name={table_name} limit={limit}")
+        settings = dict(
+            limit=limit[0] if limit else 0,
+            offset=limit[1] if limit else 0,
+        )
+        return client.iter_json(statement, data=data, settings=settings)
+
+    def execute_iter(
+        self,
+        client: ClickHouseClient,
+        table_name: str,
+        data: Any = None,
+        limit=None,
+        **kwargs,
+    ) -> Iterator[dict]:
+        """
+        Execute the query and return each row as a dict, as they are received from the database.
+        """
+        statement = self.statement(table_name, **kwargs)
         logger.info(f"query={self.name} table_name={table_name} limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,

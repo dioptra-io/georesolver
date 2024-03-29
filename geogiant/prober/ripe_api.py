@@ -1,4 +1,3 @@
-import json
 import httpx
 import asyncio
 import pyasn
@@ -7,6 +6,7 @@ from numpy import mean
 from ipaddress import IPv4Address
 from collections import defaultdict
 
+from uuid import uuid4
 from loguru import logger
 from enum import Enum
 from pych_client import AsyncClickHouseClient
@@ -33,9 +33,9 @@ class RIPEAtlasAPI:
         self.measurement_url = f"{self.api_url}/measurements/"
 
     # TODO: decorator
-    def check_schedule_validity(self, schedule: dict) -> None:
+    def check_schedule_validity(self, schedule: list[tuple]) -> None:
         """for any target, check if not too many VPs are scheduled"""
-        for target, vp_ids in schedule.items():
+        for target, vp_ids in schedule:
             if len(vp_ids) > self.settings.MAX_VP:
                 raise RuntimeError(
                     f"Too many VPs scheduled for target: {target} (nb vps: {len(vp_ids)}, max: {self.settings.MAX_VP})"
@@ -61,7 +61,30 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            "bill_to": self.settings.USERNAME,
+            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
+        }
+
+    def get_traceroute_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
+        return {
+            "definitions": [
+                {
+                    "target": target,
+                    "af": self.settings.IP_VERSION,
+                    "packets": self.settings.PING_NB_PACKETS,
+                    "protocol": self.settings.PROTOCOL,
+                    "tags": [uuid],
+                    "description": f"Dioptra Traceroute of {target}",
+                    "resolve_on_probe": False,
+                    "skip_dns_check": True,
+                    "include_probe_id": False,
+                    "type": "traceroute",
+                }
+            ],
+            "probes": [
+                {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
+            ],
+            "is_oneoff": True,
+            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def is_geoloc_disputed(self, probe: dict) -> bool:
@@ -286,7 +309,6 @@ class RIPEAtlasAPI:
     def parse_ping(self, results: list[dict]) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         parsed_data = []
-        # TODO: check if loop necessary
         for result in results:
             rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
 
@@ -328,7 +350,8 @@ class RIPEAtlasAPI:
             resp = await client.get(f"{self.measurement_url}/{measurement_id}/")
             resp = resp.json()
 
-        if resp["status"]["name"] != "Ongoing":
+        if resp["status"]["name"] not in ["Ongoing", "Scheduled", "Specified"]:
+            logger.debug(f"{resp['status']['name']=}")
             return True
 
         return False
@@ -338,14 +361,7 @@ class RIPEAtlasAPI:
         vps = []
         rejected = 0
         vp: dict = None
-        i = 0
         async for vp in self.get_raw_vps():
-            # TODO::REMOVE
-            if i > 10:
-                break
-            i += 1
-
-            # filter vps based on generic criteria
             if vp["is_anchor"] and probes_only:
                 continue
             else:
@@ -360,7 +376,6 @@ class RIPEAtlasAPI:
                     rejected += 1
                     continue
 
-                # TODO: add query timestamp?
                 reduced_vp = {
                     "address_v4": vp["address_v4"],
                     "asn_v4": vp["asn_v4"],
@@ -382,33 +397,58 @@ class RIPEAtlasAPI:
 
         return vps
 
-    async def request_stream(
-        self,
-        client: httpx.AsyncClient,
-        url: str,
-        params: dict,
-    ) -> dict:
-        """return stream bytes for large files"""
-        async with client.stream("GET", url, params=params) as resp:
-            async for stream_data in resp.aiter_bytes():
-                yield json.loads(stream_data.decode())
-
     async def ping(
         self,
         target: str,
         vp_ids: list[str],
         uuid: str,
-        max_retry: int = 3,  # TODO: retry decorator (tenacity)?
+        max_retry: int = 3,
     ) -> int:
         """start ping measurement towards target from vps, return Atlas measurement id"""
 
         id = None
         async with httpx.AsyncClient() as client:
             for _ in range(max_retry):
+                try:
+                    resp = await client.post(
+                        self.measurement_url
+                        + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
+                        json=self.get_ping_config(target, vp_ids, uuid),
+                        timeout=60,
+                    )
+                    resp = resp.json()
+                except httpx.ReadTimeout:
+                    logger.error(
+                        "Read timeout for post request, retrying, max retry = 3"
+                    )
+                    raise Exception(
+                        f"{uuid}:: Cannot perform measurement for target: {target}"
+                    )
+
+                try:
+                    id = resp["measurements"][0]
+                    break
+                except KeyError as e:
+                    logger.error(f"{uuid}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{resp=}")
+                    await asyncio.sleep(60)
+                    break
+            else:
+                raise Exception(
+                    f"{uuid}:: Cannot perform measurement for target: {target}"
+                )
+        return id
+
+    async def traceroute(
+        self, target: str, vp_ids: list[str], uuid: str, max_retry: int = 3
+    ) -> int:
+        id = None
+        async with httpx.AsyncClient() as client:
+            for _ in range(max_retry):
                 resp = await client.post(
                     self.measurement_url
                     + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
-                    json=self.get_ping_config(target, vp_ids),
+                    json=self.get_traceroute_config(target, vp_ids, uuid),
                 )
                 resp = resp.json()
 
@@ -417,9 +457,27 @@ class RIPEAtlasAPI:
                     break
                 except KeyError as e:
                     logger.error(f"{uuid}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{resp=}")
                     await asyncio.sleep(60)
             else:
                 raise Exception(
                     f"{uuid}:: Cannot perform measurement for target: {target}"
                 )
         return id
+
+
+async def test() -> None:
+    """run one ping and one traceroute for testing"""
+    target = "145.220.0.55"
+    vps = [1136]
+
+    id = await RIPEAtlasAPI().ping(target=target, vp_ids=vps, uuid=str(uuid4()))
+    logger.info(f"Ping with measurement id:: {id} started")
+
+    id = await RIPEAtlasAPI().traceroute(target=target, vp_ids=vps, uuid=str(uuid4()))
+    logger.info(f"Traceroute with measurement id:: {id} started")
+
+
+if __name__ == "__main__":
+
+    asyncio.run(test())

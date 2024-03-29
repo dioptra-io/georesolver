@@ -124,15 +124,35 @@ async def ripe_stat_bgp_prefix(ip_addr: str) -> str:
     return bgp_prefix
 
 
+def ripe_stat_bgp_prefix(ip_addr: str) -> tuple[int, str]:
+    """in case an IP addr is not in route view dataset, rely on RIPEStat db"""
+    asn, bgp_prefix = None, None
+
+    base_url = "https://stat.ripe.net/data/prefix-overview/data.json"
+    params = {"resource": ip_addr}
+
+    resp = httpx.get(url=base_url, params=params).json()
+    data = resp["data"]
+
+    try:
+        bgp_prefix = data["resource"]
+        asn = data["asns"][0]["asn"]
+
+    except KeyError:
+        logger.error(f"{ip_addr}::Could not resolve BGP prefix")
+        pass
+
+    return asn, bgp_prefix
+
+
 def route_view_bgp_prefix(ip_addr: str, asndb) -> tuple[int, str]:
     """py-asn lookup on route view RIB table dump"""
-    asn = None
-    bgp_prefix = None
+    asn, bgp_prefix = None, None
     try:
         asn, bgp_prefix = asndb.lookup(ip_addr)
     except IndexError:
-        logger.error(f"{ip_addr}::Could not resolve BGP prefix")
-        pass
+        asn, bgp_prefix = ripe_stat_bgp_prefix(ip_addr)
+
     return asn, bgp_prefix
 
 

@@ -11,6 +11,7 @@ from .dns_score import OverallScore, HostnameScore, CountRows
 from .ripe_traceroute_parsing import GetProbeConnectivity, GetGeolocFromTraceroute
 from .get import (
     GetSubnets,
+    GetVPsSubnets,
     GetTargets,
     GetVPs,
     GetVPsAndAnchors,
@@ -21,6 +22,7 @@ from .get import (
     GetPingsPerSubnet,
     GetAvgRTTPerSubnet,
     GetDNSMapping,
+    GetAllDNSMapping,
     GetPoPInfo,
     GetPoPPerHostname,
     GetDNSMappingOld,
@@ -44,6 +46,7 @@ __all__ = (
     "CreateDNSMappingWithMetadataTable",
     "CreateGeolocTable",
     "GetSubnets",
+    "GetVPsSubnets",
     "GetTargets",
     "GetVPs",
     "GetVPsAndAnchors",
@@ -58,6 +61,7 @@ __all__ = (
     "HostnameScore",
     "CountRows",
     "GetDNSMapping",
+    "GetAllDNSMapping",
     "GetDNSMappingOld",
     "GetDNSMappingHostnames",
     "GetPoPInfo",

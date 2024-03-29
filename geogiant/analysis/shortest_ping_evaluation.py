@@ -298,9 +298,8 @@ def parse_target(target: dict, asndb: pyasn) -> dict:
         "addr": addr,
         "subnet": subnet,
         "bgp_prefix": bgp_prefix,
-        # TODO: HUUUUUUUUUUGE PROBLEM HERE
-        "lat": target["lon"],
-        "lon": target["lat"],
+        "lat": target["lat"],
+        "lon": target["lon"],
     }
 
 
@@ -337,6 +336,7 @@ def ecs_dns_vp_selection_eval(
 
         # Once cluster done with 50 VPs, select VPs function of probing budget
         ecs_vps_budget = ecs_vps[:probing_budget]
+        # Best score + AS + city
         ecs_vps_budget = select_one_vp_per_as_city(ecs_vps_budget, vps_coordinates)
 
         # SHORTEST PING SELECTION
@@ -395,12 +395,13 @@ def ecs_dns_vp_selection_eval(
             vps_per_subnet,
             vps_coordinates,
         )
-        no_ping_cluster_vp = get_no_ping_cluster_vp(
-            target,
-            target_score,
-            ecs_vps_per_cluster,
-            vps_coordinates,
-        )
+        no_ping_cluster_vp = None
+        # no_ping_cluster_vp = get_no_ping_cluster_vp(
+        #     target,
+        #     target_score,
+        #     ecs_vps_per_cluster,
+        #     vps_coordinates,
+        # )
 
         if not no_ping_cluster_vp:
             no_ping_cluster_vp = no_ping_vp
@@ -456,7 +457,7 @@ async def main() -> None:
     eval_per_cdn = False
     answer_granularity = "answer_bgp_prefix"
     probing_budgets = [1, 5, 10, 50]
-    probing_budgets = [10, 20, 30, 50]
+    probing_budgets = [10, 20, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     ping_vps_to_target = await get_pings_per_target(
@@ -514,7 +515,7 @@ async def main() -> None:
     if max_bgp_per_cdn:
         subnet_scores: ResultsScore = load_pickle(
             path_settings.RESULTS_PATH
-            / f"score_not_extended_filtered_hostname_1M_hostnames_greedy_cdn_answer_bgp_prefix_new.pickle"
+            / f"score_not_extended_filtered_hostname_1M_hostnames_max_bgp_prefix_answer_subnet_new.pickle"
         )
 
         eval_results[answer_granularity] = get_metrics(

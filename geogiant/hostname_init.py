@@ -5,17 +5,18 @@ import asyncio
 import schedule
 import time
 
+from datetime import timedelta, datetime
 from pyasn import pyasn
 from tqdm import tqdm
 from pathlib import Path
 from numpy import mean
 from loguru import logger
 from pych_client import AsyncClickHouseClient
-from ipwhois import IPWhois
 from collections import defaultdict
 
 from geogiant.zdns import ZDNS
 from geogiant.clickhouse import (
+    GetVPsSubnets,
     GetSubnets,
     GetSubnetPerHostname,
     GetVPSInfoPerSubnet,
@@ -44,9 +45,11 @@ async def resolve_hostnames(
     subnets: list,
     hostname_file: Path,
     output_table: str,
+    iterative: bool = False,
     repeat: bool = False,
-    end_date: str = "2024-01-23 00:00",
     chunk_size: int = 100,
+    end_date: datetime = "2024-01-23 00:00",
+    waiting_time: int = 60 * 60 * 2,
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
@@ -79,8 +82,8 @@ async def resolve_hostnames(
                     hostname_file=tmp_hostname_file,
                     table_name=output_table,
                     name_servers="8.8.8.8",
-                    iterative=True,
-                    timeout=0,
+                    iterative=iterative,
+                    timeout=10 / chunk_size,
                 )
                 await zdns.main()
 
@@ -89,11 +92,10 @@ async def resolve_hostnames(
     await raw_dns_mapping(subnets)
 
     if repeat:
-        # TODO: replace with Crontab module
-        schedule.every(4).hours.until(end_date).do(raw_dns_mapping)
-
-        while True:
-            schedule.run_pending()
+        time.sleep(waiting_time)  # wait two hours
+        while datetime.today() < end_date:
+            await raw_dns_mapping(subnets)
+            time.sleep(waiting_time)
 
 
 def get_geographic_mapping(subnets: dict, vps_per_subnet: dict) -> tuple[list, list]:
@@ -257,7 +259,7 @@ async def filter_ecs_hostnames(output_table: str) -> None:
         output_table=output_table,
         repeat=False,
         end_date=None,
-        chunk_size=10_000,
+        chunk_size=100,
     )
 
 
@@ -265,7 +267,7 @@ async def filter_anycast_hostnames(input_table: str) -> None:
     """get all answers, compare with anycatch database"""
     anycatch_db = load_anycatch_data()
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        ecs_hostnames = await GetDNSMapping().execute(
+        ecs_hostnames = await GetDNSMapping().aio_execute(
             client=client, table_name=input_table
         )
 
@@ -298,7 +300,7 @@ async def resolve_vps_subnet(input_table: str, output_table: str) -> None:
     tmp_hostname_file = create_tmp_csv_file(unicast_hostnames)
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps_subnet = await GetSubnets().execute(
+        vps_subnet = await GetSubnets().aio_execute(
             client=client, table_name=clickhouse_settings.VPS_RAW
         )
 
@@ -308,13 +310,13 @@ async def resolve_vps_subnet(input_table: str, output_table: str) -> None:
         output_table=output_table,
         repeat=False,
         end_date=None,
-        chunk_size=10_000,
+        chunk_size=100,
     )
 
     tmp_hostname_file.unlink()
 
 
-async def get_hostname_cdn() -> None:
+async def get_hostname_cdn(input_table: str) -> None:
     """for each IP address returned by a hostname, retrieve the CDN behind"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
     # hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
@@ -328,16 +330,16 @@ async def get_hostname_cdn() -> None:
                 asn_to_org[int(row["asn"])] = row["name"]
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        resp = await GetHostnamesAnswerSubnet().execute_iter(
+        resp = await GetHostnamesAnswerSubnet().aio_execute_iter(
             client=client,
-            table_name="filtered_hostnames_ecs_mapping",
+            table_name=input_table,
             hostname_filter="",
         )
 
         org_per_hostname = defaultdict(dict)
         async for row in resp:
             hostname = row["hostname"]
-            answers = row["answer"]
+            answers = row["answers"]
 
             for answer in answers:
                 asn, bgp_prefix = route_view_bgp_prefix(answer, asndb)
@@ -357,33 +359,55 @@ async def get_hostname_cdn() -> None:
                         # logger.error(f"Cannot retrieve org for AS:: {asn}")
                         continue
 
-            # logger.info(f"{hostname=}, {org_per_hostname[hostname]=}")
-
-        # set are not json compatible
         for hostname in org_per_hostname:
             for org, bgp_prefixes in org_per_hostname[hostname].items():
                 org_per_hostname[hostname][org] = list(set(bgp_prefixes))
 
         dump_json(
-            org_per_hostname, path_settings.DATASET / "hostname_1M_organization.json"
+            org_per_hostname, path_settings.DATASET / "ecs_hostnames_organization.json"
         )
+
+
+async def resolve_vps_on_selected_hostnames(
+    selected_hostnames_file: Path, output_table: str, repeat_for: int = 7
+) -> None:
+    """
+    perform ECS-DNS resolution one all VPs subnet
+    repeat_for: number of days to repeat the experiment
+    """
+    end_date = datetime.today() + timedelta(days=repeat_for)
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        vps_subnet = await GetVPsSubnets().execute(
+            client=client, table_name=clickhouse_settings.VPS_RAW
+        )
+
+    await resolve_hostnames(
+        subnets=[row["subnet"] for row in vps_subnet],
+        hostname_file=selected_hostnames_file,
+        output_table=output_table,
+        repeat=True,
+        end_date=end_date,
+        chunk_size=10_000,
+        waiting_time=0,
+    )
 
 
 async def main() -> None:
     """init main"""
     logger.info("Starting Geolocation hostnames initialization")
 
-    # await filter_ecs_hostnames(output_table="zdns_resolver_ecs_CrUX")
+    # await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
 
-    # logger.info("Retrieved ECS hostnames")
+    logger.info("Retrieved ECS hostnames")
 
-    # await filter_anycast_hostnames()
+    logger.info("Get ECS hostnames CDN/organization")
+    await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    logger.info("Filtered anycast hostnames")
-
-    await resolve_vps_subnet(
-        input_table="zdns_resolver_ecs_CrUX", output_table="filtered_hostnames_ecs_zdns"
-    )
+    # await resolve_vps_subnet(
+    #     input_table="hostnames_1M_resolution",
+    #     output_table="ecs_hostname_resolution",
+    # )
 
     logger.info("Hostname resolution done for every VPs")
 
@@ -392,6 +416,12 @@ async def main() -> None:
     # logger.info("Geographically valid hostname done")
 
     # await get_hostname_cdn()
+
+    # await resolve_vps_on_selected_hostnames(
+    #     selected_hostnames_file=path_settings.DATASET
+    #     / "hostname_1M_max_bgp_prefix_per_cdn.csv",
+    #     output_table="time_of_day_evaluation",
+    # )
 
 
 if __name__ == "__main__":

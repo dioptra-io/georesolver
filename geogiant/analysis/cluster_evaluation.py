@@ -133,7 +133,7 @@ def filter_vps_per_cluster(
             for vp in vps:
                 vp_pairwise_distance = pairwise_distance[vp[0]]
                 for neighbors, distance in vp_pairwise_distance:
-                    if distance < 50:
+                    if distance < 40:  # we take 40km for "city level closeness"
                         close_vps.append(neighbors)
 
                 if len(close_vps) < 5:
@@ -144,16 +144,24 @@ def filter_vps_per_cluster(
         else:
             cluster_vps = []
             cluster_as = set()
+            vps_per_as = defaultdict(list)
             for vp_addr, vp_lat, vp_lon, score in vps:
                 _, _, vp_asn = vps_coordinates[vp_addr]
 
-                # take on VP per AS in the cluster
-                if vp_asn not in cluster_as:
-                    cluster_as.add(vp_asn)
-                    cluster_vps.append([vp_addr, vp_lat, vp_lon, score])
+                vps_per_as[vp_asn].append((vp_addr, vp_lat, vp_lon, score))
 
-            # sort per score
-            cluster_vps = sorted(cluster_vps, key=lambda x: x[-1], reverse=True)
+                # # take on VP per AS in the cluster
+                # if vp_asn not in cluster_as:
+                #     cluster_as.add(vp_asn)
+                #     cluster_vps.append([vp_addr, vp_lat, vp_lon, score])
+
+            # take one VP per AS, max score per AS
+            for asn, vp_info in vps_per_as.items():
+                cluster_vps.append(max(vp_info, key=lambda x: x[-1]))
+
+            # cluster_vps = sorted(cluster_vps, key=lambda x: x[-1], reverse=True)
+            # cluster_vps = cluster_vps[:nb_vps_per_cluster]
+
             # only take VPs with maximum score within the cluster
             selected_vps.extend(cluster_vps)
 
@@ -407,12 +415,12 @@ def ecs_dns_vp_selection_eval(
             vps_coordinates,
         )
         no_ping_cluster_vp = None
-        no_ping_cluster_vp = get_no_ping_cluster_vp(
-            target,
-            target_score,
-            ecs_vps_per_cluster,
-            vps_coordinates,
-        )
+        # no_ping_cluster_vp = get_no_ping_cluster_vp(
+        #     target,
+        #     target_score,
+        #     ecs_vps_per_cluster,
+        #     vps_coordinates,
+        # )
 
         if not no_ping_cluster_vp:
             no_ping_cluster_vp = no_ping_vp

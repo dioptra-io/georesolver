@@ -429,8 +429,8 @@ async def main() -> None:
         greedy_bgp = False
         greedy_cdn = False
         max_bgp_prefix_per_cdn = True
-        answer_granularity = "answer_bgp_prefix"
-        all_hostname_file = base_output_file + f"_1M_hostnames_greedy_cdn"
+        answer_granularity = "answer_subnet"
+        all_hostname_file = base_output_file + f"_1M_hostnames_max_bgp_prefix"
 
         targets = await load_targets(clickhouse_settings.VPS_RAW)
         vps = await load_vps(clickhouse_settings.VPS_RAW)

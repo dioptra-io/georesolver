@@ -40,11 +40,11 @@ path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 
-async def init_ripe_atlas_prober() -> None:
+async def init_ripe_atlas_prober(output_table: str) -> None:
     """insert vps within clickhouse db"""
     api = RIPEAtlasAPI()
     vps = await api.get_vps()
-    await api.insert_vps(vps, clickhouse_settings.VPS_RAW)
+    await api.insert_vps(vps, output_table)
 
 
 def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
@@ -260,8 +260,6 @@ async def get_geoloc_from_traceroute() -> None:
                 logger.info(f"VP::{vp_addr} not in VPs table")
                 continue
 
-            logger.info("at least we geolocate one...")
-
             # TODO: get asn and bgp prefix from RIPE if not found?
             if not asn:
                 asn = -1
@@ -303,15 +301,16 @@ async def get_geoloc_from_traceroute() -> None:
 async def main() -> None:
     """init main"""
     logger.info("Starting RIPE Atlas prober initialization")
+    vps_table = clickhouse_settings.VPS_RAW
 
-    # await init_ripe_atlas_prober()
+    await init_ripe_atlas_prober(output_table=vps_table)
 
     # await download()
 
     # await insert()
 
     # await probe_connectivity()
-    await get_geoloc_from_traceroute()
+    # await get_geoloc_from_traceroute()
 
 
 if __name__ == "__main__":
