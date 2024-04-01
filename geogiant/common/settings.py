@@ -57,6 +57,8 @@ class PathSettings(BaseSettings):
 
     # Others
     VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
+    GREEDY_VPS: Path = DATASET / "greedy_vps.json"
+    REMOVED_VPS: Path = DATASET / "removed_vps.json"
 
     # ECS-DNS old data
     OLD_TARGETS: Path = DATASET / "old/ripe/targets.json"
@@ -82,8 +84,9 @@ class ClickhouseSettings(BaseSettings):
     # Clickhouse driver parameters
     BASE_URL: str = "http://localhost:8123"
     DATABASE_OLD: str = "geogiant"
-    DATABASE: str = "imc2024"
     DATABASE: str = "geogiant"
+    DATABASE: str = "imc2024"
+
     USERNAME: str = "default"
     PASSWORD: str = ""
 
@@ -99,8 +102,9 @@ class ClickhouseSettings(BaseSettings):
     TARGETS_TABLE_RAW: str = "targets_raw"
     TARGETS_TABLE: str = "targets"
     VPS_RAW: str = "vps_raw"
+    VPS_FILTERED: str = "filtered_vps"
     VPS: str = "vps"
-    PING_VPS_TO_TARGET: str = "ping_vps_to_target"
+    PING_VPS_TO_TARGET: str = "ping_vps_to_targets"
     PING_VPS_TO_FRONTEND: str = "ping_vps_to_frontend"
 
     # Geoloc tables
