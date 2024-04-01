@@ -1,10 +1,13 @@
 import asyncio
+import time
 
+from tqdm import tqdm
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import GetVPs
-from geogiant.prober import RIPEAtlasProber, RIPEAtlasAPI
+from geogiant.clickhouse import GetVPs, CreatePingTable, InsertFromCSV
+from geogiant.prober import RIPEAtlasAPI
+from geogiant.common.files_utils import create_tmp_csv_file, load_json
 from geogiant.common.settings import ClickhouseSettings, PathSettings
 
 path_settings = PathSettings()
@@ -68,9 +71,40 @@ async def get_measurement_schedule(dry_run: bool = False) -> dict:
     return measurement_schedule
 
 
+async def retrieve_pings(ids: list[int]) -> list[dict]:
+    """retrieve all ping measurements from a list of measurement ids"""
+    csv_data = []
+    for id in tqdm(ids):
+        ping_results = await RIPEAtlasAPI().get_ping_results(id)
+        csv_data.extend(ping_results)
+
+        time.sleep(0.1)
+
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        await CreatePingTable().aio_execute(
+            client=client, table_name="ping_vps_to_targets"
+        )
+        await InsertFromCSV().execute(
+            table_name="ping_vps_to_targets",
+            in_file=tmp_file_path,
+        )
+
+    # tmp_file_path.unlink()
+
+
 async def main() -> None:
-    measurement_schedule = await get_measurement_schedule(dry_run=False)
-    await RIPEAtlasProber("ping").main(measurement_schedule)
+    # measurement_schedule = await get_measurement_schedule(dry_run=False)
+    # await RIPEAtlasProber("ping").main(measurement_schedule)
+
+    # retrive ping measurements and insert them into clickhouse db
+    config_file = "ping__b74a94f7-03e4-41dd-83f3-2130dad140eb.json"
+    measurement_config = load_json(
+        RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG / config_file
+    )
+
+    await retrieve_pings(measurement_config["ids"])
 
 
 if __name__ == "__main__":

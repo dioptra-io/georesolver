@@ -2,7 +2,6 @@
 CLICKHOUSE_PATH="/storage/clickhouse"
 CONFIG_PATH="$PWD/configuration/clickhouse"
 EXEC_PATH="$CONFIG_PATH/clickhouse"
-$CONFIG_FILE="$PWD/configuration/clickhouse/config.d"
 
 # check if clickhouse client installed
 if [ -f $EXEC_PATH ]; then
@@ -17,7 +16,7 @@ fi
 echo "testing Clickhouse server connectivity"
 curl http://localhost:8123
 
-if [ "$?" -eq 0 ]; then 
+if [ "$?" -eq 1 ]; then 
     echo "A Clickhouse server is already runnning"
 else
     echo "Starting Clickhouse server"
