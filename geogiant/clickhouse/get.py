@@ -1,4 +1,14 @@
-from geogiant.clickhouse.query import Query, NativeQuery
+from geogiant.clickhouse.query import Query
+
+
+class GetCompleVPs(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            *
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        """
 
 
 class GetVPs(Query):
@@ -13,6 +23,7 @@ class GetVPs(Query):
             toString(subnet_v4) as subnet,
             id,
             country_code,
+            asn_v4,
             lat,
             lon
         FROM
@@ -146,10 +157,13 @@ class GetSubnetPerHostname(Query):
 
 
 class GetPingsPerTarget(Query):
-    def statement(
-        self,
-        table_name: str,
-    ) -> str:
+    def statement(self, table_name: str, filtered_vps: list = []) -> str:
+        filter_vps_statement = ""
+        if filtered_vps:
+            in_clause = f"".join([f",toIPv4('{p}')" for p in filtered_vps])[1:]
+            filter_vps_statement = (
+                f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
+            )
         return f"""
         SELECT 
             toString(dst_addr) as target,
@@ -158,9 +172,42 @@ class GetPingsPerTarget(Query):
             {self.settings.DATABASE}.{table_name}
         WHERE
             min > -1 
-            AND target != toString(src_addr)
+            AND dst_addr != src_addr
+            AND src_prefix != dst_prefix
+            {filter_vps_statement}
         GROUP BY 
             target
+        """
+
+
+class GetPingsPerSrcDst(Query):
+    def statement(
+        self,
+        table_name: str,
+        filtered_vps: list[str] = [],
+        threshold: int = 300,
+    ) -> str:
+        filter_vps_statement = ""
+        if filtered_vps:
+            in_clause = f"".join([f",toIPv4('{p}')" for p in filtered_vps])[1:]
+            filter_vps_statement = (
+                f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
+            )
+        return f"""
+        WITH  arrayMin(groupArray(min)) as min_rtt
+        SELECT 
+            toString(src_addr) as src,
+            toString(dst_addr) as dst,
+            min_rtt
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        WHERE
+            min > -1 
+            AND dst_addr != src_addr
+            AND min < {threshold}
+            {filter_vps_statement}
+        GROUP BY 
+            (src, dst)
         """
 
 
@@ -178,8 +225,6 @@ class GetPingsPerSubnet(Query):
             {self.settings.DATABASE}.{table_name}
         WHERE
             min > -1 
-            
-            
             AND toString(dst_addr) != toString(src_addr)
         GROUP BY 
             (subnet, target)
