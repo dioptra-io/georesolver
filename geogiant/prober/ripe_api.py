@@ -312,6 +312,12 @@ class RIPEAtlasAPI:
         for result in results:
             rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
 
+            if not result["from"] or not result["dst_addr"]:
+                logger.error(
+                    f"could not retrive ping {result['msm_id']}:: {result['from']=}, {result['dst_addr']=}"
+                )
+                continue
+
             if rtts:
                 parsed_data.append(
                     f"{result['timestamp']},\
@@ -325,8 +331,10 @@ class RIPEAtlasAPI:
                     {result['proto']},\
                     {result['rcvd']},\
                     {result['sent']},\
+                    {min(rtts)},\
+                    {max(rtts)},\
                     {result['avg']},\
-                    {rtts}"
+                    \"{rtts}\""
                 )
 
         return parsed_data
@@ -335,7 +343,7 @@ class RIPEAtlasAPI:
         """get results from ping measurement id"""
         url = f"{self.measurement_url}/{id}/results/"
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url)
+            resp = await client.get(url, timeout=15)
             resp = resp.json()
 
         # parse data and return to prober
