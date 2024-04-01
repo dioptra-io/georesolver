@@ -1,5 +1,3 @@
-import time
-
 from dataclasses import dataclass
 from multiprocessing import Pool, cpu_count
 from numpy import mean
@@ -266,10 +264,23 @@ def get_hostname_score(args) -> None:
     # unpack args
     (
         target_subnets,
-        targets_mapping,
-        vps_mapping,
+        vp_subnets,
         score_config,
     ) = args
+
+    hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
+
+    targets_mapping = get_subnets_mapping(
+        dns_table=score_config["targets_ecs_table"],
+        subnets=[s for s in target_subnets],
+        hostname_filter=hostnames,
+    )
+
+    vps_mapping = get_subnets_mapping(
+        dns_table=score_config["vps_ecs_table"],
+        subnets=[s for s in vp_subnets],
+        hostname_filter=hostnames,
+    )
 
     logger.debug(f"{len(targets_mapping)=}")
 
@@ -319,9 +330,6 @@ def get_scores(score_config: dict) -> None:
     targets_table = score_config["targets_table"]
     vps_table = score_config["vps_table"]
 
-    targets_ecs_table = score_config["targets_ecs_table"]
-    vps_ecs_table = score_config["vps_ecs_table"]
-
     hostname_per_cdn = score_config["hostname_per_cdn"]
     hostnames, cdns = load_hostnames(hostname_per_cdn)
 
@@ -331,9 +339,8 @@ def get_scores(score_config: dict) -> None:
     vp_subnets = load_vp_subnets(vps_table)
 
     # avoid overloading cpu
-    if len(hostnames) >= 100:
-        usable_cpu = 5
-        batch_size = 1_00
+    if len(hostnames) > 5_00:
+        usable_cpu = cpu_count() - 4
     else:
         usable_cpu = cpu_count() - 1
 
@@ -344,7 +351,6 @@ def get_scores(score_config: dict) -> None:
     target_score_answer = {}
     target_score_subnet = {}
     target_score_bgp_prefix = {}
-
     with Pool(usable_cpu) as pool:
         if batch_size == 0:
             batch_size = 1
@@ -354,49 +360,34 @@ def get_scores(score_config: dict) -> None:
         batches = []
         for i in range(0, len(target_subnets), batch_size):
             batch_target_subnets = target_subnets[i : i + batch_size]
-            targets_mapping = get_subnets_mapping(
-                dns_table=targets_ecs_table,
-                subnets=[s for s in batch_target_subnets],
-                hostname_filter=hostnames,
-            )
-            vps_mapping = get_subnets_mapping(
-                dns_table=vps_ecs_table,
-                subnets=[s for s in vp_subnets],
-                hostname_filter=hostnames,
-            )
+
             batch = [
                 batch_target_subnets,
-                targets_mapping,
-                vps_mapping,
+                vp_subnets,
                 score_config,
             ]
             batches.append(batch)
 
-            if len(batches) >= usable_cpu:
+        logger.info(f"Running score calculation on:: {len(batches)} batches")
 
-                logger.info(f"Running score calculation on:: {len(batches)} batches")
+        batched_scores = pool.map(get_hostname_score, batches)
 
-                batched_scores = pool.map(get_hostname_score, batches)
+        for batch in batched_scores:
+            batch_score_answer = batch[0]
+            batch_score_subnet = batch[1]
+            batch_score_bgp_prefix = batch[2]
 
-                for batch in batched_scores:
+            if batch_score_answer:
+                for subnet, score_per_metric in batch_score_answer.items():
+                    target_score_answer[subnet] = score_per_metric
 
-                    batch_score_answer = batch[0]
-                    batch_score_subnet = batch[1]
-                    batch_score_bgp_prefix = batch[2]
+            if batch_score_subnet:
+                for subnet, score_per_metric in batch_score_subnet.items():
+                    target_score_subnet[subnet] = score_per_metric
 
-                    if batch_score_answer:
-                        for subnet, score_per_metric in batch_score_answer.items():
-                            target_score_answer[subnet] = score_per_metric
-
-                    if batch_score_subnet:
-                        for subnet, score_per_metric in batch_score_subnet.items():
-                            target_score_subnet[subnet] = score_per_metric
-
-                    if batch_score_bgp_prefix:
-                        for subnet, score_per_metric in batch_score_bgp_prefix.items():
-                            target_score_bgp_prefix[subnet] = score_per_metric
-
-                batches = []
+            if batch_score_bgp_prefix:
+                for subnet, score_per_metric in batch_score_bgp_prefix.items():
+                    target_score_bgp_prefix[subnet] = score_per_metric
 
     logger.info(f"{len(target_score_subnet)}")
     return TargetScores(
@@ -412,8 +403,8 @@ def get_scores(score_config: dict) -> None:
 if __name__ == "__main__":
     hostname_file = "hostname_per_cdn_max_bgp_prefix.json"
 
-    targets_table = clickhouse_settings.VPS_RAW
-    vps_table = clickhouse_settings.VPS_RAW
+    targets_table = clickhouse_settings.VPS_FILTERED
+    vps_table = clickhouse_settings.VPS_FILTERED
 
     targets_ecs_table = "filtered_hostnames_ecs_mapping"
     vps_ecs_table = "filtered_hostnames_ecs_mapping"
@@ -422,7 +413,7 @@ if __name__ == "__main__":
 
     orgs = ["AMAZON-02"]
 
-    for nb_hostnames in [5_00]:
+    for nb_hostnames in [1, 5, 10, 50, 1_00, 5_00, 1_000]:
 
         selected_hostnames_per_cdn = {}
         for org in orgs:
@@ -442,7 +433,7 @@ if __name__ == "__main__":
 
         output_path = (
             path_settings.RESULTS_PATH
-            / f"scores_{org}_{len(selected_hostnames_per_cdn[org])}_{score_config['hostname_selection']}.pickle"
+            / f"scores__{org}_{len(selected_hostnames_per_cdn[org])}_{score_config['hostname_selection']}.pickle"
         )
 
         score = get_scores(score_config)
