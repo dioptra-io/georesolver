@@ -47,6 +47,7 @@ def get_no_ping_vp(
 ) -> dict:
     """return VP with maximum score"""
     target_subnet = get_prefix_from_ip(target["addr"])
+
     subnet, _ = target_score[0]
 
     for subnet, _ in target_score:
@@ -75,73 +76,79 @@ def ecs_dns_vp_selection_eval(
         target = parse_target(target, asndb)
 
         try:
-            target_score = subnet_scores[target["subnet"]]
-            target_score = target_score["intersection"]
+            target_scores: dict = subnet_scores[target["subnet"]]
         except KeyError:
             logger.error(f"cannot find target score for subnet : {target['subnet']}")
             continue
 
-        ecs_vps = get_ecs_vps(target_score, vps_per_subnet, 1_00)
+        result_per_metric = {}
+        for metric, target_score in target_scores.items():
 
-        # For fairness, remove VPs that are in the same /24
-        filtered_ecs_vps = []
-        for vp_subnet, score in ecs_vps:
-            if vp_subnet != target["subnet"]:
-                filtered_ecs_vps.append((vp_subnet, score))
+            ecs_vps = get_ecs_vps(target_score, vps_per_subnet, 1_00)
 
-        ecs_vps = filtered_ecs_vps
+            # For fairness, remove VPs that are in the same /24
+            filtered_ecs_vps = []
+            for vp_subnet, score in ecs_vps:
+                if vp_subnet != target["subnet"]:
+                    filtered_ecs_vps.append((vp_subnet, score))
 
-        # take only one address per city and per AS
-        ecs_vps_per_budget = {}
-        for budget in probing_budgets:
-            ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
-                ecs_vps[:budget], vps_coordinates
-            )
+            ecs_vps = filtered_ecs_vps
 
-        # NOT PING GEOLOC
-        no_ping_vp = get_no_ping_vp(
-            target,
-            target_score,
-            vps_per_subnet,
-            vps_coordinates,
-        )
-
-        # SHORTEST PING GEOLOC
-        try:
-            ecs_shortest_ping_per_budget = {}
-            for budget, ecs_vps in ecs_vps_per_budget.items():
-
-                ecs_shortest_ping_per_budget[budget] = shortest_ping(
-                    [addr for addr, _ in ecs_vps],
-                    ping_vps_to_target[target["addr"]],
+            # take only one address per city and per AS
+            ecs_vps_per_budget = {}
+            for budget in probing_budgets:
+                ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                    ecs_vps[:budget], vps_coordinates
                 )
 
-        except KeyError:
-            logger.debug(f"No ping available for target:: {target['addr']}")
-            continue
-
-        ecs_shortest_ping_vp_per_budget = {}
-        for budget, (
-            ecs_shortest_ping_addr,
-            ecs_min_rtt,
-        ) in ecs_shortest_ping_per_budget.items():
-            if not ecs_shortest_ping_addr:
-                continue
-            ecs_shortest_ping_vp = get_vp_info(
+            # NOT PING GEOLOC
+            no_ping_vp = get_no_ping_vp(
                 target,
                 target_score,
-                ecs_shortest_ping_addr,
+                vps_per_subnet,
                 vps_coordinates,
-                ecs_min_rtt,
             )
-            ecs_shortest_ping_vp_per_budget[budget] = ecs_shortest_ping_vp
+
+            # SHORTEST PING GEOLOC
+            try:
+                ecs_shortest_ping_per_budget = {}
+                for budget, ecs_vps in ecs_vps_per_budget.items():
+
+                    ecs_shortest_ping_per_budget[budget] = shortest_ping(
+                        [addr for addr, _ in ecs_vps],
+                        ping_vps_to_target[target["addr"]],
+                    )
+
+            except KeyError:
+                logger.debug(f"No ping available for target:: {target['addr']}")
+                continue
+
+            ecs_shortest_ping_vp_per_budget = {}
+            for budget, (
+                ecs_shortest_ping_addr,
+                ecs_min_rtt,
+            ) in ecs_shortest_ping_per_budget.items():
+                if not ecs_shortest_ping_addr:
+                    continue
+                ecs_shortest_ping_vp = get_vp_info(
+                    target,
+                    target_score,
+                    ecs_shortest_ping_addr,
+                    vps_coordinates,
+                    ecs_min_rtt,
+                )
+                ecs_shortest_ping_vp_per_budget[budget] = ecs_shortest_ping_vp
+
+            result_per_metric[metric] = {
+                "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
+                "no_ping_vp": no_ping_vp,
+                "ecs_scores": target_score[:50],
+                "ecs_vps": ecs_vps,
+            }
 
         results[target["addr"]] = {
             "target": target,
-            "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
-            "no_ping_vp": no_ping_vp,
-            "ecs_scores": target_score[:50],
-            "ecs_vps": ecs_vps,
+            "result_per_metric": result_per_metric,
         }
 
     return results
@@ -151,7 +158,7 @@ def main() -> None:
     probing_budgets = [50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    removed_vps = load_json(path_settings.DATASET / "removed_vps.json")
+    removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
         clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
     )
@@ -163,18 +170,26 @@ def main() -> None:
     logger.info("BGP prefix score geoloc evaluation")
 
     score_files = [
-        "scores__AMAZON-02_1_greedy_per_cdn.pickle",
-        "scores__AMAZON-02_5_greedy_per_cdn.pickle",
-        "scores__AMAZON-02_10_greedy_per_cdn.pickle",
-        "scores__AMAZON-02_100_greedy_per_cdn.pickle",
-        "scores__AMAZON-02_500_greedy_per_cdn.pickle",
-        "scores__AMAZON-02_1000_greedy_per_cdn.pickle",
-        "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
+        # "scores__AMAZON-02_1_greedy_per_cdn.pickle",
+        # "scores__AMAZON-02_5_greedy_per_cdn.pickle",
+        # "scores__AMAZON-02_10_greedy_per_cdn.pickle",
+        # "scores__AMAZON-02_100_greedy_per_cdn.pickle",
+        # "scores__AMAZON-02_500_greedy_per_cdn.pickle",
+        # "scores__AMAZON-02_1000_greedy_per_cdn.pickle",
+        "scores__GOOGLE_1_max_bgp_prefixes.pickle",
+        "scores__GOOGLE_5_max_bgp_prefixes.pickle",
+        "scores__GOOGLE_10_max_bgp_prefixes.pickle",
+        "scores__GOOGLE_100_max_bgp_prefixes.pickle",
+        "scores__GOOGLE_500_max_bgp_prefixes.pickle",
+        "scores__GOOGLE_541_max_bgp_prefixes.pickle",
+        # "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
     ]
 
     for score_file in score_files:
 
         scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / score_file)
+
+        logger.info(f"ECS evaluation for score:: {score_file}")
 
         results_answers = {}
         results_answer_subnets = {}
@@ -216,10 +231,15 @@ def main() -> None:
             results_answer_bgp_prefixes=results_answer_bgp_prefixes,
         )
 
+        output_file = (
+            path_settings.RESULTS_PATH / f"{'results' + score_file.split('scores')[-1]}"
+        )
+
+        logger.info(f"output file:: {output_file}")
+
         dump_pickle(
             data=results,
-            output_file=path_settings.RESULTS_PATH
-            / f"{'results_' + score_file.split('scores')[-1]}",
+            output_file=output_file,
         )
 
 

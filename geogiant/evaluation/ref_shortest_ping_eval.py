@@ -12,8 +12,7 @@ from geogiant.common.utils import (
     parse_target,
     get_vp_info,
 )
-from geogiant.common.geoloc import distance
-from geogiant.common.files_utils import dump_pickle
+from geogiant.common.files_utils import load_json, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -61,9 +60,10 @@ def ref_shortest_ping_eval(
 def main() -> None:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    removed_vps = path_settings.DATASET / "removed_vps.json"
-
-    ping_vps_to_target = get_pings_per_target(clickhouse_settings.PING_VPS_TO_TARGET)
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    ping_vps_to_target = get_pings_per_target(
+        clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
+    )
 
     targets = load_targets(clickhouse_settings.VPS_FILTERED)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)

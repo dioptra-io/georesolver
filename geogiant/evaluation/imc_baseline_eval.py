@@ -96,6 +96,7 @@ def round_based_algorithm_impl(
     vp_coordinates_per_ip_tier2[dst] = vp_coordinates_per_ip[dst]
     # Now evaluate the error with this subset of probes
     error, circles = compute_error(dst, vp_coordinates_per_ip_tier2, rtt_per_src)
+
     return dst, error, len(selected_probes)
 
 
@@ -128,7 +129,8 @@ def round_based_algorithm(
     usable_cpu = cpu_count() - 1
     with Pool(usable_cpu) as p:
         results = p.starmap(round_based_algorithm_impl, args)
-        return results
+
+    return results
 
 
 def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
@@ -198,4 +200,7 @@ if __name__ == "__main__":
         )
         error_cdf_per_tier1_vps[tier1_vps] = error_cdf
 
-    dump_json(error_cdf_per_tier1_vps, ROUND_BASED_ALGORITHM_FILE)
+    dump_json(
+        error_cdf_per_tier1_vps,
+        path_settings.RESULTS_PATH / "round_based_algo_file.json",
+    )
