@@ -382,6 +382,7 @@ class GetDNSMappingHostnames(Query):
         SELECT
             toString(subnet) as client_subnet,
             hostname,
+            source_scope,
             groupUniqArray((answer)) as answers,
             groupUniqArray((answer_subnet)) as answer_subnets,
             groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
@@ -391,7 +392,7 @@ class GetDNSMappingHostnames(Query):
             {subnet_filter}
             {hostname_filter}
         GROUP BY
-            (client_subnet, hostname)
+            (client_subnet, hostname, source_scope)
         """
 
 
