@@ -153,70 +153,76 @@ class RIPEAtlasAPI:
 
         tmp_file_path.unlink()
 
-    async def get_raw_traceroutes(
-        self,
-        type: str = "traceroute",
-        af: int = 4,
-        window: int = 1,
-    ) -> dict:
-        """get all measurement"""
-
-        wd_start_time = datetime.now() - timedelta(days=window)
-        wd_start_time = datetime.timestamp(wd_start_time)
-
-        params = {
-            "start_time__gte": wd_start_time,
-            "type": type,
-            "af": af,
-            "status__in": RIPEAtlasStatus.STOPPED.value,
-            "page_size": 100,
-        }
-
+    async def get_ping_results(self, id: int) -> dict:
+        """get results from ping measurement id"""
+        url = f"{self.measurement_url}/{id}/results/"
         async with httpx.AsyncClient() as client:
-            # get first results page
-            resp = await client.get(self.measurement_url, params=params)
+            resp = await client.get(url, timeout=15)
             resp = resp.json()
 
-            # only get results for valid measurements
-            for measurement in resp["results"]:
-                if measurement["participant_count"]:
-                    results_url = measurement["result"]
-                    results = await client.get(results_url)
-                    results = results.json()
+        ping_results = self.parse_ping(resp)
 
-                    for traceroute in results:
-                        yield traceroute
+        return ping_results
 
-            await asyncio.sleep(0.1)
+    def parse_ping(self, results: list[dict]) -> list[str]:
+        """retrieve all measurement, parse data and return for clickhouse insert"""
+        parsed_data = []
+        for result in results:
+            rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
 
-            # iterate until no next page available
-            i = 0
-            while next_url := resp.get("next"):
-                logger.debug(f"Next page::{resp['next']}")
+            if not result["from"] or not result["dst_addr"]:
+                logger.error(
+                    f"could not retrive ping {result['msm_id']}:: {result['from']=}, {result['dst_addr']=}"
+                )
+                continue
 
-                resp = await client.get(next_url)
-                resp = resp.json()
+            if rtts:
+                parsed_data.append(
+                    f"{result['timestamp']},\
+                    {result['from']},\
+                    {get_prefix_from_ip(result['from'])},\
+                    {24},\
+                    {result['prb_id']},\
+                    {result['msm_id']},\
+                    {result['dst_addr']},\
+                    {get_prefix_from_ip(result['dst_addr'])},\
+                    {result['proto']},\
+                    {result['rcvd']},\
+                    {result['sent']},\
+                    {min(rtts)},\
+                    {max(rtts)},\
+                    {result['avg']},\
+                    \"{rtts}\""
+                )
 
-                # only get results for valid measurements
-                for measurement in resp["results"]:
-                    if measurement["participant_count"]:
-                        results_url = measurement["result"]
-                        results = await client.get(results_url)
-                        results = results.json()
+        return parsed_data
 
-                        for traceroute in results:
-                            yield traceroute
+    async def get_traceroute_info(self, id: int) -> dict:
+        """get all measurement"""
+        url = f"{self.measurement_url}/{id}/"
 
-                await asyncio.sleep(0.1)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=15)
+            resp = resp.json()
 
-                # TODO::REMOVE
-                if i >= 2:
-                    break
-                i += 1
+        return resp
+
+    async def get_traceroute_results(self, id: int) -> dict:
+        """get all measurement"""
+        url = f"{self.measurement_url}/{id}/results/"
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=15)
+            resp = resp.json()
+
+        traceroute_results = self.parse_traceroute(resp)
+
+        return traceroute_results
 
     def parse_traceroute(self, traceroute: dict) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         traceroute_results = []
+        print(traceroute)
         for ttl_results in traceroute["result"]:
             ttl = ttl_results["hop"]
 
@@ -305,51 +311,6 @@ class RIPEAtlasAPI:
 
                 tmp_file_path.unlink()
                 traceroutes = []
-
-    def parse_ping(self, results: list[dict]) -> list[str]:
-        """retrieve all measurement, parse data and return for clickhouse insert"""
-        parsed_data = []
-        for result in results:
-            rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
-
-            if not result["from"] or not result["dst_addr"]:
-                logger.error(
-                    f"could not retrive ping {result['msm_id']}:: {result['from']=}, {result['dst_addr']=}"
-                )
-                continue
-
-            if rtts:
-                parsed_data.append(
-                    f"{result['timestamp']},\
-                    {result['from']},\
-                    {get_prefix_from_ip(result['from'])},\
-                    {24},\
-                    {result['prb_id']},\
-                    {result['msm_id']},\
-                    {result['dst_addr']},\
-                    {get_prefix_from_ip(result['dst_addr'])},\
-                    {result['proto']},\
-                    {result['rcvd']},\
-                    {result['sent']},\
-                    {min(rtts)},\
-                    {max(rtts)},\
-                    {result['avg']},\
-                    \"{rtts}\""
-                )
-
-        return parsed_data
-
-    async def get_ping_results(self, id: int) -> dict:
-        """get results from ping measurement id"""
-        url = f"{self.measurement_url}/{id}/results/"
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=15)
-            resp = resp.json()
-
-        # parse data and return to prober
-        ping_results = self.parse_ping(resp)
-
-        return ping_results
 
     async def get_status(self, measurement_id: str) -> bool:
         """check if measurement status is ongoing, if"""
@@ -457,6 +418,7 @@ class RIPEAtlasAPI:
                     self.measurement_url
                     + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
                     json=self.get_traceroute_config(target, vp_ids, uuid),
+                    timeout=60,
                 )
                 resp = resp.json()
 

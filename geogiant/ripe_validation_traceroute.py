@@ -1,38 +1,20 @@
 import asyncio
+import time
 
+from copy import deepcopy
+from datetime import datetime
 from tqdm import tqdm
 from collections import defaultdict
 from loguru import logger
-from pych_client import AsyncClickHouseClient
 
 from geogiant.common.files_utils import load_json, dump_json
 from geogiant.common.geoloc import distance
-from geogiant.clickhouse import GetVPs
+from geogiant.common.queries import load_targets, load_vps
 from geogiant.prober import RIPEAtlasProber, RIPEAtlasAPI
 from geogiant.common.settings import ClickhouseSettings, PathSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
-
-
-async def load_vps() -> list:
-    """retrieve all VPs from clickhouse"""
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps = await GetVPs().execute(
-            client=client, table_name=clickhouse_settings.VPS_RAW
-        )
-
-    return vps
-
-
-async def load_targets() -> list:
-    """load all targets (ripe atlas anchors) from clickhouse"""
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        targets = await GetVPs().execute(
-            client=client, table_name=clickhouse_settings.VPS_RAW, is_anchor=True
-        )
-
-    return targets
 
 
 def compute_vp_distance_matrix(vps: list[dict]) -> None:
@@ -61,18 +43,17 @@ def compute_vp_distance_matrix(vps: list[dict]) -> None:
     )
 
 
-async def get_measurement_schedule(dry_run: bool = False) -> dict:
+def get_measurement_schedule(dry_run: bool = False) -> dict:
     """for each target and subnet target get measurement vps
 
     Returns:
         dict: vps per target to make a measurement
     """
-    vps = await load_vps()
+    max_nb_traceroute = 50
+    vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
     if dry_run:
-        targets = targets[:5]
-        vps = vps[:2]
-        logger.debug(f"Dry run:: {len(targets)}, {len(vps)} VPs per target")
+        logger.debug(f"Dry run:: {len(vps)} VPs")
 
     if not path_settings.VPS_PAIRWISE_DISTANCE.exists():
         logger.debug(
@@ -89,13 +70,25 @@ async def get_measurement_schedule(dry_run: bool = False) -> dict:
     for vp in vps:
         vp_addr_to_id[vp["addr"]] = vp["id"]
 
+    # parse distance matrix
+    ordered_distance_matrix = {}
+    for vp in vps:
+        distances = vps_distance_matrix[vp["addr"]]
+        distances = sorted(distances.items(), key=lambda x: x[-1])
+        ordered_distance_matrix[vp["addr"]] = distances[:max_nb_traceroute]
+
     traceroute_targets_per_vp = {}
     for vp in vps:
-        closest_vps = vps_distance_matrix[vp["addr"]][:50]
-        closest_vps_ids = [
-            (vp_addr, vp_addr_to_id[vp_addr]) for vp_addr, _ in closest_vps
-        ]
-        traceroute_targets_per_vp[vp["id"]] = closest_vps_ids
+        closest_vps = ordered_distance_matrix[vp["addr"]][:max_nb_traceroute]
+
+        closest_vp_ids = []
+        for vp_addr, _ in closest_vps:
+            try:
+                closest_vp_ids.append((vp_addr, vp_addr_to_id[vp_addr]))
+            except KeyError:
+                continue
+
+        traceroute_targets_per_vp[vp["id"]] = closest_vp_ids
 
     logger.debug(f"{len(traceroute_targets_per_vp)=}")
 
@@ -113,7 +106,7 @@ async def get_measurement_schedule(dry_run: bool = False) -> dict:
         count += len(ids)
     logger.info(f"Total number of traceroute:: {count}")
 
-    batch_size = RIPEAtlasAPI().settings.MAX_MEASUREMENT
+    batch_size = RIPEAtlasAPI().settings.MAX_VP
     measurement_schedule = []
     for target, vps in traceroute_schedule.items():
         vps = list(vps)
@@ -133,9 +126,66 @@ async def get_measurement_schedule(dry_run: bool = False) -> dict:
     return measurement_schedule
 
 
+def get_latest_measurement_config() -> list[int]:
+    """return all measurement ids from latest traceroute measurement config"""
+    timestamp = None
+    latest_config = None
+
+    for file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+        if "traceroute" in file.name:
+            logger.debug(f"found traceroute config:: {file.name}")
+
+            new_config = load_json(file)
+            new_timestamp = new_config["start_time"].split(".")[0]
+            new_timestamp = datetime.strptime(new_timestamp, "%Y-%m-%d %H:%M:%S")
+
+            if not timestamp:
+                timestamp = new_timestamp
+                latest_config = new_config
+
+            if new_timestamp >= timestamp:
+                latest_config = new_config
+                timestamp = new_timestamp
+
+    if latest_config:
+        return latest_config
+
+
 async def main() -> None:
-    measurement_schedule = await get_measurement_schedule(dry_run=False)
-    await RIPEAtlasProber("traceroute").main(measurement_schedule)
+    traceroute_config = get_latest_measurement_config()
+    latest_schedule = load_json(
+        RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE
+        / f"traceroute__{traceroute_config['uuid']}.json"
+    )
+
+    schedule: list = deepcopy(latest_schedule)
+    if traceroute_config:
+        for id in tqdm(traceroute_config["ids"]):
+            traceroute_info = await RIPEAtlasAPI().get_traceroute_info(id)
+
+            # find corresponding measurement in schedule
+            found_traceroute = False
+            for i, (target, probe_requested) in enumerate(latest_schedule):
+                if (
+                    target == traceroute_info["target"]
+                    and len(probe_requested) == traceroute_info["probes_requested"]
+                ):
+                    schedule.remove([target, probe_requested])
+                    found_traceroute = True
+
+            if not found_traceroute:
+                raise RuntimeError("Traceroute does not exists in original schedule")
+
+            time.sleep(0.1)
+
+        logger.info(
+            f"Nb targets:: original schedule:: {len(latest_schedule)}, updated schedule:: {len(schedule)}"
+        )
+    else:
+        logger.debug("No preivous measurements were done")
+        schedule = get_measurement_schedule(dry_run=False)
+
+    # await RIPEAtlasProber("traceroute").main(schedule)
 
 
 if __name__ == "__main__":

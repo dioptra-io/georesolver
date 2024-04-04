@@ -292,16 +292,13 @@ async def filter_anycast_hostnames(input_table: str) -> None:
     return anycast_hostnames.symmetric_difference(all_hostnames)
 
 
-async def resolve_vps_subnet(input_table: str, output_table: str) -> None:
+async def resolve_vps_subnet(selected_hostnames: list, output_table: str) -> None:
     """perform ECS-DNS resolution one all VPs subnet"""
-    unicast_hostnames = await filter_anycast_hostnames(input_table)
-    unicast_hostnames = list(unicast_hostnames)
-
-    tmp_hostname_file = create_tmp_csv_file(unicast_hostnames)
+    tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         vps_subnet = await GetSubnets().aio_execute(
-            client=client, table_name=clickhouse_settings.VPS_RAW
+            client=client, table_name=clickhouse_settings.VPS_FILTERED
         )
 
     await resolve_hostnames(
@@ -319,8 +316,6 @@ async def resolve_vps_subnet(input_table: str, output_table: str) -> None:
 async def get_hostname_cdn(input_table: str) -> None:
     """for each IP address returned by a hostname, retrieve the CDN behind"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    # hostname_filter = load_csv(path_settings.DATASET / "valid_hostnames.csv")
-    # hostname_filter = [row.split(",")[0] for row in hostname_filter]
 
     asn_to_org = {}
     with (path_settings.DATASET / "20240101.as-org2info.jsonl").open("r") as f:
@@ -402,12 +397,13 @@ async def main() -> None:
     logger.info("Retrieved ECS hostnames")
 
     logger.info("Get ECS hostnames CDN/organization")
-    await get_hostname_cdn(input_table="hostnames_1M_resolution")
+    # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    # await resolve_vps_subnet(
-    #     input_table="hostnames_1M_resolution",
-    #     output_table="ecs_hostname_resolution",
-    # )
+    selected_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
+    await resolve_vps_subnet(
+        selected_hostnames=selected_hostnames,
+        output_table="vps_mapping_ecs_selection",
+    )
 
     logger.info("Hostname resolution done for every VPs")
 
