@@ -320,7 +320,7 @@ def select_best_guess_centroid(target_ip, vp_coordinates_per_ip, rtt_per_vp_to_t
     probe_circles = {}
     closest_vp = None
     min_rtt_per_vp_ip = {}
-    for vp_ip, min_rtt in rtt_per_vp_to_target:
+    for vp_ip, min_rtt in rtt_per_vp_to_target.items():
         if target_ip == vp_ip:
             continue
         if vp_ip not in vp_coordinates_per_ip:

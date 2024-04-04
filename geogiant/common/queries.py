@@ -6,6 +6,8 @@ from geogiant.clickhouse import (
     GetPingsPerTarget,
     GetPingsPerSrcDst,
     GetCompleVPs,
+    GetDNSMappingHostnames,
+    GetVPsSubnets,
 )
 from geogiant.common.settings import ClickhouseSettings
 
@@ -77,3 +79,59 @@ def load_targets(input_table: str) -> list:
         )
 
     return targets
+
+
+def get_subnets_mapping(
+    dns_table: str,
+    subnets: list[str],
+    hostname_filter: list[str] = None,
+) -> dict:
+    """get ecs-dns resolution per hostname for all input subnets"""
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetDNSMappingHostnames().execute_iter(
+            client=client,
+            table_name=dns_table,
+            subnet_filter=[s for s in subnets],
+            hostname_filter=hostname_filter,
+        )
+
+        subnets_mapping = defaultdict(dict)
+        for row in resp:
+            subnet = row["client_subnet"]
+            answers = row["answers"]
+            answer_subnets = row["answer_subnets"]
+            answer_bgp_prefixes = row["answer_bgp_prefixes"]
+            hostname = row["hostname"]
+            source_scope = row["source_scope"]
+
+            subnets_mapping[subnet][hostname] = {
+                "answers": answers,
+                "answer_subnets": answer_subnets,
+                "answer_bgp_prefixes": answer_bgp_prefixes,
+                "source_scope": source_scope,
+            }
+
+    return subnets_mapping
+
+
+def load_target_subnets(dns_table: str) -> dict:
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        targets = GetVPsSubnets().execute(
+            client=client, table_name=dns_table, is_anchor=True
+        )
+
+    target_subnets = [target["subnet"] for target in targets]
+
+    return target_subnets
+
+
+def load_vp_subnets(dns_table: str) -> dict:
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        vps = GetVPsSubnets().execute(
+            client=client,
+            table_name=dns_table,
+        )
+
+    vp_subnets = [vp["subnet"] for vp in vps]
+
+    return vp_subnets
