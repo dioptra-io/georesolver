@@ -1,17 +1,8 @@
-import time
-
-from dataclasses import dataclass
-from multiprocessing import Pool, cpu_count
-from numpy import mean
-from tqdm import tqdm
 from loguru import logger
-from collections import defaultdict
-from pych_client import ClickHouseClient
 
-from geogiant.clickhouse import GetVPsSubnets, GetDNSMappingHostnames
 from geogiant.common.files_utils import dump_pickle, load_json
+from geogiant.ecs_vp_selection.scores import get_scores
 from geogiant.common.settings import ClickhouseSettings, PathSettings
-from geogiant.ecs_vp_selection.scores import TargetScores, get_scores
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
@@ -19,8 +10,8 @@ clickhouse_settings = ClickhouseSettings()
 if __name__ == "__main__":
     hostname_file = "hostname_per_cdn_max_bgp_prefix.json"
 
-    targets_table = clickhouse_settings.VPS_RAW
-    vps_table = clickhouse_settings.VPS_RAW
+    targets_table = clickhouse_settings.VPS_FILTERED
+    vps_table = clickhouse_settings.VPS_FILTERED
 
     targets_ecs_table = "filtered_hostnames_ecs_mapping"
     vps_ecs_table = "filtered_hostnames_ecs_mapping"
@@ -40,8 +31,17 @@ if __name__ == "__main__":
         "targets_ecs_table": targets_ecs_table,
         "vps_ecs_table": vps_ecs_table,
         "hostname_selection": "max_bgp_prefix",
-        "score_metric": ["intersection", "jaccard"],
-        "answer_granularities": ["answer_subnets"],
+        "score_metric": [
+            "intersection",
+            "jaccard",
+            "jaccard_scope_linear_weight",
+            "jaccard_scope_poly_weight",
+            "jaccard_scope_exp_weight",
+            "intersection_scope_linear_weight",
+            "intersection_scope_poly_weight",
+            "intersection_scope_exp_weight",
+        ],
+        "answer_granularities": ["answers", "answer_subnets", "answer_bgp_prefixes"],
     }
 
     output_path = (
