@@ -1,6 +1,7 @@
 import httpx
 import asyncio
 import pyasn
+import json
 
 from numpy import mean
 from ipaddress import IPv4Address
@@ -420,6 +421,7 @@ class RIPEAtlasAPI:
                     json=self.get_traceroute_config(target, vp_ids, uuid),
                     timeout=60,
                 )
+
                 resp = resp.json()
 
                 try:

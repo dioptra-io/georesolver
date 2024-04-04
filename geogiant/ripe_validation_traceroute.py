@@ -185,7 +185,7 @@ async def main() -> None:
         logger.debug("No preivous measurements were done")
         schedule = get_measurement_schedule(dry_run=False)
 
-    # await RIPEAtlasProber("traceroute").main(schedule)
+    await RIPEAtlasProber("traceroute").main(schedule)
 
 
 if __name__ == "__main__":

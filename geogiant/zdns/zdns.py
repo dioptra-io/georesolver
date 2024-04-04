@@ -3,6 +3,7 @@ import pyasn
 import asyncio
 import time
 
+from uuid import uuid4
 from tqdm import tqdm
 from datetime import datetime
 from dateutil import parser
@@ -13,7 +14,7 @@ from pych_client import AsyncClickHouseClient
 
 from geogiant.clickhouse import InsertFromCSV, CreateDNSMappingTable
 
-from geogiant.common.files_utils import create_tmp_csv_file
+from geogiant.common.files_utils import dump_csv, create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import (
     is_valid_ipv4,
     get_prefix_from_ip,
@@ -34,15 +35,17 @@ class ZDNS:
         self,
         subnets: list[str],
         hostname_file: Path,
-        table_name: str,
         name_servers: list,
+        output_file: Path = None,
+        output_table: str = None,
         timeout: float = 0.1,
         iterative: bool = False,
     ) -> None:
         self.subnets = subnets
         self.hostname_file = hostname_file
         self.name_servers = name_servers
-        self.table_name = table_name
+        self.output_file = output_file
+        self.output_table = output_table
         self.timeout = timeout
         self.iterative = iterative
 
@@ -164,14 +167,26 @@ class ZDNS:
 
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
-        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreateDNSMappingTable().aio_execute(
-                client=client, table_name=self.table_name
-            )
+        if self.output_table:
 
-            await InsertFromCSV().execute(
-                table_name=self.table_name,
-                in_file=tmp_file_path,
+            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                await CreateDNSMappingTable().aio_execute(
+                    client=client, table_name=self.output_table
+                )
+
+                await InsertFromCSV().execute(
+                    table_name=self.output_table,
+                    in_file=tmp_file_path,
+                )
+
+        if self.output_file:
+            output_file = (
+                self.output_file.name.split(".")[0]
+                + str(uuid4())
+                + self.output_file.name.split(".")[-1]
+            )
+            dump_csv(
+                data=zdns_data, output_file=self.settings.RESULTS_PATH / output_file
             )
 
         tmp_file_path.unlink()

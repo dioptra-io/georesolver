@@ -21,6 +21,9 @@ class PathSettings(BaseSettings):
     # Default path
     DEFAULT: Path = Path(__file__).resolve().parent
 
+    # deployment
+    GITHUB_TOKEN: str = ""
+
     # main dataset dirs
     DATASET: Path = DEFAULT / "../datasets/"
     RESULTS_PATH: Path = DEFAULT / "../results"
