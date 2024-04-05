@@ -210,7 +210,6 @@ async def resolve_vps_subnet(
     # load subnets from file if in file
     if input_file:
         vps_subnet = load_json(input_file)
-        vps_subnet = vps_subnet[:10]
 
     if input_table:
         async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:

@@ -23,6 +23,8 @@ class PathSettings(BaseSettings):
 
     # deployment
     GITHUB_TOKEN: str = ""
+    DOCKER_USERNAME: str = ""
+    SSH_USER: str = ""
 
     # main dataset dirs
     DATASET: Path = DEFAULT / "../datasets/"
@@ -95,7 +97,7 @@ class ClickhouseSettings(BaseSettings):
 
     # ZDNS tables
     DNS_MAPPING_TARGETS: str = "raw_dns_mapping_targets"
-    DNS_MAPPING_VPS: str = "dns_mapping_vps"
+    DNS_MAPPING_VPS: str = "vps_mapping_ecs_selection"
     DNS_MAPPING_VPS_RAW: str = "raw_dns_mapping_vps"
     DNS_MAPPING_ECS: str = "ecs_dns_mapping"
     DNS_MAPPING_METADATA_TARGETS: str = "dns_mapping_metadata_targets"
