@@ -181,12 +181,11 @@ class ZDNS:
 
         if self.output_file:
             output_file = (
-                self.output_file.name.split(".")[0]
-                + str(uuid4())
-                + self.output_file.name.split(".")[-1]
+                self.output_file.name.split(".")[0] + "_" + str(uuid4()) + ".csv"
             )
             dump_csv(
-                data=zdns_data, output_file=self.settings.RESULTS_PATH / output_file
+                data=[data.replace(" ", "") for data in zdns_data],
+                output_file=self.settings.RESULTS_PATH / output_file,
             )
 
         tmp_file_path.unlink()
