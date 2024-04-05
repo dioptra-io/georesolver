@@ -1,1 +1,1 @@
-# GeoGiant
+# geogiant
