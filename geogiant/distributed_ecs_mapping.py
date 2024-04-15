@@ -231,8 +231,8 @@ if __name__ == "__main__":
         logger.info(f"Total number of ECS hostnames:: {len(ecs_hostnames)}")
 
         config_per_vm = {}
-        for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
-            config_per_vm[vm] = {"ip_addr": ip_addr, "hostnames": ecs_hostnames[i]}
+        for vm, ip_addr in gcp_vms.items():
+            config_per_vm[vm] = {"ip_addr": ip_addr, "hostnames": ecs_hostnames}
 
     if ecs_resolution:
         resolved_hostnames = get_resolved_hostnames("filtered_hostnames_ecs_mapping")

@@ -155,7 +155,6 @@ class ZDNS:
             hostname = resp["name"]
 
         except KeyError as e:
-            logger.debug(f"{resp_body=}, {e=}")
             return None
 
         if "answers" in resp_body:
@@ -167,7 +166,6 @@ class ZDNS:
                 ns = answer["answer"]
 
                 if not ns:
-                    logger.debug(f"{answer}")
                     continue
 
                 subnet_addr = get_prefix_from_ip(subnet)
@@ -186,7 +184,6 @@ class ZDNS:
                 ns = auth["ns"]
 
                 if not ns:
-                    logger.debug(f"{answer}")
                     continue
 
                 subnet_addr = get_prefix_from_ip(subnet)
