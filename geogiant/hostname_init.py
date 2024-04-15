@@ -366,7 +366,9 @@ async def main() -> None:
     logger.info("Get ECS hostnames CDN/organization")
     # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    selected_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
+    selected_hostnames = load_csv(
+        path_settings.DATASET / "all_ecs_selected_hostnames.csv"
+    )
 
     # input_file = path_settings.DATASET / "vps_subnet.json"
     # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"

@@ -226,9 +226,7 @@ if __name__ == "__main__":
         # "iris-me-central1": "34.1.33.16",
     }
     if name_server_resolution:
-        ecs_hostnames = load_csv(
-            path_settings.DATASET / "all_ecs_selected_hostnames.csv"
-        )
+        ecs_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
 
         logger.info(f"Total number of ECS hostnames:: {len(ecs_hostnames)}")
 
