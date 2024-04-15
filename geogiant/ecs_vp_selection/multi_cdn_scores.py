@@ -13,8 +13,8 @@ if __name__ == "__main__":
     targets_table = clickhouse_settings.VPS_FILTERED
     vps_table = clickhouse_settings.VPS_FILTERED
 
-    targets_ecs_table = "filtered_hostnames_ecs_mapping"
-    vps_ecs_table = "filtered_hostnames_ecs_mapping"
+    targets_ecs_table = "vps_mapping_ecs"
+    vps_ecs_table = "vps_mapping_ecs"
 
     hostname_per_cdn = load_json(path_settings.DATASET / hostname_file)
 
@@ -32,16 +32,20 @@ if __name__ == "__main__":
         "vps_ecs_table": vps_ecs_table,
         "hostname_selection": "max_bgp_prefix",
         "score_metric": [
-            "intersection",
+            # "intersection",
             "jaccard",
             "jaccard_scope_linear_weight",
-            "jaccard_scope_poly_weight",
-            "jaccard_scope_exp_weight",
-            "intersection_scope_linear_weight",
-            "intersection_scope_poly_weight",
-            "intersection_scope_exp_weight",
+            # "jaccard_scope_poly_weight",
+            # "jaccard_scope_exp_weight",
+            # "intersection_scope_linear_weight",
+            # "intersection_scope_poly_weight",
+            # "intersection_scope_exp_weight",
         ],
-        "answer_granularities": ["answers", "answer_subnets", "answer_bgp_prefixes"],
+        "answer_granularities": [
+            # "answers",
+            # "answer_subnets",
+            "answer_bgp_prefixes",
+        ],
     }
 
     output_path = (

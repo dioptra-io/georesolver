@@ -1,12 +1,8 @@
-import numpy as np
-import matplotlib.pyplot as plt
-
-from typer import Typer
 from copy import deepcopy
 from collections import defaultdict
 from loguru import logger
 
-from geogiant.common.files_utils import load_json, dump_csv, dump_json, load_csv
+from geogiant.common.files_utils import load_json, dump_json
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
@@ -83,15 +79,24 @@ def select_hostname_greedy_per_cdn(hostname_per_cdn: dict) -> dict:
     return hostname_per_cdn_greedy_per_cdn
 
 
-def select_hostname_max_bgp_prefix_per_cdn(hostname_per_cdn: dict) -> dict:
+def select_hostname_max_bgp_prefix_per_cdn(
+    hostname_per_cdn: dict, bgp_prefixes_per_hostname: dict
+) -> dict:
     hostname_per_cdn_max_bgp_prefix = defaultdict(dict)
     for org, bgp_prefix_per_hostname in hostname_per_cdn.items():
+
         bgp_prefix_per_hostname = sorted(
             bgp_prefix_per_hostname.items(), key=lambda x: x[1]
         )
         for hostname, bgp_prefixes in bgp_prefix_per_hostname:
-            if len(bgp_prefixes) > 10:
-                hostname_per_cdn_max_bgp_prefix[org][hostname] = len(bgp_prefixes)
+
+            # some hostnames has more than just one org
+            hostname_bgp_prefixes = bgp_prefixes_per_hostname[hostname]
+
+            if len(hostname_bgp_prefixes) > 20:
+                hostname_per_cdn_max_bgp_prefix[org][hostname] = len(
+                    hostname_bgp_prefixes
+                )
 
     for org in hostname_per_cdn_max_bgp_prefix:
         hostname_per_cdn_max_bgp_prefix[org] = sorted(
@@ -99,6 +104,9 @@ def select_hostname_max_bgp_prefix_per_cdn(hostname_per_cdn: dict) -> dict:
             key=lambda x: x[1],
             reverse=True,
         )
+        logger.debug(f"ORGANIZATION:: {org}")
+        for hostname, bgp_prefixes in hostname_per_cdn_max_bgp_prefix[org]:
+            logger.debug(f"{hostname=}, {bgp_prefixes=}")
 
         hostname_per_cdn_max_bgp_prefix[org] = [
             hostname for hostname, _ in hostname_per_cdn_max_bgp_prefix[org]
@@ -115,7 +123,7 @@ def main() -> None:
     3) select hostnames that returned the maximum number of BGP prefixes, per CDN
     """
     cdn_per_hostname = load_json(
-        path_settings.DATASET / "hostname_1M_organization.json"
+        path_settings.DATASET / "ecs_hostnames_organization.json"
     )
 
     bgp_prefix_per_hostname = defaultdict(set)
@@ -136,7 +144,7 @@ def main() -> None:
     # hostname_per_cdn_greedy_per_cdn = select_hostname_greedy_per_cdn(hostname_per_cdn)
 
     hostname_per_cdn_max_bgp_prefix = select_hostname_max_bgp_prefix_per_cdn(
-        hostname_per_cdn
+        hostname_per_cdn, bgp_prefix_per_hostname
     )
 
     # dump_json(
@@ -148,6 +156,12 @@ def main() -> None:
     #     data=hostname_per_cdn_greedy_per_cdn,
     #     output_file=path_settings.DATASET / "hostname_per_cdn_greedy_cdn.json",
     # )
+
+    # > X bgp prefixes (geo diversity) -> do not discriminate
+    # merge main orga (AMAZON-AES / AMAZON-02)
+    # 1. take main orga per hostname in case of multi -> hostname to main orga (orga with max bgp prefixes)
+    # arg: how does redirection?
+    # + merge orga ()
 
     dump_json(
         data=hostname_per_cdn_max_bgp_prefix,
