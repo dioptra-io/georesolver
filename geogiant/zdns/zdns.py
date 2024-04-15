@@ -176,7 +176,7 @@ class ZDNS:
                     24,\
                     {hostname},\
                     {ns},\
-                    {answer["type"]}"
+                    {answer['type']}"
                 )
 
         if "authorities" in resp_body:
@@ -195,7 +195,7 @@ class ZDNS:
                     24,\
                     {hostname},\
                     {ns},\
-                    {answer["type"]}"
+                    {answer['type']}"
                 )
 
         return parsed_output
