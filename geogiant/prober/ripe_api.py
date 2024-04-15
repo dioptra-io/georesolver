@@ -4,7 +4,7 @@ import pyasn
 import json
 
 from numpy import mean
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, AddressValueError
 from collections import defaultdict
 
 from uuid import uuid4
@@ -220,59 +220,68 @@ class RIPEAtlasAPI:
 
         return traceroute_results
 
-    def parse_traceroute(self, traceroute: dict) -> str:
+    def parse_traceroute(self, traceroutes: list) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         traceroute_results = []
-        print(traceroute)
-        for ttl_results in traceroute["result"]:
-            ttl = ttl_results["hop"]
+        for traceroute in traceroutes:
+            for ttl_results in traceroute["result"]:
+                ttl = ttl_results["hop"]
 
-            # hop 255, junk data
-            if ttl == 255:
-                continue
-
-            # retrieve rtt from response
-            rcvd = 0
-            sent = len(ttl_results["result"])
-            responses = defaultdict(list)
-            for resp in ttl_results["result"]:
-                if "rtt" in resp:
-                    responses[resp["from"]].append(resp["rtt"])
-                    rcvd += 1
-
-            # no response for current TTL
-            if not responses:
-                continue
-
-            for ip_addr, rtts in responses.items():
-                # remove private ip addresses
-                if IPv4Address(ip_addr).is_private:
+                # hop 255, junk data
+                if ttl == 255:
                     continue
 
-                min_rtt = min(rtts)
-                max_rtt = max(rtts)
-                avg_rtt = mean(rtts)
+                # retrieve rtt from response
+                rcvd = 0
+                try:
+                    sent = len(ttl_results["result"])
+                except KeyError:
+                    continue
 
-                traceroute_results.append(
-                    f"{traceroute['timestamp']},\
-                    {traceroute['from']},\
-                    {get_prefix_from_ip(traceroute['from'])},\
-                    {24},\
-                    {traceroute['prb_id']},\
-                    {traceroute['msm_id']},\
-                    {traceroute['dst_addr']},\
-                    {get_prefix_from_ip(traceroute['dst_addr'])},\
-                    {traceroute['proto']},\
-                    {ip_addr},\
-                    {get_prefix_from_ip(ip_addr)},\
-                    {ttl},\
-                    {sent},\
-                    {rcvd},\
-                    {min_rtt},\
-                    {max_rtt},\
-                    {avg_rtt},\
-                    \"{rtts}\""
-                )
+                responses = defaultdict(list)
+                for resp in ttl_results["result"]:
+                    if "rtt" in resp:
+                        responses[resp["from"]].append(resp["rtt"])
+                        rcvd += 1
+
+                # no response for current TTL
+                if not responses:
+                    continue
+
+                for ip_addr, rtts in responses.items():
+                    # remove private ip addresses
+                    try:
+                        private_ip_addr = IPv4Address(ip_addr).is_private
+                    except AddressValueError:
+                        continue
+
+                    if private_ip_addr:
+                        continue
+
+                    min_rtt = min(rtts)
+                    max_rtt = max(rtts)
+                    avg_rtt = mean(rtts)
+
+                    traceroute_results.append(
+                        f"{traceroute['timestamp']},\
+                        {traceroute['from']},\
+                        {get_prefix_from_ip(traceroute['from'])},\
+                        {24},\
+                        {traceroute['prb_id']},\
+                        {traceroute['msm_id']},\
+                        {traceroute['dst_addr']},\
+                        {get_prefix_from_ip(traceroute['dst_addr'])},\
+                        {traceroute['proto']},\
+                        {ip_addr},\
+                        {get_prefix_from_ip(ip_addr)},\
+                        {ttl},\
+                        {sent},\
+                        {rcvd},\
+                        {min_rtt},\
+                        {max_rtt},\
+                        {avg_rtt},\
+                        \"{rtts}\""
+                    )
 
         return traceroute_results
 

@@ -50,6 +50,8 @@ async def resolve_hostnames(
     output_table: str = None,
     end_date: datetime = "2024-01-23 00:00",
     waiting_time: int = 60 * 60 * 2,
+    request_timout: float = 0.1,
+    request_type: str = "A",
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
@@ -87,7 +89,8 @@ async def resolve_hostnames(
                     output_table=output_table,
                     name_servers="8.8.8.8",
                     iterative=iterative,
-                    timeout=10 / chunk_size,
+                    timeout=request_timout,
+                    request_type=request_type,
                 )
                 await zdns.main()
 
@@ -195,6 +198,41 @@ async def filter_anycast_hostnames(input_table: str) -> None:
     logger.info(f"Number of Anycast hostnames:: {len(anycast_hostnames)}")
 
     return anycast_hostnames.symmetric_difference(all_hostnames)
+
+
+async def resolve_name_servers(
+    selected_hostnames: list,
+    output_file: Path = None,
+    output_table: str = None,
+) -> None:
+    """perform ECS-DNS resolution one all VPs subnet"""
+    tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
+
+    vps_subnet = [get_prefix_from_ip(get_host_ip_addr())]
+
+    if not vps_subnet:
+        raise RuntimeError(
+            f"Either var input_file or input_table must be set to load vps subnets"
+        )
+
+    if not output_file and not output_table:
+        raise RuntimeError(
+            f"Either var output_file or output_table must be set to dump results"
+        )
+
+    # output file if out file instead of output table
+    await resolve_hostnames(
+        subnets=vps_subnet,
+        hostname_file=tmp_hostname_file,
+        output_file=output_file,
+        output_table=output_table,
+        repeat=False,
+        end_date=None,
+        chunk_size=100,
+        request_type="NS",
+    )
+
+    tmp_hostname_file.unlink()
 
 
 async def resolve_vps_subnet(
@@ -328,13 +366,18 @@ async def main() -> None:
     # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
     selected_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
-    input_file = path_settings.DATASET / "vps_subnet.json"
-    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
 
-    await resolve_vps_subnet(
+    # input_file = path_settings.DATASET / "vps_subnet.json"
+    # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    # await resolve_vps_subnet(
+    #     selected_hostnames=selected_hostnames,
+    #     input_file=input_file,
+    #     output_file=output_file,
+    # )
+
+    await resolve_name_servers(
         selected_hostnames=selected_hostnames,
-        input_file=input_file,
-        output_file=output_file,
+        output_file=path_settings.RESULTS_PATH / "name_server_resolution.csv",
     )
 
     logger.info("Hostname resolution done for every VPs")

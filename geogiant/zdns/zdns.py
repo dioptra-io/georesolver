@@ -12,7 +12,7 @@ from pathlib import Path
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import InsertFromCSV, CreateDNSMappingTable
+from geogiant.clickhouse import InsertFromCSV, CreateDNSMappingTable, CreateDNSNSTable
 
 from geogiant.common.files_utils import dump_csv, create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import (
@@ -40,6 +40,7 @@ class ZDNS:
         output_table: str = None,
         timeout: float = 0.1,
         iterative: bool = False,
+        request_type: str = "A",
     ) -> None:
         self.subnets = subnets
         self.hostname_file = hostname_file
@@ -48,6 +49,7 @@ class ZDNS:
         self.output_table = output_table
         self.timeout = timeout
         self.iterative = iterative
+        self.request_type = request_type
 
         self.settings = ZDNSSettings()
 
@@ -59,13 +61,13 @@ class ZDNS:
             return (
                 hostname_cmd
                 + " | "
-                + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --iterative"
+                + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
             )
         else:
             return (
                 hostname_cmd
                 + " | "
-                + f"{self.settings.EXEC_PATH} A --client-subnet {subnet} --name-servers {self.name_servers}"
+                + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --name-servers {self.name_servers}"
             )
 
     async def query(self, subnet: str) -> dict:
@@ -93,53 +95,131 @@ class ZDNS:
 
         return query_results
 
+    def parse_timestamp(self, resp: dict) -> datetime:
+        """retrieve timestamp from DNS resp"""
+        timestamp = resp["timestamp"]
+        timestamp = parser.isoparse(timestamp)
+        timestamp = datetime.timestamp(timestamp)
+
+        return timestamp
+
+    def parse_a_records(self, resp: dict, subnet: str, asndb) -> str:
+        """parse A records from ZDNS output"""
+        parsed_output = []
+        try:
+            resp_body = resp["data"]
+            hostname = resp["name"]
+            answers = resp["answers"]
+            timestamp = self.parse_timestamp(resp)
+
+            source_scope = resp_body["additionals"][0]["csubnet"]["source_scope"]
+            if source_scope == 0:
+                return None
+
+        except KeyError:
+            return None
+
+        for answer in answers:
+            answer = answer["answer"]
+            if is_valid_ipv4(answer):
+                subnet_addr = get_prefix_from_ip(subnet)
+                answer_subnet = get_prefix_from_ip(answer)
+                answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
+
+                if not answer_asn or not answer_bgp_prefix:
+                    logger.info(f"{answer}:: Could not retrieve ASN and BGP prefix")
+                    continue
+
+                parsed_output.append(
+                    f"{int(timestamp)},\
+                    {subnet_addr},\
+                    24,\
+                    {hostname},\
+                    {answer},\
+                    {answer_subnet},\
+                    {answer_bgp_prefix},\
+                    {answer_asn},\
+                    {source_scope}"
+                )
+
+    def parse_ns_records(
+        self,
+        resp: dict,
+        subnet: str,
+    ) -> str:
+        """parse NS records from ZDNS output"""
+        parsed_output = []
+        try:
+            resp_body = resp["data"]
+            timestamp = self.parse_timestamp(resp)
+            hostname = resp["name"]
+
+        except KeyError as e:
+            logger.debug(f"{resp_body=}, {e=}")
+            return None
+
+        if "answers" in resp_body:
+            answers = resp_body["answers"]
+            for answer in answers:
+                if answer["type"] != "NS":
+                    continue
+
+                ns = answer["answer"]
+
+                if not ns:
+                    logger.debug(f"{answer}")
+                    continue
+
+                subnet_addr = get_prefix_from_ip(subnet)
+
+                parsed_output.append(
+                    f"{int(timestamp)},\
+                    {subnet_addr},\
+                    24,\
+                    {hostname},\
+                    {ns}"
+                )
+
+        if "authorities" in resp_body:
+            authorities = resp_body["authorities"]
+            for auth in authorities:
+                ns = auth["ns"]
+
+                if not ns:
+                    logger.debug(f"{answer}")
+                    continue
+
+                subnet_addr = get_prefix_from_ip(subnet)
+
+                parsed_output.append(
+                    f"{int(timestamp)},\
+                    {subnet_addr},\
+                    24,\
+                    {hostname},\
+                    {ns}"
+                )
+
+        return parsed_output
+
     def parse(self, subnet: str, query_results: list, asndb) -> list:
         """return resolution server ip addr"""
         parsed_data = []
-        for result in query_results:
-            if not result["status"] == ZDNS_STATUS.NOERROR.value:
-                continue
-
-            # filter result query where some data are missing
-            try:
-                data = result["data"]
-                hostname = result["name"]
-                answers = data["answers"]
-
-                timestamp = result["timestamp"]
-                timestamp = parser.isoparse(timestamp)
-                timestamp = datetime.timestamp(timestamp)
-
-                source_scope = data["additionals"][0]["csubnet"]["source_scope"]
-                if source_scope == 0:
-                    continue
-
-            except KeyError:
+        for resp in query_results:
+            if not resp["status"] == ZDNS_STATUS.NOERROR.value:
                 continue
 
             # filter answers that are not IP addresses
-            for answer in answers:
-                answer = answer["answer"]
-                if is_valid_ipv4(answer):
-                    subnet_addr = get_prefix_from_ip(subnet)
-                    answer_subnet = get_prefix_from_ip(answer)
-                    answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
+            if self.request_type == "A":
+                data = self.parse_a_records(resp, subnet, asndb)
 
-                    if not answer_asn or not answer_bgp_prefix:
-                        logger.info(f"{answer}:: Could not retrieve ASN and BGP prefix")
-                        continue
+            elif self.request_type == "NS":
+                data = self.parse_ns_records(resp, subnet)
 
-                    parsed_data.append(
-                        f"{int(timestamp)},\
-                        {subnet_addr},\
-                        24,\
-                        {hostname},\
-                        {answer},\
-                        {answer_subnet},\
-                        {answer_bgp_prefix},\
-                        {answer_asn},\
-                        {source_scope}"
-                    )
+            else:
+                raise RuntimeError(f"DNS Type:: {self.request_type} is unkown")
+
+            if data:
+                parsed_data.extend(data)
 
         return parsed_data
 
@@ -168,16 +248,27 @@ class ZDNS:
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
         if self.output_table:
+            if self.request_type == "A":
+                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                    await CreateDNSMappingTable().aio_execute(
+                        client=client, table_name=self.output_table
+                    )
 
-            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                await CreateDNSMappingTable().aio_execute(
-                    client=client, table_name=self.output_table
-                )
+                    await InsertFromCSV().execute(
+                        table_name=self.output_table,
+                        in_file=tmp_file_path,
+                    )
 
-                await InsertFromCSV().execute(
-                    table_name=self.output_table,
-                    in_file=tmp_file_path,
-                )
+            elif self.request_type == "NS":
+                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                    await CreateDNSNSTable().aio_execute(
+                        client=client, table_name=self.output_table
+                    )
+
+                    await InsertFromCSV().execute(
+                        table_name=self.output_table,
+                        in_file=tmp_file_path,
+                    )
 
         if self.output_file:
             output_file = (

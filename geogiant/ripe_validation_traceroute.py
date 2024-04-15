@@ -6,10 +6,12 @@ from datetime import datetime
 from tqdm import tqdm
 from collections import defaultdict
 from loguru import logger
+from pych_client import ClickHouseClient
 
-from geogiant.common.files_utils import load_json, dump_json
+from geogiant.clickhouse import InsertFromCSV, CreateTracerouteTable
+from geogiant.common.files_utils import load_json, dump_json, create_tmp_csv_file
 from geogiant.common.geoloc import distance
-from geogiant.common.queries import load_targets, load_vps
+from geogiant.common.queries import load_vps
 from geogiant.prober import RIPEAtlasProber, RIPEAtlasAPI
 from geogiant.common.settings import ClickhouseSettings, PathSettings
 
@@ -151,41 +153,91 @@ def get_latest_measurement_config() -> list[int]:
         return latest_config
 
 
+def get_all_measurement_ids() -> list[int]:
+    """retrive all traceroute measurement ids from config file"""
+    ids = set()
+    for file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+        if "traceroute" in file.name:
+            logger.info(f"Found traceroute measurement config:: {file.name}")
+            config = load_json(file)
+            ids.update(config["ids"])
+
+    return ids
+
+
+async def retrieve_all_traceroutes(ids: int) -> list[dict]:
+    """retrieve all traceroutes from a list of ids"""
+    traceroute_results = []
+    for id in tqdm(ids):
+        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
+        traceroute_results.extend(traceroute_result)
+
+        time.sleep(0.1)
+
+    return traceroute_results
+
+
 async def main() -> None:
-    traceroute_config = get_latest_measurement_config()
-    latest_schedule = load_json(
-        RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE
-        / f"traceroute__{traceroute_config['uuid']}.json"
-    )
+    make_measurement = False
+    insert_measurement = True
 
-    schedule: list = deepcopy(latest_schedule)
-    if traceroute_config:
-        for id in tqdm(traceroute_config["ids"]):
-            traceroute_info = await RIPEAtlasAPI().get_traceroute_info(id)
-
-            # find corresponding measurement in schedule
-            found_traceroute = False
-            for i, (target, probe_requested) in enumerate(latest_schedule):
-                if (
-                    target == traceroute_info["target"]
-                    and len(probe_requested) == traceroute_info["probes_requested"]
-                ):
-                    schedule.remove([target, probe_requested])
-                    found_traceroute = True
-
-            if not found_traceroute:
-                raise RuntimeError("Traceroute does not exists in original schedule")
-
-            time.sleep(0.1)
-
-        logger.info(
-            f"Nb targets:: original schedule:: {len(latest_schedule)}, updated schedule:: {len(schedule)}"
+    if make_measurement:
+        traceroute_config = get_latest_measurement_config()
+        latest_schedule = load_json(
+            RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE
+            / f"traceroute__{traceroute_config['uuid']}.json"
         )
-    else:
-        logger.debug("No preivous measurements were done")
-        schedule = get_measurement_schedule(dry_run=False)
 
-    await RIPEAtlasProber("traceroute").main(schedule)
+        schedule: list = deepcopy(latest_schedule)
+        if traceroute_config:
+            for id in tqdm(traceroute_config["ids"]):
+                traceroute_info = await RIPEAtlasAPI().get_traceroute_info(id)
+
+                # find corresponding measurement in schedule
+                found_traceroute = False
+                for i, (target, probe_requested) in enumerate(latest_schedule):
+                    if (
+                        target == traceroute_info["target"]
+                        and len(probe_requested) == traceroute_info["probes_requested"]
+                    ):
+                        schedule.remove([target, probe_requested])
+                        found_traceroute = True
+
+                if not found_traceroute:
+                    raise RuntimeError(
+                        "Traceroute does not exists in original schedule"
+                    )
+
+                time.sleep(0.1)
+
+            logger.info(
+                f"Nb targets:: original schedule:: {len(latest_schedule)}, updated schedule:: {len(schedule)}"
+            )
+        else:
+            logger.debug("No preivous measurements were done")
+            schedule = get_measurement_schedule(dry_run=False)
+
+        await RIPEAtlasProber("traceroute").main(schedule)
+
+    if insert_measurement:
+        traceroute_ids = get_all_measurement_ids()
+
+        logger.info(f"Retrieved {len(traceroute_ids)} traceroute measurements")
+
+        traceroute_results = await retrieve_all_traceroutes(traceroute_ids)
+
+        tmp_file_path = create_tmp_csv_file(traceroute_results)
+
+        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+            CreateTracerouteTable().execute(
+                client, clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+            )
+            InsertFromCSV().execute_from_in_file(
+                table_name=clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY,
+                in_file=tmp_file_path,
+            )
+
+        tmp_file_path.unlink()
 
 
 if __name__ == "__main__":
