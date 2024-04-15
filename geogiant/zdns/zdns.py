@@ -175,7 +175,8 @@ class ZDNS:
                     {subnet_addr},\
                     24,\
                     {hostname},\
-                    {ns}"
+                    {ns},\
+                    {answer["type"]}"
                 )
 
         if "authorities" in resp_body:
@@ -193,7 +194,8 @@ class ZDNS:
                     {subnet_addr},\
                     24,\
                     {hostname},\
-                    {ns}"
+                    {ns},\
+                    {answer["type"]}"
                 )
 
         return parsed_output
