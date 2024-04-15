@@ -112,6 +112,9 @@ class ClickhouseSettings(BaseSettings):
     PING_VPS_TO_TARGET: str = "ping_vps_to_targets"
     PING_VPS_TO_FRONTEND: str = "ping_vps_to_frontend"
 
+    # Traceroute validation
+    TRACEROUTES_LAST_MILE_DELAY: str = "traceroutes_last_mile_delay"
+
     # Geoloc tables
     TARGET_GEOLOCATION: str = "target_geolocation"
     POP_GEOLOCATION: str = "pop_geolocation"

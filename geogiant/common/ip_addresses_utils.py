@@ -96,20 +96,6 @@ def generate_subnets(start_subnet: str, new_prefix: int, out_file_dir: Path) -> 
                 f.write(str(subnet) + "\n")
 
 
-def get_host_ip_addr() -> str:
-    """get current public IP addr"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("8.8.8.8", 80))
-    ip_addr = str(s.getsockname()[0])
-
-    # check that we got a public IPv4 addr
-
-    if IPv4Address(ip_addr) and not IPv4Address(ip_addr).is_private:
-        return ip_addr
-    else:
-        raise RuntimeError("could not retrieve user IPv4 addr")
-
-
 async def ripe_stat_bgp_prefix(ip_addr: str) -> str:
     """return the announced BGP prefix of a given IP addr"""
     base_url = "https://stat.ripe.net/data/prefix-overview/data.json"

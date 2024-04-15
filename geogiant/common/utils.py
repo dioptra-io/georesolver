@@ -115,24 +115,45 @@ def get_vp_info(
     }
 
 
+def filter_vps_last_mile_delay(
+    ecs_vps: list[tuple], last_mile_delay: dict, rtt_thresholdd: int = 4
+) -> list[tuple]:
+    """remove vps that have a high last mile delay"""
+    filtered_vps = []
+    for vp_addr, score in ecs_vps:
+        try:
+            min_rtt = last_mile_delay[vp_addr]
+            if min_rtt < rtt_thresholdd:
+                filtered_vps.append((vp_addr, score))
+        except KeyError:
+            continue
+
+    return filtered_vps
+
+
 def select_one_vp_per_as_city(
     raw_vp_selection: list,
     vp_coordinates: dict,
+    last_mile_delay: dict,
     threshold: int = 40,
 ) -> list:
     """from a list of VP, select one per AS and per city"""
     filtered_vp_selection = []
     vps_per_as = defaultdict(list)
     for vp_addr, score in raw_vp_selection:
-        vp_lat, vp_lon, vp_asn = vp_coordinates[vp_addr]
+        _, _, vp_asn = vp_coordinates[vp_addr]
+        try:
+            last_mile_delay_vp = last_mile_delay[vp_addr]
+        except KeyError:
+            continue
 
-        vps_per_as[vp_asn].append((vp_addr, score))
+        vps_per_as[vp_asn].append((vp_addr, last_mile_delay_vp, score))
 
     # select one VP per AS, take maximum VP score in AS
     selected_vps_per_as = defaultdict(list)
     for asn, vps in vps_per_as.items():
-        vps_per_as[asn] = sorted(vps, key=lambda x: x[-1])
-        for vp_i, score in vps_per_as[asn]:
+        vps_per_as[asn] = sorted(vps, key=lambda x: x[1])
+        for vp_i, last_mile_delay, score in vps_per_as[asn]:
             vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
 
             if not selected_vps_per_as[asn]:

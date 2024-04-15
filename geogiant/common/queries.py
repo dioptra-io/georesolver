@@ -8,10 +8,26 @@ from geogiant.clickhouse import (
     GetCompleVPs,
     GetDNSMappingHostnames,
     GetVPsSubnets,
+    GetLastMileDelay,
 )
 from geogiant.common.settings import ClickhouseSettings
 
 clickhouse_settings = ClickhouseSettings()
+
+
+def get_min_rtt_per_vp(table_name: str) -> dict:
+    """get the minimum RTT per VP from 50 traceroutes samples"""
+    last_mile_delay_per_vp = {}
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetLastMileDelay().execute(
+            client=client,
+            table_name=table_name,
+        )
+
+    for row in resp:
+        last_mile_delay_per_vp[row["src_addr"]] = row["min_rtt"]
+
+    return last_mile_delay_per_vp
 
 
 def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
