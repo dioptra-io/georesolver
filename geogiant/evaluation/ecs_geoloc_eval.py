@@ -4,11 +4,13 @@ from loguru import logger
 
 from geogiant.common.queries import (
     get_pings_per_target,
+    get_min_rtt_per_vp,
     load_targets,
     load_vps,
 )
 from geogiant.common.utils import (
     select_one_vp_per_as_city,
+    filter_vps_last_mile_delay,
     get_parsed_vps,
     shortest_ping,
     get_vp_info,
@@ -25,7 +27,11 @@ clickhouse_settings = ClickhouseSettings()
 
 
 def get_ecs_vps(
-    target_score: dict, vps_per_subnet: dict, probing_budget: int = 50
+    target_subnet: str,
+    target_score: dict,
+    vps_per_subnet: dict,
+    last_mile_delay_vp: dict,
+    probing_budget: int = 50,
 ) -> list:
     """
     get the target score and extract best VPs function of the probing budget
@@ -33,11 +39,28 @@ def get_ecs_vps(
     """
     # retrieve all vps belonging to subnets with highest mapping scores
     ecs_vps = []
-    for subnet, score in target_score[:probing_budget]:
-        vps_in_subnet = vps_per_subnet[subnet]
-        if not vps_in_subnet:
+    for i, (subnet, score) in enumerate(target_score):
+        # for fairness, do not take vps that are in the same subnet as the target
+        if subnet == target_subnet:
             continue
-        ecs_vps.append((vps_in_subnet[0], score))
+
+        vps_in_subnet = vps_per_subnet[subnet]
+
+        vps_delay = []
+        for vp in vps_in_subnet:
+            try:
+                vps_delay.append((vp, last_mile_delay_vp[vp]))
+            except KeyError:
+                continue
+
+        # for each subnet, elect the VP with the lowest last mile delay
+        if vps_delay:
+            elected_subnet_vp_addr, _ = min(vps_delay, key=lambda x: x[-1])
+            ecs_vps.append((elected_subnet_vp_addr, score))
+
+        # take only a number of subnets up to probing budget
+        if i > probing_budget:
+            break
 
     return ecs_vps
 
@@ -65,6 +88,7 @@ def ecs_dns_vp_selection_eval(
     vps_per_subnet: dict,
     subnet_scores: dict,
     ping_vps_to_target: dict,
+    last_mile_delay: dict,
     vps_coordinates: dict,
     probing_budgets: list,
 ) -> tuple[dict, dict]:
@@ -84,22 +108,21 @@ def ecs_dns_vp_selection_eval(
         result_per_metric = {}
         for metric, target_score in target_scores.items():
 
-            ecs_vps = get_ecs_vps(target_score, vps_per_subnet, 1_00)
+            # get vps, function of their subnet ecs score
+            ecs_vps = get_ecs_vps(
+                target["subnet"], target_score, vps_per_subnet, last_mile_delay, 1_00
+            )
 
-            # For fairness, remove VPs that are in the same /24
-            filtered_ecs_vps = []
-            for vp_subnet, score in ecs_vps:
-                if vp_subnet != target["subnet"]:
-                    filtered_ecs_vps.append((vp_subnet, score))
-
-            ecs_vps = filtered_ecs_vps
+            # remove vps that have a high last mile delay
+            ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
 
             # take only one address per city and per AS
+            # TODO: select function of the last mile delay
             ecs_vps_per_budget = {}
             for budget in probing_budgets:
                 ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
-                    ecs_vps[:budget], vps_coordinates
-                )
+                    ecs_vps, vps_coordinates, last_mile_delay
+                )[:budget]
 
             # NOT PING GEOLOC
             no_ping_vp = get_no_ping_vp(
@@ -155,9 +178,12 @@ def ecs_dns_vp_selection_eval(
 
 
 def main() -> None:
-    probing_budgets = [50]
+    probing_budgets = [5, 10, 20, 30, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
+    last_mile_delay = get_min_rtt_per_vp(
+        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+    )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
         clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
@@ -176,13 +202,13 @@ def main() -> None:
         # "scores__AMAZON-02_100_greedy_per_cdn.pickle",
         # "scores__AMAZON-02_500_greedy_per_cdn.pickle",
         # "scores__AMAZON-02_1000_greedy_per_cdn.pickle",
-        "scores__GOOGLE_1_max_bgp_prefixes.pickle",
-        "scores__GOOGLE_5_max_bgp_prefixes.pickle",
-        "scores__GOOGLE_10_max_bgp_prefixes.pickle",
-        "scores__GOOGLE_100_max_bgp_prefixes.pickle",
-        "scores__GOOGLE_500_max_bgp_prefixes.pickle",
-        "scores__GOOGLE_541_max_bgp_prefixes.pickle",
-        # "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
+        # "scores__GOOGLE_1_max_bgp_prefixes.pickle",
+        # "scores__GOOGLE_5_max_bgp_prefixes.pickle",
+        # "scores__GOOGLE_10_max_bgp_prefixes.pickle",
+        # "scores__GOOGLE_100_max_bgp_prefixes.pickle",
+        # "scores__GOOGLE_500_max_bgp_prefixes.pickle",
+        # "scores__GOOGLE_541_max_bgp_prefixes.pickle",
+        "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
     ]
 
     for score_file in score_files:
@@ -200,6 +226,7 @@ def main() -> None:
                 vps_per_subnet=vps_per_subnet,
                 subnet_scores=scores.score_answer_subnets,
                 ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
                 vps_coordinates=vps_coordinates,
                 probing_budgets=probing_budgets,
             )
@@ -210,6 +237,7 @@ def main() -> None:
                 vps_per_subnet=vps_per_subnet,
                 subnet_scores=scores.score_answer_subnets,
                 ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
                 vps_coordinates=vps_coordinates,
                 probing_budgets=probing_budgets,
             )
@@ -220,6 +248,7 @@ def main() -> None:
                 vps_per_subnet=vps_per_subnet,
                 subnet_scores=scores.score_answer_bgp_prefixes,
                 ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
                 vps_coordinates=vps_coordinates,
                 probing_budgets=probing_budgets,
             )
