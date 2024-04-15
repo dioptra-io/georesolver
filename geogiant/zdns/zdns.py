@@ -195,7 +195,7 @@ class ZDNS:
                     24,\
                     {hostname},\
                     {ns},\
-                    {answer['type']}"
+                    {auth['type']}"
                 )
 
         return parsed_output
