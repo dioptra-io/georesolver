@@ -208,7 +208,8 @@ async def resolve_name_servers(
     """perform ECS-DNS resolution one all VPs subnet"""
     tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
 
-    vps_subnet = [get_prefix_from_ip(get_host_ip_addr())]
+    vm_config = load_json(path_settings.DATASET / "vm_config.json")
+    vps_subnet = [get_prefix_from_ip(vm_config["ip_addr"])]
 
     if not vps_subnet:
         raise RuntimeError(

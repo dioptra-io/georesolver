@@ -11,7 +11,12 @@ from geogiant.clickhouse import (
     CreateDNSMappingTable,
     InsertFromCSV,
 )
-from geogiant.common.files_utils import load_csv, dump_csv, create_tmp_csv_file
+from geogiant.common.files_utils import (
+    load_csv,
+    dump_csv,
+    create_tmp_csv_file,
+    dump_json,
+)
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -22,7 +27,9 @@ def docker_run_cmd() -> str:
     return """
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/ecs_selected_hostnames.csv:/app/geogiant/datasets/ecs_selected_hostnames.csv" \
+        -v "$(pwd)/datasets/all_ecs_selected_hostnames.csv:/app/geogiant/datasets/all_ecs_selected_hostnames.csv" \
+        -v "$(pwd)/datasets/vm_config.json:/app/geogiant/datasets/vm_config.json" \
+        --network host \
         ghcr.io/dioptra-io/geogiant:main
     """
 
@@ -170,12 +177,21 @@ def deploy_hostname_resolution(vm: str, vm_config: dict) -> None:
     logger.info(f"Results ouput dir:: {vm_result_path}")
 
     # dump ecs hostname file for VM
-    selected_hostnames_file = vm_result_path / "ecs_selected_hostnames.csv"
-    dump_csv(vm_config["hostnames"], vm_result_path / "ecs_selected_hostnames.csv")
+    selected_hostnames_file = vm_result_path / "all_ecs_selected_hostnames.csv"
+    dump_csv(vm_config["hostnames"], vm_result_path / "all_ecs_selected_hostnames.csv")
+
+    vm_config_file_path = vm_result_path / "vm_config.json"
+    dump_json(vm_config, output_file=vm_config_file_path)
 
     # upload hostname file
     result = c.put(
         local=f"{selected_hostnames_file}",
+        remote="datasets",
+    )
+
+    # upload hostname file
+    result = c.put(
+        local=f"{vm_config_file_path}",
         remote="datasets",
     )
 
@@ -198,19 +214,21 @@ if __name__ == "__main__":
     ecs_resolution = False
 
     gcp_vms = {
-        "iris-asia-east1": "35.206.250.197",
-        "iris-asia-northeast1": "35.213.102.165",
-        "iris-asia-southeast1": "35.213.136.86",
-        "iris-us-east4": "35.212.77.8",
-        "iris-southamerica-east1": "35.215.236.49",
-        "iris-asia-south1": "35.207.223.116",
-        "iris-europe-north1": "35.217.61.50",
+        # "iris-asia-east1": "35.206.250.197",
+        # "iris-asia-northeast1": "35.213.102.165",
+        # "iris-asia-southeast1": "35.213.136.86",
+        # "iris-us-east4": "35.212.77.8",
+        # "iris-southamerica-east1": "35.215.236.49",
+        # "iris-asia-south1": "35.207.223.116",
+        # "iris-europe-north1": "35.217.61.50",
         "iris-europe-west6": "35.216.205.173",
-        "iris-us-west4": "35.219.175.87",
-        "iris-me-central1": "34.1.33.16",
+        # "iris-us-west4": "35.219.175.87",
+        # "iris-me-central1": "34.1.33.16",
     }
     if name_server_resolution:
-        ecs_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
+        ecs_hostnames = load_csv(
+            path_settings.DATASET / "all_ecs_selected_hostnames.csv"
+        )
 
         logger.info(f"Total number of ECS hostnames:: {len(ecs_hostnames)}")
 
@@ -220,7 +238,9 @@ if __name__ == "__main__":
 
     if ecs_resolution:
         resolved_hostnames = get_resolved_hostnames("filtered_hostnames_ecs_mapping")
-        ecs_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
+        ecs_hostnames = load_csv(
+            path_settings.DATASET / "all_ecs_selected_hostnames.csv"
+        )
         remaining_hostnames = list(
             set(resolved_hostnames).symmetric_difference(set(ecs_hostnames))
         )
