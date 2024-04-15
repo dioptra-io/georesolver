@@ -229,8 +229,9 @@ async def resolve_name_servers(
         output_table=output_table,
         repeat=False,
         end_date=None,
-        chunk_size=100,
+        chunk_size=1_000,
         request_type="NS",
+        request_timout=1,
     )
 
     tmp_hostname_file.unlink()
