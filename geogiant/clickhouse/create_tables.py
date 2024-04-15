@@ -131,6 +131,24 @@ class CreateDNSMappingTable(Query):
         """
 
 
+class CreateDNSNSTable(Query):
+    def statement(self, table_name: str) -> str:
+        sorting_key = "subnet, netmask, hostname,name_server, timestamp"
+        return f"""
+        CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+        (
+            timestamp              DateTime(),
+            subnet                 IPv4,
+            netmask                UInt8,
+            hostname               String,
+            name_server            Sring,
+            source_scope           UInt8
+        )
+        ENGINE MergeTree
+        ORDER BY ({sorting_key})
+        """
+
+
 class CreateDNSMappingWithMetadataTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "client_subnet,client_bgp_prefix, client_asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"

@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 
 from typing import Generator
 from pathlib import Path
@@ -251,6 +252,22 @@ class InsertFromCSV:
         if stderr:
             raise RuntimeError(
                 f"Could not insert data::{cmd}, failed with error: {stderr}"
+            )
+        else:
+            logger.info(f"{cmd}::Successfully executed")
+
+    def execute_from_in_file(self, table_name: str, in_file: Path) -> None:
+        """insert data contained in local file"""
+        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
+
+        # create result dir for vm
+        ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+        logger.debug(f"Insert from CSV:: {in_file=}, {ps.stdout=}, {ps.stderr=}")
+
+        if ps.stderr:
+            raise RuntimeError(
+                f"Could not insert data::{cmd}, failed with error: {ps.stderr}"
             )
         else:
             logger.info(f"{cmd}::Successfully executed")

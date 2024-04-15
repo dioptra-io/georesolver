@@ -4,11 +4,11 @@ from .create_tables import (
     CreatePingTable,
     CreateTracerouteTable,
     CreateDNSMappingTable,
+    CreateDNSNSTable,
     CreateDNSMappingWithMetadataTable,
     CreateGeolocTable,
 )
 from .dns_score import OverallScore, HostnameScore, CountRows
-from .ripe_traceroute_parsing import GetProbeConnectivity, GetGeolocFromTraceroute
 from .get import (
     GetSubnets,
     GetVPsSubnets,
@@ -23,6 +23,7 @@ from .get import (
     GetPingsPerSrcDst,
     GetPingsPerSubnet,
     GetAvgRTTPerSubnet,
+    GetLastMileDelay,
     GetDNSMapping,
     GetAllDNSMapping,
     GetPoPInfo,
@@ -31,6 +32,8 @@ from .get import (
     GetDNSMappingHostnames,
     GetHostnames,
     GetHostnamesAnswerSubnet,
+    GetProbeConnectivity,
+    GetGeolocFromTraceroute,
 )
 
 
@@ -45,6 +48,7 @@ __all__ = (
     "CreatePingTable",
     "CreateTracerouteTable",
     "CreateDNSMappingTable",
+    "CreateDNSNSTable",
     "CreateDNSMappingWithMetadataTable",
     "CreateGeolocTable",
     "GetSubnets",
@@ -60,6 +64,7 @@ __all__ = (
     "GetPingsPerSrcDst",
     "GetPingsPerSubnet",
     "GetAvgRTTPerSubnet",
+    "GetLastMileDelay",
     "GetSubnetScore",
     "OverallScore",
     "HostnameScore",
@@ -72,6 +77,8 @@ __all__ = (
     "GetPoPPerHostname",
     "GetHostnames",
     "GetHostnamesAnswerSubnet",
+    "GetProbeConnectivity",
+    "GetGeolocFromTraceroute",
     "GetProbeConnectivity",
     "GetGeolocFromTraceroute",
 )
