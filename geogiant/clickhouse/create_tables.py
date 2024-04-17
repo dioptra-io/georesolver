@@ -131,7 +131,7 @@ class CreateDNSMappingTable(Query):
         """
 
 
-class CreateDNSNSTable(Query):
+class CreateNameServerTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "subnet, netmask, hostname,name_server, timestamp"
         return f"""
@@ -141,8 +141,8 @@ class CreateDNSNSTable(Query):
             subnet                 IPv4,
             netmask                UInt8,
             hostname               String,
-            name_server            Sring,
-            source_scope           UInt8
+            name_server            String,
+            type                   String
         )
         ENGINE MergeTree
         ORDER BY ({sorting_key})

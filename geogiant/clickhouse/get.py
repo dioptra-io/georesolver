@@ -278,6 +278,19 @@ class GetAvgRTTPerSubnet(Query):
         """
 
 
+class GetAllNameServers(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            hostname,
+            groupUniqArray(name_server) as name_servers
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        GROUP BY
+            hostname
+        """
+
+
 class GetHostnames(Query):
     def statement(self, table_name: str) -> str:
         return f"""
