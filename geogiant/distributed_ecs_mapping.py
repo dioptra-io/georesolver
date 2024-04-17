@@ -9,6 +9,7 @@ from geogiant.clickhouse import (
     GetHostnames,
     GetAllDNSMapping,
     CreateDNSMappingTable,
+    CreateNameServerTable,
     InsertFromCSV,
 )
 from geogiant.common.files_utils import (
@@ -42,7 +43,7 @@ def check_docker_running(vm: str, vm_config: dict) -> None:
     result = c.run("docker ps")
 
 
-def insert_remote_results(gcp_vms: dict, output_table: str) -> None:
+def insert_ecs_mapping_results(gcp_vms: dict, output_table: str) -> None:
     """insert csv results file into clickhouse"""
     # insert files
     for vm in gcp_vms:
@@ -55,6 +56,28 @@ def insert_remote_results(gcp_vms: dict, output_table: str) -> None:
 
                 with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
                     CreateDNSMappingTable().execute(
+                        client=client, table_name=output_table
+                    )
+
+                    InsertFromCSV().execute_from_in_file(
+                        table_name=output_table,
+                        in_file=file,
+                    )
+
+
+def insert_name_server_results(gcp_vms: dict, output_table: str) -> None:
+    """insert csv results file into clickhouse"""
+    # insert files
+    for vm in gcp_vms:
+        vm_results_path = path_settings.RESULTS_PATH / f"{vm}"
+
+        for file in vm_results_path.iterdir():
+            if "name_server_resolution" in file.name:
+
+                logger.info(f"Inserting file:: {file}")
+
+                with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+                    CreateNameServerTable().execute(
                         client=client, table_name=output_table
                     )
 
@@ -128,7 +151,7 @@ def free_memory(vm: str, vm_config: dict) -> None:
     logger.info(f"Freeing memory on vm:: {vm}")
 
     c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
-    result = c.run("rm -rf results/vps_mapping_ecs_resolution_*")
+    result = c.run("rm -rf results/name_server_resolution_*")
 
 
 def rsync_files(vm: str, vm_config: dict, delete_after: bool = False) -> None:
@@ -214,16 +237,16 @@ if __name__ == "__main__":
     ecs_resolution = False
 
     gcp_vms = {
-        # "iris-asia-east1": "35.206.250.197",
-        # "iris-asia-northeast1": "35.213.102.165",
-        # "iris-asia-southeast1": "35.213.136.86",
-        # "iris-us-east4": "35.212.77.8",
-        # "iris-southamerica-east1": "35.215.236.49",
-        # "iris-asia-south1": "35.207.223.116",
-        # "iris-europe-north1": "35.217.61.50",
+        "iris-asia-east1": "35.206.250.197",
+        "iris-asia-northeast1": "35.213.102.165",
+        "iris-asia-southeast1": "35.213.136.86",
+        "iris-us-east4": "35.212.77.8",
+        "iris-southamerica-east1": "35.215.236.49",
+        "iris-asia-south1": "35.207.223.116",
+        "iris-europe-north1": "35.217.61.50",
         "iris-europe-west6": "35.216.205.173",
-        # "iris-us-west4": "35.219.175.87",
-        # "iris-me-central1": "34.1.33.16",
+        "iris-us-west4": "35.219.175.87",
+        "iris-me-central1": "34.1.33.16",
     }
     if name_server_resolution:
         ecs_hostnames = load_csv(path_settings.DATASET / "ecs_selected_hostnames.csv")
@@ -256,17 +279,19 @@ if __name__ == "__main__":
         for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
             config_per_vm[vm] = {"ip_addr": ip_addr, "hostnames": hostname_per_vm[i]}
 
-    logger.info(f"NB vms:: {len(gcp_vms)}")
-    for vm, vm_config in config_per_vm.items():
-        logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
-        deploy_hostname_resolution(vm, vm_config)
-        # monitor_memory_space(vm, vm_config)
-        # rsync_files(vm, vm_config, delete_after=True)
-        # check_docker_running(vm, vm_config)
+    # logger.info(f"NB vms:: {len(gcp_vms)}")
+    # for vm, vm_config in config_per_vm.items():
+    #     logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
+    #     deploy_hostname_resolution(vm, vm_config)
+    #     monitor_memory_space(vm, vm_config)
+    #     rsync_files(vm, vm_config, delete_after=True)
+    #     check_docker_running(vm, vm_config)
 
-    # insert_remote_results(gcp_vms, output_table="vps_mapping_ecs")
-    # insert_local_results(
-    #     local_table="filtered_hostnames_ecs_mapping",
-    #     remote_table="vps_mapping_ecs",
-    #     output_table="vps_mapping_ecs",
-    # )
+    # insert_ecs_mapping_results(gcp_vms, output_table="vps_mapping_ecs")
+    insert_local_results(
+        local_table="filtered_hostnames_ecs_mapping",
+        remote_table="vps_mapping_ecs",
+        output_table="vps_mapping_ecs",
+    )
+
+    # insert_name_server_results(gcp_vms, output_table="name_servers")

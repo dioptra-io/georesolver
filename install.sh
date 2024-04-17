@@ -28,9 +28,9 @@ else
         -p 127.0.0.1:8123:8123 \
         -p 127.0.0.1:9000:9000 \
         -p 127.0.0.1:9009:9009 \
+        -e CLICKHOUSE_MAX_QUERY_SIZE=10000000000000000000 \
         -v $CLICKHOUSE_PATH/data:/var/lib/clickhouse/ \
         -v $CLICKHOUSE_PATH/logs:/var/log/clickhouse-server/ \
-        -v $PWD/configuration/clickhouse/config.xml:/etc/clickhouse-server/user.xml \
         --ulimit nofile=262144:262144 \
         clickhouse/clickhouse-server:22.6
 
