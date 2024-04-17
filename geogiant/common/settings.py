@@ -136,6 +136,9 @@ class ClickhouseSettings(BaseSettings):
             "database": self.DATABASE,
             "username": self.USERNAME,
             "password": self.PASSWORD,
+            "settings": {
+                "max_query_size": 1000000000000000,
+            },
         }
 
 
