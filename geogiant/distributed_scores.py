@@ -4,6 +4,7 @@ from tqdm import tqdm
 from loguru import logger
 from fabric import Connection
 from collections import defaultdict
+from pathlib import Path
 from pych_client import ClickHouseClient
 
 from geogiant.clickhouse import (
@@ -35,6 +36,19 @@ path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 
+def docker_run_cmd() -> str:
+    return """
+        docker run -d \
+        -v "$(pwd)/results:/app/geogiant/results" \
+        -v "$(pwd)/datasets/targets_subnet.json:/app/geogiant/datasets/targets_subnet.json" \
+        -v "$(pwd)/datasets/vps_subnet.json:/app/geogiant/datasets/vps_subnet.json" \
+        -v "$(pwd)/datasets/targets_mapping.pickle:/app/geogiant/datasets/targets_mapping.pickle" \
+        -v "$(pwd)/datasets/vps_mapping.pickle:/app/geogiant/datasets/vps_mapping.pickle" \
+        -v "$(pwd)/datasets/score_config.json:/app/geogiant/datasets/score_config.json" \
+        ghcr.io/dioptra-io/geogiant:main
+    """
+
+
 def load_hostnames(
     hostname_per_cdn_per_ns: dict,
     main_org_threshold: float,
@@ -57,10 +71,11 @@ def load_hostnames(
 def deploy_score(
     vm: str,
     vm_config: dict,
-    score_config: dict,
 ) -> None:
     """run docker image on gcp VMs"""
     logger.info(f"Running ECS resolution on:: {vm}")
+
+    score_config = vm_config["score_config"]
 
     c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
 
@@ -88,8 +103,8 @@ def deploy_score(
     )
 
     # load target and vps subnets
-    targets_subnet = load_json(score_config["targets_subnet_path"])
-    vps_subnet = load_json(score_config["vps_subnet_path"])
+    targets_subnet = load_json(Path(score_config["targets_subnet_path"]))
+    vps_subnet = load_json(Path(score_config["vps_subnet_path"]))
 
     # get target and vps mapping
     targets_mapping = get_subnets_mapping(
@@ -128,8 +143,8 @@ def deploy_score(
     result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
 
     # run docker image
-    logger.info("Starting hostname init process")
-    result = c.run(docker_run_cmd())
+    # logger.info("Starting hostname init process")
+    # result = c.run(docker_run_cmd())
 
 
 if __name__ == "__main__":
@@ -183,7 +198,10 @@ if __name__ == "__main__":
 
     threshold_pairs = [(0.6, 10), (0.8, 10), (0.2, 10)]
 
-    for main_org_threshold, bgp_prefixes_threshold in threshold_pairs:
+    config_per_vm = {}
+    for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
+
+        main_org_threshold, bgp_prefixes_threshold = threshold_pairs[i]
 
         selected_hostnames_per_cdn, selected_hostnames = load_hostnames(
             hostname_per_cdn_per_ns, main_org_threshold, bgp_prefixes_threshold
@@ -199,14 +217,15 @@ if __name__ == "__main__":
         score_config = {
             "targets_table": targets_table,
             "vps_table": vps_table,
-            "targets_subnet_path": targets_subnet_path,
-            "vps_subnet_path": vps_subnet_path,
-            "targets_mapping_path": targets_mapping_path,
-            "vps_mapping_path": vps_mapping_path,
+            "targets_subnet_path": str(targets_subnet_path),
+            "vps_subnet_path": str(vps_subnet_path),
+            "targets_mapping_path": str(targets_mapping_path),
+            "vps_mapping_path": str(vps_mapping_path),
             "main_org_threshold": main_org_threshold,
             "bgp_prefixes_threshold": bgp_prefixes_threshold,
             "hostname_per_cdn_per_ns": hostname_per_cdn_per_ns,
             "hostname_per_cdn": selected_hostnames_per_cdn,
+            "selected_hostnames": selected_hostnames,
             "targets_ecs_table": targets_ecs_table,
             "vps_ecs_table": vps_ecs_table,
             "hostname_selection": "max_bgp_prefix",
@@ -225,38 +244,17 @@ if __name__ == "__main__":
                 # "answer_subnets",
                 "answer_bgp_prefixes",
             ],
-            "output_path": output_path,
+            "output_path": str(output_path),
         }
 
-        # upload_config
-        # upload mapping file
-
-    if ecs_resolution:
-        resolved_hostnames = get_resolved_hostnames("filtered_hostnames_ecs_mapping")
-        ecs_hostnames = load_csv(
-            path_settings.DATASET / "all_ecs_selected_hostnames.csv"
-        )
-        remaining_hostnames = list(
-            set(resolved_hostnames).symmetric_difference(set(ecs_hostnames))
-        )
-
-        logger.info(f"Total number of ECS hostnames:: {len(ecs_hostnames)}")
-        logger.info(f"Resolved ECS hostnames:: {len(resolved_hostnames)}")
-        logger.info(f"Remaining hostnames:: {len(remaining_hostnames)}")
-
-        hostname_per_vm = []
-        batch_size = len(remaining_hostnames) // len(gcp_vms) + 1
-        for i in range(0, len(remaining_hostnames), batch_size):
-            hostname_per_vm.append(remaining_hostnames[i : i + batch_size])
-
-        config_per_vm = {}
-        for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
-            config_per_vm[vm] = {"ip_addr": ip_addr, "hostnames": hostname_per_vm[i]}
+        config_per_vm[vm] = {"ip_addr": ip_addr, "score_config": score_config}
 
     # logger.info(f"NB vms:: {len(gcp_vms)}")
-    # for vm, vm_config in config_per_vm.items():
-    #     logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
-    #     deploy_hostname_resolution(vm, vm_config)
-    #     monitor_memory_space(vm, vm_config)
-    #     rsync_files(vm, vm_config, delete_after=True)
-    #     check_docker_running(vm, vm_config)
+    for vm, vm_config in config_per_vm.items():
+        logger.info(
+            f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['score_config']['selected_hostnames'])=}"
+        )
+        deploy_score(vm, vm_config)
+        # monitor_memory_space(vm, vm_config)
+        # rsync_files(vm, vm_config, delete_after=True)
+        # check_docker_running(vm, vm_config)

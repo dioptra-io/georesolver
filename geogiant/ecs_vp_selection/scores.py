@@ -378,6 +378,9 @@ def get_scores(score_config: dict) -> None:
     else:
         usable_cpu = cpu_count() - 1
 
+    if usable_cpu < 1:
+        usable_cpu = 1
+
     batch_size = len(target_subnets) // usable_cpu
 
     logger.info(f"Nb CPUs available:: {cpu_count()} (number of cpu used: {usable_cpu})")
