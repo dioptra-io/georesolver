@@ -129,17 +129,17 @@ def deploy_score(
     #     remote="datasets",
     # )
 
-    # # docker login
-    # result = c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
-    # result = c.run(
-    #     f"docker login ghcr.io -u {path_settings.DOCKER_USERNAME} -p {path_settings.GITHUB_TOKEN}"
-    # )
+    # docker login
+    result = c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
+    result = c.run(
+        f"docker login ghcr.io -u {path_settings.DOCKER_USERNAME} -p {path_settings.GITHUB_TOKEN}"
+    )
 
-    # # pull docker image
-    # result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
+    # pull docker image
+    result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
 
     # run docker image
-    # logger.info("Starting hostname init process")
+    logger.info("Starting hostname init process")
     result = c.run(docker_run_cmd())
 
 
