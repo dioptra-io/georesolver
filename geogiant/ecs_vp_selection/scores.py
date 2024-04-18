@@ -3,6 +3,7 @@ from numpy import mean
 from tqdm import tqdm
 from loguru import logger
 from collections import defaultdict
+from pathlib import Path
 
 from geogiant.common.files_utils import dump_pickle, load_json, load_pickle
 from geogiant.common.utils import TargetScores
@@ -300,7 +301,7 @@ def get_hostname_score(args) -> None:
     hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
 
     if target_mapping_path := score_config["targets_subnet_path"]:
-        targets_mapping = load_pickle(target_mapping_path)
+        targets_mapping = load_pickle(Path(target_mapping_path))
     else:
         targets_mapping = get_subnets_mapping(
             dns_table=score_config["targets_ecs_table"],
@@ -309,7 +310,7 @@ def get_hostname_score(args) -> None:
         )
 
     if vps_mapping_path := score_config["vps_mapping_path"]:
-        vps_mapping = load_pickle(vps_mapping_path)
+        vps_mapping = load_pickle(Path(vps_mapping_path))
     else:
         vps_mapping = get_subnets_mapping(
             dns_table=score_config["vps_ecs_table"],
@@ -369,12 +370,12 @@ def get_scores(score_config: dict) -> None:
     hostnames, cdns = load_hostnames(hostname_per_cdn)
 
     if targets_subnet_path := score_config["targets_subnet_path"]:
-        target_subnets = load_json(targets_subnet_path)
+        target_subnets = load_json(Path(targets_subnet_path))
     else:
         target_subnets = load_target_subnets(targets_table)
 
     if vps_subnet_path := score_config["vps_subnet_path"]:
-        vp_subnets = load_json(vps_subnet_path)
+        vp_subnets = load_json(Path(vps_subnet_path))
     else:
         vp_subnets = load_vp_subnets(vps_table)
 
