@@ -279,19 +279,19 @@ if __name__ == "__main__":
         for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
             config_per_vm[vm] = {"ip_addr": ip_addr, "hostnames": hostname_per_vm[i]}
 
-    # logger.info(f"NB vms:: {len(gcp_vms)}")
-    # for vm, vm_config in config_per_vm.items():
-    #     logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
-    #     deploy_hostname_resolution(vm, vm_config)
-    #     monitor_memory_space(vm, vm_config)
-    #     rsync_files(vm, vm_config, delete_after=True)
-    #     check_docker_running(vm, vm_config)
+    logger.info(f"NB vms:: {len(gcp_vms)}")
+    for vm, vm_config in config_per_vm.items():
+        logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
+        # deploy_hostname_resolution(vm, vm_config)
+        monitor_memory_space(vm, vm_config)
+        rsync_files(vm, vm_config, delete_after=True)
+        check_docker_running(vm, vm_config)
 
     # insert_ecs_mapping_results(gcp_vms, output_table="vps_mapping_ecs")
-    insert_local_results(
-        local_table="filtered_hostnames_ecs_mapping",
-        remote_table="vps_mapping_ecs",
-        output_table="vps_mapping_ecs",
-    )
+    # insert_local_results(
+    #     local_table="filtered_hostnames_ecs_mapping",
+    #     remote_table="vps_mapping_ecs",
+    #     output_table="vps_mapping_ecs",
+    # )
 
     # insert_name_server_results(gcp_vms, output_table="name_servers")
