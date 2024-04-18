@@ -33,4 +33,4 @@ RUN poetry config virtualenvs.in-project true
 RUN poetry lock && \
     poetry install
 
-ENTRYPOINT poetry run python geogiant/score.py
+ENTRYPOINT poetry run python geogiant/scores.py

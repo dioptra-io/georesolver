@@ -40,11 +40,7 @@ def docker_run_cmd() -> str:
     return """
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/targets_subnet.json:/app/geogiant/datasets/targets_subnet.json" \
-        -v "$(pwd)/datasets/vps_subnet.json:/app/geogiant/datasets/vps_subnet.json" \
-        -v "$(pwd)/datasets/targets_mapping.pickle:/app/geogiant/datasets/targets_mapping.pickle" \
-        -v "$(pwd)/datasets/vps_mapping.pickle:/app/geogiant/datasets/vps_mapping.pickle" \
-        -v "$(pwd)/datasets/score_config.json:/app/geogiant/datasets/score_config.json" \
+        -v "$(pwd)/datasets/:/app/geogiant/datasets/" \
         ghcr.io/dioptra-io/geogiant:main
     """
 
@@ -73,78 +69,78 @@ def deploy_score(
     vm_config: dict,
 ) -> None:
     """run docker image on gcp VMs"""
-    logger.info(f"Running ECS resolution on:: {vm}")
+    # logger.info(f"Running ECS resolution on:: {vm}")
 
-    score_config = vm_config["score_config"]
+    # score_config = vm_config["score_config"]
 
     c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
 
-    # create dataset and result dir
-    result = c.run("mkdir -p results")
-    result = c.run("mkdir -p datasets")
+    # # create dataset and result dir
+    # result = c.run("mkdir -p results")
+    # result = c.run("mkdir -p datasets")
 
-    vm_result_path = path_settings.RESULTS_PATH / f"{vm}"
+    # vm_result_path = path_settings.RESULTS_PATH / f"{vm}"
 
-    # create result dir for vm
-    result = subprocess.run(
-        f"mkdir -p {vm_result_path}", shell=True, capture_output=True, text=True
-    )
+    # # create result dir for vm
+    # result = subprocess.run(
+    #     f"mkdir -p {vm_result_path}", shell=True, capture_output=True, text=True
+    # )
 
-    logger.info(f"Results ouput dir:: {vm_result_path}")
+    # logger.info(f"Results ouput dir:: {vm_result_path}")
 
-    # Dump score config to local vm folder
-    vm_score_config_path = vm_result_path / "score_config.json"
-    dump_json(score_config, vm_score_config_path)
+    # # Dump score config to local vm folder
+    # vm_score_config_path = vm_result_path / "score_config.json"
+    # dump_json(score_config, vm_score_config_path)
 
-    # upload score config file to dataset folder
-    result = c.put(
-        local=f"{vm_score_config_path}",
-        remote="datasets",
-    )
+    # # upload score config file to dataset folder
+    # result = c.put(
+    #     local=f"{vm_score_config_path}",
+    #     remote="datasets",
+    # )
 
-    # load target and vps subnets
-    targets_subnet = load_json(Path(score_config["targets_subnet_path"]))
-    vps_subnet = load_json(Path(score_config["vps_subnet_path"]))
+    # # load target and vps subnets
+    # targets_subnet = load_json(Path(score_config["targets_subnet_path"]))
+    # vps_subnet = load_json(Path(score_config["vps_subnet_path"]))
 
-    # get target and vps mapping
-    targets_mapping = get_subnets_mapping(
-        targets_ecs_table,
-        subnets=[s for s in targets_subnet],
-        hostname_filter=selected_hostnames,
-    )
+    # # get target and vps mapping
+    # targets_mapping = get_subnets_mapping(
+    #     targets_ecs_table,
+    #     subnets=[s for s in targets_subnet],
+    #     hostname_filter=selected_hostnames,
+    # )
 
-    vps_mapping = get_subnets_mapping(
-        vps_ecs_table,
-        subnets=[s for s in vps_subnet],
-        hostname_filter=selected_hostnames,
-    )
+    # vps_mapping = get_subnets_mapping(
+    #     vps_ecs_table,
+    #     subnets=[s for s in vps_subnet],
+    #     hostname_filter=selected_hostnames,
+    # )
 
-    # dump mapping files
-    dump_pickle(targets_mapping, vm_result_path / "targets_mapping.pickle")
-    dump_pickle(vps_mapping, vm_result_path / "vps_mapping.pickle")
+    # # dump mapping files
+    # dump_pickle(targets_mapping, vm_result_path / "targets_mapping.pickle")
+    # dump_pickle(vps_mapping, vm_result_path / "vps_mapping.pickle")
 
-    # upload mapping files
-    result = c.put(
-        local=f"{vm_result_path / 'targets_mapping.pickle'}",
-        remote="datasets",
-    )
-    result = c.put(
-        local=f"{vm_result_path / 'vps_mapping.pickle'}",
-        remote="datasets",
-    )
+    # # upload mapping files
+    # result = c.put(
+    #     local=f"{vm_result_path / 'targets_mapping.pickle'}",
+    #     remote="datasets",
+    # )
+    # result = c.put(
+    #     local=f"{vm_result_path / 'vps_mapping.pickle'}",
+    #     remote="datasets",
+    # )
 
-    # docker login
-    result = c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
-    result = c.run(
-        f"docker login ghcr.io -u {path_settings.DOCKER_USERNAME} -p {path_settings.GITHUB_TOKEN}"
-    )
+    # # docker login
+    # result = c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
+    # result = c.run(
+    #     f"docker login ghcr.io -u {path_settings.DOCKER_USERNAME} -p {path_settings.GITHUB_TOKEN}"
+    # )
 
-    # pull docker image
-    result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
+    # # pull docker image
+    # result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
 
     # run docker image
     # logger.info("Starting hostname init process")
-    # result = c.run(docker_run_cmd())
+    result = c.run(docker_run_cmd())
 
 
 if __name__ == "__main__":
