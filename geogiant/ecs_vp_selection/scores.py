@@ -4,7 +4,7 @@ from tqdm import tqdm
 from loguru import logger
 from collections import defaultdict
 
-from geogiant.common.files_utils import dump_pickle, load_json
+from geogiant.common.files_utils import dump_pickle, load_json, load_pickle
 from geogiant.common.utils import TargetScores
 from geogiant.common.queries import (
     get_subnets_mapping,
@@ -299,17 +299,23 @@ def get_hostname_score(args) -> None:
 
     hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
 
-    targets_mapping = get_subnets_mapping(
-        dns_table=score_config["targets_ecs_table"],
-        subnets=[s for s in target_subnets],
-        hostname_filter=hostnames,
-    )
+    if target_mapping_path := score_config["target_mapping_path"]:
+        targets_mapping = load_pickle(target_mapping_path)
+    else:
+        targets_mapping = get_subnets_mapping(
+            dns_table=score_config["targets_ecs_table"],
+            subnets=[s for s in target_subnets],
+            hostname_filter=hostnames,
+        )
 
-    vps_mapping = get_subnets_mapping(
-        dns_table=score_config["vps_ecs_table"],
-        subnets=[s for s in vp_subnets],
-        hostname_filter=hostnames,
-    )
+    if vps_mapping_path := score_config["vps_mapping_path"]:
+        vps_mapping = load_pickle(vps_mapping_path)
+    else:
+        vps_mapping = get_subnets_mapping(
+            dns_table=score_config["vps_ecs_table"],
+            subnets=[s for s in vp_subnets],
+            hostname_filter=hostnames,
+        )
 
     logger.debug(f"{len(targets_mapping)=}")
 
@@ -361,15 +367,14 @@ def get_scores(score_config: dict) -> None:
 
     hostname_per_cdn = score_config["hostname_per_cdn"]
     hostnames, cdns = load_hostnames(hostname_per_cdn)
-
-    logger.info(f"score calculation with:: {len(hostnames)} hostnames")
-
     target_subnets = load_target_subnets(targets_table)
     vp_subnets = load_vp_subnets(vps_table)
 
+    logger.info(f"score calculation with:: {len(hostnames)} hostnames")
+
     # avoid overloading cpu
     if len(hostnames) > 5_00:
-        usable_cpu = cpu_count() - 4
+        usable_cpu = cpu_count() - 1
     else:
         usable_cpu = cpu_count() - 1
 
@@ -419,7 +424,8 @@ def get_scores(score_config: dict) -> None:
                     target_score_bgp_prefix[subnet] = score_per_metric
 
     logger.info(f"{len(target_score_subnet)}")
-    return TargetScores(
+
+    score = TargetScores(
         score_config=score_config,
         hostnames=hostnames,
         cdns=cdns,
@@ -428,54 +434,9 @@ def get_scores(score_config: dict) -> None:
         score_answer_bgp_prefixes=target_score_bgp_prefix,
     )
 
+    dump_pickle(data=score, output_file=score_config["output_path"])
+
 
 if __name__ == "__main__":
-    hostname_file = "hostname_per_cdn_max_bgp_prefix.json"
-
-    targets_table = clickhouse_settings.VPS_FILTERED
-    vps_table = clickhouse_settings.VPS_FILTERED
-
-    targets_ecs_table = "filtered_hostnames_ecs_mapping"
-    vps_ecs_table = "filtered_hostnames_ecs_mapping"
-
-    hostname_per_cdn = load_json(path_settings.DATASET / hostname_file)
-
-    orgs = ["GOOGLE"]
-
-    for nb_hostnames in [1, 5, 10, 50, 1_00, 5_00, 1_000]:
-
-        selected_hostnames_per_cdn = {}
-        for org in orgs:
-            selected_hostnames_per_cdn[org] = hostname_per_cdn[org][:nb_hostnames]
-            logger.info(f"{org=}, nb_hostnames={len(selected_hostnames_per_cdn[org])}")
-
-        score_config = {
-            "targets_table": targets_table,
-            "vps_table": vps_table,
-            "hostname_per_cdn": selected_hostnames_per_cdn,
-            "targets_ecs_table": targets_ecs_table,
-            "vps_ecs_table": vps_ecs_table,
-            "hostname_selection": "max_bgp_prefixes",
-            "score_metric": [
-                "intersection",
-                "jaccard",
-                # "jaccard_scope_linear_weight",
-                # "jaccard_scope_poly_weight",
-                # "jaccard_scope_exp_weight",
-                # "intersection_scope_linear_weight",
-                # "intersection_scope_poly_weight",
-                # "intersection_scope_exp_weight",
-            ],
-            "answer_granularities": ["answer_bgp_prefixes"],
-        }
-
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"scores__{org}_{len(selected_hostnames_per_cdn[org])}_{score_config['hostname_selection']}.pickle"
-        )
-
-        score = get_scores(score_config)
-
-        dump_pickle(data=score, output_file=output_path)
-
-        logger.info(f"Score calculation done, {output_path=}")
+    score_config = load_json(path_settings.DATASET / "score_config.json")
+    get_scores(score_config)
