@@ -210,6 +210,7 @@ def main() -> None:
         # "scores__GOOGLE_541_max_bgp_prefixes.pickle",
         # "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
         "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_2.pickle",
+        "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_5.pickle",
         "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.6_bgp_prefix_threshold_2.pickle",
     ]
 
