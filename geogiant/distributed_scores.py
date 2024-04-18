@@ -40,7 +40,9 @@ def docker_run_cmd() -> str:
     return """
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/:/app/geogiant/datasets/" \
+        -v "$(pwd)/datasets/targets_mapping.pickle:/app/geogiant/datasets/targets_mapping.pickle" \
+        -v "$(pwd)/datasets/vps_mapping.pickle:/app/geogiant/datasets/vps_mapping.pickle" \
+        -v "$(pwd)/datasets/score_config.json:/app/geogiant/datasets/score_config.json" \
         ghcr.io/dioptra-io/geogiant:main
     """
 
