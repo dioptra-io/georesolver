@@ -425,6 +425,35 @@ class GetDNSMappingHostnames(Query):
         """
 
 
+class GetDNSMappingPerHostnames(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
+
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        return f"""
+        SELECT
+            toString(subnet) as client_subnet,
+            hostname,
+            groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE 
+            {subnet_filter}
+            {hostname_filter}
+        GROUP BY
+            (client_subnet, hostname)
+        """
+
+
 class GetDNSMappingHostnamesNew(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if hostname_filter := kwargs.get("hostname_filter"):
