@@ -1,10 +1,15 @@
+import numpy as np
+
+from tqdm import tqdm
 from copy import deepcopy
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from loguru import logger
 from pych_client import ClickHouseClient
 
 from geogiant.clickhouse import GetAllNameServers
 from geogiant.common.files_utils import load_csv, load_json, dump_json
+from geogiant.common.queries import get_mapping_per_hostname
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -25,70 +30,144 @@ def get_all_name_servers() -> dict:
 
 def parse_name_servers(name_servers_per_hostname: dict, tlds: list[str]) -> dict:
     """parse name server to extract main organization behin them"""
+    tlds = [tld for tld in tlds if len(tld) < 3]
+
     parsed_name_servers_per_hostname = {}
     for hostname, name_servers in name_servers_per_hostname.items():
         parsed_name_servers = set()
         for name_server in name_servers:
 
+            test_name_server = name_server
             name_server = name_server.split(".")
 
-            if name_server[-1] == "":
-                parsed_name_server = name_server[-3]
-            elif len(name_server) == 1:
-                parsed_name_server = name_server[0]
-            else:
-                parsed_name_server = name_server[-2]
-
-            if "awsdns" in name_server:
-                parsed_name_server = "awsdns"
-
-            if "msedge" in name_server:
-                parsed_name_server = "msedge"
-
-            if "bunny" in name_server:
-                parsed_name_server = "bunny"
-
-            if len(parsed_name_server) <= 3:
-
-                # filter all tlds from name servers
-                for tld in tlds:
+            # remove tlds belonging to country
+            for tld in tlds:
+                if len(tld) < 3:
                     try:
-                        name_server.remove(tld)
+                        name_server = list(filter((tld).__ne__, name_server))
                     except ValueError:
                         continue
 
-                if not name_server:
+            # remove all name servers belonging to state
+            if "gov" in name_server or "edu" in name_server:
+                continue
+
+            other_tlds = [
+                "com",
+                "net",
+                "org",
+                "COM",
+                "gov",
+                "edu",
+                "pro",
+                "go",
+                "one",
+                "law",
+                "top",
+                "nyc",
+                "icu",
+                "nsw",
+                "biz",
+                "dev",
+                "mi",
+                "pl2",
+                "bac",
+            ]
+            for tld in other_tlds:
+                try:
+                    name_server = list(filter((tld).__ne__, name_server))
+                except ValueError:
                     continue
 
-                if name_server[-1] == "":
-                    parsed_name_server = name_server[-2]
-                else:
-                    parsed_name_server = name_server[-1]
+            # remove whitespace
+            try:
+                name_server.remove("")
+            except ValueError:
+                pass
 
-                if "awsdns" in parsed_name_server:
-                    parsed_name_server = "awsdns"
+            if len(name_server) == 1:
+                parsed_name_server = name_server[0]
+            else:
+                parsed_name_server = name_server[-1]
 
-                if "msedge" in parsed_name_server:
-                    parsed_name_server = "msedge"
+            if "awsdns" in parsed_name_server:
+                parsed_name_server = "awsdns"
 
-                if "bunny" in parsed_name_server:
-                    parsed_name_server = "bunny"
+            if "msedge" in parsed_name_server:
+                parsed_name_server = "msedge"
 
-                if "gslb" in parsed_name_server:
-                    parsed_name_server = "gslb"
+            if "bunny" in parsed_name_server:
+                parsed_name_server = "bunny"
 
-                if len(parsed_name_server) <= 3:
-                    continue
+            if "akam" in parsed_name_server or "akamai-edge" in parsed_name_server:
+                parsed_name_server = "akamai"
 
-                # manually remove ns identified as wrong
-                if parsed_name_server in ["customer", "invalid", "gslb", "president"]:
-                    continue
+            if "incap" in parsed_name_server:
+                parsed_name_server = "impervadns"
 
+            if "alidns" in parsed_name_server:
+                parsed_name_server = "alibabadns"
+
+            # manually remove ns identified as wrong
+            if parsed_name_server in [
+                "customer",
+                "invalid",
+                "gslb",
+                "president",
+                "ns",
+                "mail",
+                "no-ip",
+                "dns",
+                "gob",
+                "ok",
+                "fun",
+                "ha",
+                "z",
+                "wni",
+                "rdw",
+                "meh",
+                "aon",
+                "cmp",
+            ]:
+                continue
+
+            try:
+                int(parsed_name_server)
+                continue
+            except ValueError:
+                pass
+
+            if len(parsed_name_server) <= 3:
+                # remove occurence of ns1, ns2, etc.
                 if "ns" in parsed_name_server:
                     continue
 
-                # just for clarity
-                if parsed_name_server in ["awsdns", "cloudtimes", "revolutionise"]:
+                # small lenght name servers that are valid
+                if parsed_name_server not in [
+                    "qq",
+                    "ibm",
+                    "ovh",
+                    "wp",
+                    "irs",
+                    "nic",
+                    "hoy",
+                    "cgi",
+                    "kdg",
+                    "uia",
+                    "ps",
+                    "ngi",
+                    "sdv",
+                    "nos",
+                    "ati",
+                    "t2v",
+                    "uptr",
+                    "ccb",
+                    "rik",
+                    "ahn",
+                    "tcs",
+                    "ps",
+                    "sk",
+                ]:
                     continue
 
             parsed_name_servers.add(parsed_name_server)
@@ -101,11 +180,15 @@ def parse_name_servers(name_servers_per_hostname: dict, tlds: list[str]) -> dict
 def get_hostname_per_name_server(parsed_name_servers: dict) -> list:
     """get all hostnames that have a unique name server"""
     hostname_per_name_server = defaultdict(list)
+    filtered_hostnames = set()
+    remaining_hostnames = set()
     for hostname, name_server in parsed_name_servers.items():
 
         if len(name_server) != 1:
+            filtered_hostnames.add(hostname)
             continue
         else:
+            remaining_hostnames.add(hostname)
             name_server = list(name_server)[0]
 
         hostname_per_name_server[name_server].append(hostname)
@@ -114,7 +197,27 @@ def get_hostname_per_name_server(parsed_name_servers: dict) -> list:
         hostname_per_name_server.items(), key=lambda x: len(x[-1]), reverse=True
     )
 
-    return hostname_per_name_server
+    logger.info(f"Original number of hostnames:: {len(parsed_name_servers)}")
+    logger.info(f"Nb of hostname rejected:: {len(filtered_hostnames)}")
+    logger.info(f"Nb of hostname remaining:: {len(remaining_hostnames)}")
+    logger.info(f"Number of name servers:: {len(hostname_per_name_server)}")
+
+    # filter out name servers for which we only have one hostname
+    filtered_hostname_per_name_server = []
+    filtered_hostnames = set()
+    for name_server, hostnames in hostname_per_name_server:
+        if len(hostnames) > 1:
+            filtered_hostname_per_name_server.append((name_server, hostnames))
+
+        else:
+            filtered_hostnames.update(hostnames)
+
+    logger.info(
+        f"Remaining name servers after fitering minor:: {len(filtered_hostname_per_name_server)}"
+    )
+    logger.info(f"Filtered hostnames:: {len(filtered_hostnames)}")
+
+    return filtered_hostname_per_name_server
 
 
 def get_hostname_per_main_org(
@@ -146,6 +249,38 @@ def get_hostname_per_main_org(
     )
 
     return hostname_per_main_org
+
+
+def merge_main_orgs(main_org: str) -> None:
+    """merge main organization (ex: AMAZON-02 and AMAZON-AES) -> AMAZON"""
+    if "AMAZON" in main_org:
+        main_org = "AMAZON"
+
+    elif "GOOGLE" in main_org:
+        main_org = "GOOGLE"
+
+    elif "AKAMAI" in main_org:
+        main_org = "AKAMAI"
+
+    elif "APPLE" in main_org:
+        main_org = "APPLE"
+
+    elif "MICROSOFT" in main_org:
+        main_org = "MICROSOFT"
+
+    elif "TENCENT" in main_org:
+        main_org = "TENCENT"
+
+    elif "CHINANET" in main_org:
+        main_org = "CHINANET"
+
+    elif "CMNET" in main_org:
+        main_org = "CMNET"
+
+    else:
+        main_org = main_org
+
+    return main_org
 
 
 def parse_hostname_per_main_org(
@@ -233,7 +368,7 @@ def get_hostname_selection(hostname_per_org_per_name_servers: dict[dict]) -> dic
     for name_server, hostname_main_org in hostname_per_org_per_name_servers.items():
         for main_org, hostnames in hostname_main_org.items():
             # TODO: vary this as well?
-            for hostname, _ in hostnames[:10]:
+            for hostname, _ in hostnames:
                 try:
                     selected_hostnames[name_server][main_org].append(hostname)
                 except KeyError:
@@ -356,12 +491,12 @@ def select_hostname_max_bgp_prefix_per_cdn(
         bgp_prefix_per_hostname = sorted(
             bgp_prefix_per_hostname.items(), key=lambda x: x[1]
         )
-        for hostname, _ in bgp_prefix_per_hostname:
+        for hostname, bgp_prefixes_in_org in bgp_prefix_per_hostname:
 
             # some hostnames has more than just one org
             hostname_bgp_prefixes = bgp_prefixes_per_hostname[hostname]
 
-            if len(hostname_bgp_prefixes) > 20:
+            if len(hostname_bgp_prefixes) > 10:
                 hostname_per_cdn_max_bgp_prefix[org][hostname] = len(
                     hostname_bgp_prefixes
                 )
@@ -378,6 +513,62 @@ def select_hostname_max_bgp_prefix_per_cdn(
         ]
 
     return hostname_per_cdn_max_bgp_prefix
+
+
+def get_hostname_geo_score(nb_vps: int, bgp_prefix_per_hostname: dict[list]) -> dict:
+    """
+    get all vps mapping, take N vps that maximize geo distance
+    compute redirection similarity over the N vps
+    if high similarity, hostname does not provide usefull geo info
+    """
+
+    hostnames = [
+        h for h, bgp_pref in bgp_prefix_per_hostname.items() if len(bgp_pref) > 1
+    ]
+
+    logger.info(f"{len(hostnames)} hostnames with more than one BGP prefix returned")
+
+    greedy_vps = load_json(path_settings.GREEDY_VPS)
+    greedy_vps = [get_prefix_from_ip(ip) for ip in greedy_vps[:nb_vps]]
+
+    mapping_per_hostname = get_mapping_per_hostname(
+        dns_table="vps_mapping_ecs",
+        subnets=[s for s in greedy_vps],
+        hostname_filter="" if not hostnames else [h for h in hostnames],
+    )
+    hostname_similarity_score = {}
+    for hostname, vps_mapping in tqdm(mapping_per_hostname.items()):
+        pairwise_similarity = []
+        for i, vp_i in enumerate(greedy_vps):
+            try:
+                mapping_i = vps_mapping[vp_i]
+            except KeyError:
+                continue
+
+            for j, vp_j in enumerate(greedy_vps):
+                if vp_i == vp_j:
+                    continue
+
+                try:
+                    mapping_j = vps_mapping[vp_j]
+                except KeyError:
+                    continue
+
+                jaccard_index = len(set(mapping_i).intersection(set(mapping_j))) / len(
+                    set(mapping_i).union(set(mapping_j))
+                )
+
+                pairwise_similarity.append(jaccard_index)
+
+        # take average pairwise similarity
+        if pairwise_similarity:
+            hostname_similarity_score[hostname] = np.mean(pairwise_similarity)
+
+    hostname_similarity_score = sorted(
+        hostname_similarity_score.items(), key=lambda x: x[-1]
+    )
+
+    return hostname_similarity_score
 
 
 def main() -> None:
@@ -407,10 +598,6 @@ def main() -> None:
     # )
     # hostname_per_cdn_greedy_per_cdn = select_hostname_greedy_per_cdn(hostname_per_cdn)
 
-    # hostname_per_cdn_max_bgp_prefix = select_hostname_max_bgp_prefix_per_cdn(
-    #     hostname_per_cdn, bgp_prefix_per_hostname
-    # )
-
     # dump_json(
     #     data=hostname_per_cdn_greedy_bgp,
     #     output_file=path_settings.DATASET / "hostname_per_cdn_greedy_bgp.json",
@@ -421,58 +608,125 @@ def main() -> None:
     #     output_file=path_settings.DATASET / "hostname_per_cdn_greedy_cdn.json",
     # )
 
-    # > X bgp prefixes (geo diversity) -> do not discriminate
-    # merge main orga (AMAZON-AES / AMAZON-02)
-    # 1. take main orga per hostname in case of multi -> hostname to main orga (orga with max bgp prefixes)
-    # arg: how does redirection?
-    # + merge orga ()
+    # hostname_per_cdn_max_bgp_prefix = select_hostname_max_bgp_prefix_per_cdn(
+    #     hostname_per_cdn, bgp_prefix_per_hostname
+    # )
 
     # dump_json(
     #     data=hostname_per_cdn_max_bgp_prefix,
     #     output_file=path_settings.DATASET / "hostname_per_cdn_max_bgp_prefix.json",
     # )
 
-    name_servers_per_hostname = get_all_name_servers()
-    tlds = load_csv(path_settings.DATASET / "tlds.csv")
-    tlfs = [t.lower() for t in tlds]
+    # name_servers_per_hostname = get_all_name_servers()
+    # tlds = load_csv(path_settings.DATASET / "tlds.csv")
+    # tlfs = [t.lower() for t in tlds]
 
-    main_org_thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    bgp_prefixes_thresholds = [2, 5, 10, 20, 50, 1_00, 150, 300, 5_00]
+    # main_org_thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # main_org_thresholds = [0.1]
+    # bgp_prefixes_thresholds = [2, 5, 10, 20, 50, 1_00, 150, 300, 5_00]
+    # bgp_prefixes_thresholds = [2]
 
-    hostname_selection = defaultdict(dict)
-    for main_org_threshold in main_org_thresholds:
-        for bgp_prefixes_threshold in bgp_prefixes_thresholds:
-            selected_hostnames = select_hostname_per_org_per_ns(
-                name_servers_per_hostname,
-                tlds,
-                cdn_per_hostname,
-                bgp_prefix_per_hostname,
-                main_org_threshold,
-                bgp_prefixes_threshold,
+    # hostname_selection = defaultdict(dict)
+    # for main_org_threshold in main_org_thresholds:
+    #     for bgp_prefixes_threshold in bgp_prefixes_thresholds:
+    #         selected_hostnames = select_hostname_per_org_per_ns(
+    #             name_servers_per_hostname,
+    #             tlds,
+    #             cdn_per_hostname,
+    #             bgp_prefix_per_hostname,
+    #             main_org_threshold,
+    #             bgp_prefixes_threshold,
+    #         )
+
+    #         nb_ns = selected_hostnames
+    #         nb_org = set()
+    #         nb_hostnames = set()
+    #         for ns, hostname_per_org in selected_hostnames.items():
+    #             logger.info(f"{ns}")
+    #             for org, hostnames in hostname_per_org.items():
+    #                 logger.info(f"{org=}, nb_hostnames::{len(hostnames)}")
+    #                 nb_org.add(org)
+    #                 nb_hostnames.update(hostnames)
+
+    #         logger.info(f"{main_org_threshold=}")
+    #         logger.info(f"{bgp_prefixes_threshold=}")
+    #         logger.info(f"{len(nb_ns)=}")
+    #         logger.info(f"{len(nb_org)=}")
+    #         logger.info(f"{len(nb_hostnames)=}")
+    #         logger.info("################################################")
+
+    #         hostname_selection[main_org_threshold][
+    #             bgp_prefixes_threshold
+    #         ] = selected_hostnames
+
+    # dump_json(
+    #     data=hostname_selection,
+    #     output_file=path_settings.DATASET / "hostname_per_org_per_ns.json",
+    # )
+
+    hostname_geo_score_path = path_settings.RESULTS_PATH / "hostname_geo_score.json"
+    if not (hostname_geo_score_path).exists():
+        hostname_geo_score = get_hostname_geo_score(100, bgp_prefix_per_hostname)
+        dump_json(hostname_geo_score, hostname_geo_score_path)
+    else:
+        hostname_geo_score = load_json(hostname_geo_score_path)
+
+    best_hostnames_per_org = defaultdict(list)
+    remaining_hostnames = set()
+    for index, (hostname, score) in enumerate(hostname_geo_score):
+        if score > 0 and score < 0.5:
+            bgp_prefixes_per_org = cdn_per_hostname[hostname]
+            main_org, bgp_prefixes = max(
+                bgp_prefixes_per_org.items(), key=lambda x: len(x[-1])
             )
 
-            nb_ns = selected_hostnames
-            nb_org = set()
-            nb_hostnames = set()
-            for _, hostname_per_org in selected_hostnames.items():
-                for org, hostnames in hostname_per_org.items():
-                    nb_org.add(org)
-                    nb_hostnames.update(hostnames)
+            main_org = merge_main_orgs(main_org)
+            hostname_bgp_prefixes = bgp_prefix_per_hostname[hostname]
 
-            logger.info(f"{main_org_threshold=}")
-            logger.info(f"{bgp_prefixes_threshold=}")
-            logger.info(f"{len(nb_ns)=}")
-            logger.info(f"{len(nb_org)=}")
-            logger.info(f"{len(nb_hostnames)=}")
-            logger.info("################################################")
+            best_hostnames_per_org[main_org].append(
+                (index, hostname, score, len(hostname_bgp_prefixes))
+            )
+            remaining_hostnames.add(hostname)
 
-            hostname_selection[main_org_threshold][
-                bgp_prefixes_threshold
-            ] = selected_hostnames
+    filtered_hostname_per_org = defaultdict(list)
+    for org in best_hostnames_per_org:
+        for index, hostname, score, nb_bgp_prefixes in best_hostnames_per_org[org]:
+
+            # filter hostnames with less than 10 BGP prefixes
+            if nb_bgp_prefixes < 10:
+                continue
+
+            # Only take a maximum of 10 VPs per organization
+            if len(filtered_hostname_per_org[org]) >= 10:
+                continue
+
+            filtered_hostname_per_org[org].append((hostname, score))
+
+    filtered_hostname_per_org = OrderedDict(
+        sorted(
+            filtered_hostname_per_org.items(),
+            key=lambda x: np.mean([score for _, score in x[-1]]),
+        )
+    )
+
+    total_hostnames = set()
+    selected_hostnames = {}
+    for org, hostnames_score in filtered_hostname_per_org.items():
+        total_hostnames.update([h for h, _ in hostnames_score])
+
+        if len(total_hostnames) < 600:
+            selected_hostnames[org] = [h for h, _ in hostnames_score]
+        else:
+            break
+
+        logger.info(
+            f"{org=}, {len(hostnames_score)=}, avg_score={round(np.mean([score for _, score in hostnames_score]), 2)}"
+        )
+
+    logger.info(f"{len(total_hostnames)}")
 
     dump_json(
-        data=hostname_selection,
-        output_file=path_settings.DATASET / "hostname_per_org_per_ns.json",
+        selected_hostnames, path_settings.DATASET / "hostname_geo_score_selection.json"
     )
 
 

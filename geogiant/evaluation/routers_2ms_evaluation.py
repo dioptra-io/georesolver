@@ -31,7 +31,6 @@ clickhouse_settings = ClickhouseSettings()
 
 
 class VPSelectionECS:
-
     def __init__(
         self,
         hostname_filter: list,
