@@ -17,8 +17,6 @@ from geogiant.zdns import ZDNS
 from geogiant.clickhouse import (
     GetVPsSubnets,
     GetSubnets,
-    GetSubnetPerHostname,
-    GetVPSInfoPerSubnet,
     GetDNSMapping,
     GetHostnamesAnswerSubnet,
 )
@@ -269,7 +267,7 @@ async def resolve_vps_subnet(
 
     # output file if out file instead of output table
     await resolve_hostnames(
-        subnets=[row["subnet"] for row in vps_subnet],
+        subnets=[s for s in vps_subnet],
         hostname_file=tmp_hostname_file,
         output_file=output_file,
         output_table=output_table,
@@ -327,7 +325,8 @@ async def get_hostname_cdn(input_table: str) -> None:
                 org_per_hostname[hostname][org] = list(set(bgp_prefixes))
 
         dump_json(
-            org_per_hostname, path_settings.DATASET / "ecs_hostnames_organization.json"
+            org_per_hostname,
+            path_settings.DATASET / "ecs_hostnames_organization_test.json",
         )
 
 
@@ -365,26 +364,26 @@ async def main() -> None:
     logger.info("Retrieved ECS hostnames")
 
     logger.info("Get ECS hostnames CDN/organization")
-    # await get_hostname_cdn(input_table="hostnames_1M_resolution")
+    await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
     selected_hostnames = load_csv(
         path_settings.DATASET / "all_ecs_selected_hostnames.csv"
     )
 
-    # input_file = path_settings.DATASET / "vps_subnet.json"
-    # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
-    # await resolve_vps_subnet(
-    #     selected_hostnames=selected_hostnames,
-    #     input_file=input_file,
-    #     output_file=output_file,
-    # )
-
-    await resolve_name_servers(
+    input_file = path_settings.DATASET / "vps_subnet.json"
+    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    await resolve_vps_subnet(
         selected_hostnames=selected_hostnames,
-        output_file=path_settings.RESULTS_PATH / "name_server_resolution.csv",
+        input_file=input_file,
+        output_file=output_file,
     )
 
-    logger.info("Hostname resolution done for every VPs")
+    # await resolve_name_servers(
+    #     selected_hostnames=selected_hostnames,
+    #     output_file=path_settings.RESULTS_PATH / "name_server_resolution.csv",
+    # )
+
+    # logger.info("Hostname resolution done for every VPs")
 
     # await filter_geo_hostnames()
 

@@ -12,7 +12,11 @@ from pathlib import Path
 from loguru import logger
 from pych_client import AsyncClickHouseClient
 
-from geogiant.clickhouse import InsertFromCSV, CreateDNSMappingTable, CreateDNSNSTable
+from geogiant.clickhouse import (
+    InsertFromCSV,
+    CreateDNSMappingTable,
+    CreateNameServerTable,
+)
 
 from geogiant.common.files_utils import dump_csv, create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import (
