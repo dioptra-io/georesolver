@@ -32,6 +32,7 @@ COPY geogiant/clickhouse geogiant/clickhouse
 COPY geogiant/common geogiant/common
 COPY geogiant/zdns geogiant/zdns
 COPY geogiant/hostname_init.py geogiant/
+COPY geogiant/routers_2ms.py geogiant/
 COPY geogiant/hostname_datasets/vps_subnet.json geogiant/datasets
 COPY geogiant/hostname_datasets/rib_table.dat geogiant/datasets
 COPY README.md README.md

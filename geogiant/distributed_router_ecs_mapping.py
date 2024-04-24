@@ -276,16 +276,16 @@ if __name__ == "__main__":
     input_file = path_settings.DATASET / "routers_subnet.json"
     output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
     gcp_vms = {
-        "iris-asia-east1": "35.206.250.197",
-        "iris-asia-northeast1": "35.213.102.165",
-        "iris-asia-southeast1": "35.213.136.86",
-        "iris-us-east4": "35.212.77.8",
-        "iris-southamerica-east1": "35.215.236.49",
-        "iris-asia-south1": "35.207.223.116",
-        "iris-europe-north1": "35.217.61.50",
+        # "iris-asia-east1": "35.206.250.197",
+        # "iris-asia-northeast1": "35.213.102.165",
+        # "iris-asia-southeast1": "35.213.136.86",
+        # "iris-us-east4": "35.212.77.8",
+        # "iris-southamerica-east1": "35.215.236.49",
+        # "iris-asia-south1": "35.207.223.116",
+        # "iris-europe-north1": "35.217.61.50",
         "iris-europe-west6": "35.216.205.173",
-        "iris-us-west4": "35.219.175.87",
-        "iris-me-central1": "34.1.33.16",
+        # "iris-us-west4": "35.219.175.87",
+        # "iris-me-central1": "34.1.33.16",
     }
     selected_hostnames = load_csv(
         path_settings.DATASET / "selected_hostname_geo_score.csv"
