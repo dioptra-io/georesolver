@@ -3,6 +3,7 @@
 import json
 import pickle
 
+from typing import Generator
 from typing import Iterator
 from uuid import uuid4
 from loguru import logger
@@ -13,6 +14,13 @@ from pathlib import Path
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
+
+
+def load_json_iter(file_path: Path) -> Generator:
+    """iter load json file"""
+    with file_path.open("r") as f:
+        for row in f.readlines():
+            yield json.loads(row)
 
 
 def iter_file(file: str, *, read_size: int = 2**20) -> Iterator[bytes]:

@@ -7,6 +7,7 @@ from geogiant.clickhouse import (
     GetPingsPerSrcDst,
     GetCompleVPs,
     GetDNSMappingHostnames,
+    GetDNSMappingPerHostnames,
     GetVPsSubnets,
     GetLastMileDelay,
 )
@@ -128,6 +129,31 @@ def get_subnets_mapping(
             }
 
     return subnets_mapping
+
+
+def get_mapping_per_hostname(
+    dns_table: str,
+    subnets: list[str],
+    hostname_filter: list[str] = None,
+) -> dict:
+    """get ecs-dns resolution per hostname for all input subnets"""
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetDNSMappingPerHostnames().execute_iter(
+            client=client,
+            table_name=dns_table,
+            subnet_filter=[s for s in subnets],
+            hostname_filter=hostname_filter,
+        )
+
+        mapping_per_hostname = defaultdict(dict)
+        for row in resp:
+            subnet = row["client_subnet"]
+            answer_bgp_prefixes = row["answer_bgp_prefixes"]
+            hostname = row["hostname"]
+
+            mapping_per_hostname[hostname][subnet] = answer_bgp_prefixes
+
+    return mapping_per_hostname
 
 
 def load_target_subnets(dns_table: str) -> dict:
