@@ -43,12 +43,12 @@ async def resolve_hostnames(
     hostname_file: Path,
     iterative: bool = False,
     repeat: bool = False,
-    chunk_size: int = 100,
+    chunk_size: int = 500,
     output_file: Path = None,
     output_table: str = None,
     end_date: datetime = "2024-01-23 00:00",
     waiting_time: int = 60 * 60 * 2,
-    request_timout: float = 0.1,
+    request_timout: float = 0.2,
     request_type: str = "A",
 ) -> None:
     """repeat zdns measurement on set of VPs"""
@@ -241,6 +241,7 @@ async def resolve_vps_subnet(
     output_file: Path = None,
     input_table: str = None,
     output_table: str = None,
+    chunk_size: int = 100,
 ) -> None:
     """perform ECS-DNS resolution one all VPs subnet"""
     tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
@@ -273,7 +274,7 @@ async def resolve_vps_subnet(
         output_table=output_table,
         repeat=False,
         end_date=None,
-        chunk_size=100,
+        chunk_size=chunk_size,
     )
 
     tmp_hostname_file.unlink()
@@ -282,6 +283,8 @@ async def resolve_vps_subnet(
 async def get_hostname_cdn(input_table: str) -> None:
     """for each IP address returned by a hostname, retrieve the CDN behind"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
+
+    anycast_hostnames = filter_anycast_hostnames(input_table)
 
     asn_to_org = {}
     with (path_settings.DATASET / "20240101.as-org2info.jsonl").open("r") as f:
@@ -301,6 +304,9 @@ async def get_hostname_cdn(input_table: str) -> None:
         async for row in resp:
             hostname = row["hostname"]
             answers = row["answers"]
+
+            if hostname in anycast_hostnames:
+                continue
 
             for answer in answers:
                 asn, bgp_prefix = route_view_bgp_prefix(answer, asndb)
@@ -364,32 +370,26 @@ async def main() -> None:
     logger.info("Retrieved ECS hostnames")
 
     logger.info("Get ECS hostnames CDN/organization")
-    await get_hostname_cdn(input_table="hostnames_1M_resolution")
+    # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    selected_hostnames = load_csv(
-        path_settings.DATASET / "all_ecs_selected_hostnames.csv"
-    )
+    # selected_hostnames = load_csv(
+    #     path_settings.DATASET / "all_ecs_selected_hostnames.csv"
+    # )
 
-    input_file = path_settings.DATASET / "vps_subnet.json"
-    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
-    await resolve_vps_subnet(
-        selected_hostnames=selected_hostnames,
-        input_file=input_file,
-        output_file=output_file,
-    )
+    # input_file = path_settings.DATASET / "vps_subnet.json"
+    # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    # await resolve_vps_subnet(
+    #     selected_hostnames=selected_hostnames,
+    #     input_file=input_file,
+    #     output_file=output_file,
+    # )
 
     # await resolve_name_servers(
     #     selected_hostnames=selected_hostnames,
     #     output_file=path_settings.RESULTS_PATH / "name_server_resolution.csv",
     # )
 
-    # logger.info("Hostname resolution done for every VPs")
-
-    # await filter_geo_hostnames()
-
-    # logger.info("Geographically valid hostname done")
-
-    # await get_hostname_cdn()
+    await get_hostname_cdn()
 
     # await resolve_vps_on_selected_hostnames(
     #     selected_hostnames_file=path_settings.DATASET

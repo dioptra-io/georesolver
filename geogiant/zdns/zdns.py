@@ -113,7 +113,8 @@ class ZDNS:
         try:
             resp_body = resp["data"]
             hostname = resp["name"]
-            answers = resp["answers"]
+            answers = resp_body["answers"]
+
             timestamp = self.parse_timestamp(resp)
 
             source_scope = resp_body["additionals"][0]["csubnet"]["source_scope"]
@@ -145,6 +146,8 @@ class ZDNS:
                     {answer_asn},\
                     {source_scope}"
                 )
+
+        return parsed_output
 
     def parse_ns_records(
         self,

@@ -55,10 +55,12 @@ async def main() -> None:
 
     input_file = path_settings.DATASET / "routers_subnet.json"
     output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
+
     await resolve_vps_subnet(
         selected_hostnames=selected_hostnames,
         input_file=input_file,
         output_file=output_file,
+        chunk_size=500,
     )
 
 

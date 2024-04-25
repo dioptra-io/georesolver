@@ -1,4 +1,5 @@
 import subprocess
+import time
 
 from tqdm import tqdm
 from loguru import logger
@@ -32,8 +33,8 @@ def docker_run_cmd() -> str:
     return """
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/all_ecs_selected_hostnames.csv:/app/geogiant/datasets/all_ecs_selected_hostnames.csv" \
-        -v "$(pwd)/datasets/vm_config.json:/app/geogiant/datasets/vm_config.json" \
+        -v "$(pwd)/datasets/selected_hostname_geo_score.csv:/app/geogiant/datasets/selected_hostname_geo_score.csv" \
+        -v "$(pwd)/datasets/routers_subnet.json:/app/geogiant/datasets/routers_subnet.json" \
         --network host \
         ghcr.io/dioptra-io/geogiant:main
     """
@@ -53,52 +54,28 @@ def insert_ecs_mapping_results(gcp_vms: dict, output_table: str) -> None:
     for vm in gcp_vms:
         vm_results_path = path_settings.RESULTS_PATH / f"{vm}"
 
-        for file in vm_results_path.iterdir():
-            if "vps_mapping_ecs_resolution_" in file.name:
+        result_files = [
+            file
+            for file in vm_results_path.iterdir()
+            if "routers_ecs_resolution_" in file.name
+        ]
+        if len(result_files) != 4:
+            logger.info(f"Not all results are available for VM:: {vm}")
+            continue
 
-                logger.info(f"Inserting file:: {file}")
+        logger.info(f"Inserting mapping results for VM:: {vm}")
 
-                with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-                    CreateDNSMappingTable().execute(
-                        client=client, table_name=output_table
-                    )
+        for file in result_files:
 
-                    InsertFromCSV().execute_from_in_file(
-                        table_name=output_table,
-                        in_file=file,
-                    )
+            logger.info(f"Inserting file:: {file}")
 
+            with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+                CreateDNSMappingTable().execute(client=client, table_name=output_table)
 
-def insert_name_server_results(gcp_vms: dict, output_table: str) -> None:
-    """insert csv results file into clickhouse"""
-    # insert files
-    for vm in gcp_vms:
-        vm_results_path = path_settings.RESULTS_PATH / f"{vm}"
-
-        for file in vm_results_path.iterdir():
-            if "name_server_resolution" in file.name:
-
-                logger.info(f"Inserting file:: {file}")
-
-                with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-                    CreateNameServerTable().execute(
-                        client=client, table_name=output_table
-                    )
-
-                    InsertFromCSV().execute_from_in_file(
-                        table_name=output_table,
-                        in_file=file,
-                    )
-
-
-def get_all_dns_mapping(input_table: str, hostname_filter: list[str] = []):
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        rows = GetAllDNSMapping().execute_iter(
-            client, input_table, hostname_filter=hostname_filter
-        )
-
-        for row in rows:
-            yield row
+                InsertFromCSV().execute_from_in_file(
+                    table_name=output_table,
+                    in_file=file,
+                )
 
 
 def get_resolved_hostnames(input_table: str) -> list:
@@ -108,46 +85,6 @@ def get_resolved_hostnames(input_table: str) -> list:
     hostnames = [hostname["hostname"] for hostname in hostnames]
 
     return hostnames
-
-
-def insert_local_results(
-    local_table: str, remote_table: str, output_table: str
-) -> None:
-    """get all results that were outputed in local table and merge with remote results"""
-    logger.info(f"Inserting rows from locally resolved results:: {local_table}")
-
-    batch = 1000
-    local_resolved_hostnames = get_resolved_hostnames(local_table)
-    remote_resolved_hostnames = get_resolved_hostnames(remote_table)
-
-    logger.info(f"{len(local_resolved_hostnames)}")
-    logger.info(f"{len(remote_resolved_hostnames)}")
-
-    hostnames_to_insert = list(
-        set(local_resolved_hostnames).difference(set(remote_resolved_hostnames))
-    )
-
-    logger.debug(
-        f"Nb hostname to insert from local to remote table:: {len(hostnames_to_insert)}"
-    )
-    for i in tqdm(range(0, len(hostnames_to_insert), batch)):
-        hostname_filter = hostnames_to_insert[i : i + batch]
-        rows = get_all_dns_mapping(local_table, hostname_filter=hostname_filter)
-
-        locally_mapping_filtered = []
-        for row in rows:
-            row = ",".join([str(val) for val in row.values()])
-            locally_mapping_filtered.append(row)
-
-        # # generate tmp file
-        tmp_file_path = create_tmp_csv_file(locally_mapping_filtered)
-
-        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-            CreateDNSMappingTable().execute(client, output_table)
-
-            InsertFromCSV().execute_from_in_file(output_table, tmp_file_path)
-
-        tmp_file_path.unlink()
 
 
 def free_memory(vm: str, vm_config: dict) -> None:
@@ -276,16 +213,16 @@ if __name__ == "__main__":
     input_file = path_settings.DATASET / "routers_subnet.json"
     output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
     gcp_vms = {
-        # "iris-asia-east1": "35.206.250.197",
-        # "iris-asia-northeast1": "35.213.102.165",
-        # "iris-asia-southeast1": "35.213.136.86",
-        # "iris-us-east4": "35.212.77.8",
-        # "iris-southamerica-east1": "35.215.236.49",
-        # "iris-asia-south1": "35.207.223.116",
-        # "iris-europe-north1": "35.217.61.50",
+        "iris-asia-east1": "35.206.250.197",
+        "iris-asia-northeast1": "35.213.102.165",
+        "iris-asia-southeast1": "35.213.136.86",
+        "iris-us-east4": "35.212.77.8",
+        "iris-southamerica-east1": "35.215.236.49",
+        "iris-asia-south1": "35.207.223.116",
+        "iris-europe-north1": "35.217.61.50",
         "iris-europe-west6": "35.216.205.173",
-        # "iris-us-west4": "35.219.175.87",
-        # "iris-me-central1": "34.1.33.16",
+        "iris-us-west4": "35.219.175.87",
+        "iris-me-central1": "do",
     }
     selected_hostnames = load_csv(
         path_settings.DATASET / "selected_hostname_geo_score.csv"
@@ -315,13 +252,7 @@ if __name__ == "__main__":
         deploy_hostname_resolution(vm, vm_config)
         # monitor_memory_space(vm, vm_config)
         # rsync_files(vm, vm_config, delete_after=True)
+        time.sleep(5)
         check_docker_running(vm, vm_config)
 
-    # insert_ecs_mapping_results(gcp_vms, output_table="vps_mapping_ecs")
-    # insert_local_results(
-    #     local_table="filtered_hostnames_ecs_mapping",
-    #     remote_table="vps_mapping_ecs",
-    #     output_table="vps_mapping_ecs",
-    # )
-
-    # insert_name_server_results(gcp_vms, output_table="name_servers")
+    # insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")
