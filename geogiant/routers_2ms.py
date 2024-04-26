@@ -60,7 +60,7 @@ async def main() -> None:
         selected_hostnames=selected_hostnames,
         input_file=input_file,
         output_file=output_file,
-        chunk_size=500,
+        chunk_size=100,
     )
 
 
