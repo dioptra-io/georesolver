@@ -88,6 +88,22 @@ class GetSubnets(Query):
         """
 
 
+class GetDstPrefix(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+
+        latency_clause = ""
+        if "latency_thresold" in kwargs:
+            latency_clause = f"WHERE min < {kwargs['latency_thresold']}"
+
+        return f"""
+        SELECT 
+            DISTINCT toString(dst_prefix) as dst_prefix
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        {latency_clause}
+        """
+
+
 class GetVPSInfo(Query):
     def statement(self, table_name: str) -> str:
         return f"""
@@ -485,6 +501,18 @@ class GetDNSMappingHostnamesNew(Query):
             {hostname_filter}
         GROUP BY
             (client_granularity, hostname)
+        """
+
+
+class GetMeasurementIds(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            distinct(
+                msm_id
+            ) as msm_id
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
         """
 
 
