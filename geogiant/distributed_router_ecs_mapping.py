@@ -44,7 +44,11 @@ def check_docker_running(vm: str, vm_config: dict) -> None:
     """check if docker image is running or not"""
     logger.info(f"Check if docker image running on:: {vm}")
 
-    c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
+    try:
+        c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
+    except:
+        logger.error(f"Could not connect to VM:: {vm}:{vm_config['ip_addr']}")
+
     result = c.run("docker ps")
 
 
@@ -212,17 +216,17 @@ if __name__ == "__main__":
 
     input_file = path_settings.DATASET / "routers_subnet.json"
     output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
+    # "iris-southamerica-east1": "35.215.236.49",
+    # "iris-asia-south1": "35.207.223.116",
+    # "iris-europe-north1": "35.217.61.50",
+    # "iris-asia-east1": "35.206.250.197",
+    # "iris-asia-northeast1": "35.213.102.165",
+    # "iris-asia-southeast1": "35.213.136.86",
     gcp_vms = {
-        "iris-asia-east1": "35.206.250.197",
-        "iris-asia-northeast1": "35.213.102.165",
-        "iris-asia-southeast1": "35.213.136.86",
         "iris-us-east4": "35.212.77.8",
-        "iris-southamerica-east1": "35.215.236.49",
-        "iris-asia-south1": "35.207.223.116",
-        "iris-europe-north1": "35.217.61.50",
-        "iris-europe-west6": "35.216.205.173",
-        "iris-us-west4": "35.219.175.87",
-        "iris-me-central1": "do",
+        # "iris-europe-west6": "35.216.205.173",
+        # "iris-us-west4": "35.219.175.87",
+        # "iris-me-central1": "34.1.33.16",
     }
     selected_hostnames = load_csv(
         path_settings.DATASET / "selected_hostname_geo_score.csv"
@@ -230,6 +234,7 @@ if __name__ == "__main__":
 
     subnets_per_vm = []
     routers_subnet = load_json(path_settings.DATASET / "routers_subnet.json")
+    routers_subnet = routers_subnet[:50_000]
     batch_size = len(routers_subnet) // len(gcp_vms) + 1
     for i in range(0, len(routers_subnet), batch_size):
         subnets_per_vm.append(routers_subnet[i : i + batch_size])
@@ -252,7 +257,7 @@ if __name__ == "__main__":
         deploy_hostname_resolution(vm, vm_config)
         # monitor_memory_space(vm, vm_config)
         # rsync_files(vm, vm_config, delete_after=True)
-        time.sleep(5)
+        # time.sleep(5)
         check_docker_running(vm, vm_config)
 
     # insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")

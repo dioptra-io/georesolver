@@ -1,8 +1,9 @@
 import httpx
 import asyncio
 import pyasn
-import json
+import time
 
+from tqdm import tqdm
 from numpy import mean
 from ipaddress import IPv4Address, AddressValueError
 from collections import defaultdict
@@ -13,7 +14,12 @@ from enum import Enum
 from pych_client import AsyncClickHouseClient
 from datetime import datetime, timedelta
 
-from geogiant.clickhouse import CreateVPsTable, InsertCSV
+from geogiant.clickhouse import (
+    CreateVPsTable,
+    CreatePingTable,
+    InsertCSV,
+    GetMeasurementIds,
+)
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings
@@ -154,6 +160,82 @@ class RIPEAtlasAPI:
 
         tmp_file_path.unlink()
 
+    async def insert_pings(self, ping_results: list[str], table_name: str) -> None:
+        """insert vps within clickhouse db"""
+
+        tmp_file_path = create_tmp_csv_file(ping_results)
+
+        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            await CreatePingTable().aio_execute(client, table_name)
+            await InsertCSV().aio_execute(
+                client=client,
+                table_name=table_name,
+                data=tmp_file_path.read_bytes(),
+            )
+
+        tmp_file_path.unlink()
+
+    async def get_ping_measurement_ids(self, table_name: str) -> list[int]:
+        """return all measurement ids that were already inserted within clickhouse"""
+        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            resp = await GetMeasurementIds().aio_execute(client, table_name)
+
+            measurement_ids = []
+            for row in resp:
+                measurement_ids.append(row["msm_id"])
+
+            return measurement_ids
+
+    async def get_ripe_ip_map_measurements(self, tag, output_table: str, max_age_days: int = 1):
+        # Define API endpoint and parameters
+        start_time = datetime.now() - timedelta(days=max_age_days)
+        start_time = int(start_time.timestamp())
+        api_url = "https://atlas.ripe.net/api/v2/measurements/"
+        params = {"tag": tag, "type": "ping", "af": 4, "start_time__gte": start_time}
+
+        # load msm ids
+        measurement_ids = await self.get_ping_measurement_ids(output_table)
+
+        logger.info(f"Nb measurement retrieved:: {len(measurement_ids)}")
+
+        # Make request to RIPE Atlas API
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(api_url, params=params, timeout=15)
+            measurements = resp.json()
+
+            nb_pages = measurements["count"]
+            logger.info(f"Loading {nb_pages} pages from RIPE Altas")
+
+            count = 0
+            while measurements["next"]:
+                logger.info(f"Page {count + 1}/{nb_pages}")
+                page_results = []
+                for measurement in tqdm(measurements["results"]):
+
+                    if measurement["id"] in measurement_ids:
+                        logger.debug(f"Measurement {measurement['id']} already parsed")
+                        continue
+
+                    results = await self.get_ping_results(measurement["id"])
+
+                    if not results:
+                        continue
+
+                    page_results.extend(results)
+
+                    time.sleep(0.1)
+
+                # insert results
+                if page_results:
+                    await self.insert_pings(page_results, output_table)
+
+                logger.info("Loading next page")
+                resp = await client.get(measurements["next"], timeout=15)
+                measurements = resp.json()
+                count += 1
+
+    # url = f"https://atlas.ripe.net/api/v2/measurements/tags/{tag}/results/"
+
     async def get_ping_results(self, id: int) -> dict:
         """get results from ping measurement id"""
         url = f"{self.measurement_url}/{id}/results/"
@@ -170,6 +252,9 @@ class RIPEAtlasAPI:
         parsed_data = []
         for result in results:
             rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
+
+            if not "from" in result or not "dst_addr" in result:
+                continue
 
             if not result["from"] or not result["dst_addr"]:
                 logger.error(
@@ -219,6 +304,9 @@ class RIPEAtlasAPI:
         traceroute_results = self.parse_traceroute(resp)
 
         return traceroute_results
+
+    def get_ripe_ip_map_results(self) -> dict:
+        """retrieve all measurements from RIPE IP map"""
 
     def parse_traceroute(self, traceroutes: list) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""

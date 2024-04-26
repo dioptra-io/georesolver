@@ -4,14 +4,13 @@ import json
 import asyncio
 import time
 
-from datetime import timedelta, datetime
 from pyasn import pyasn
-from tqdm import tqdm
 from pathlib import Path
 from numpy import mean
 from loguru import logger
-from pych_client import AsyncClickHouseClient
 from collections import defaultdict
+from datetime import timedelta, datetime
+from pych_client import AsyncClickHouseClient
 
 from geogiant.zdns import ZDNS
 from geogiant.clickhouse import (
@@ -28,11 +27,10 @@ from geogiant.common.ip_addresses_utils import (
 from geogiant.common.files_utils import (
     load_anycatch_data,
     create_tmp_csv_file,
-    load_csv,
     dump_json,
     load_json,
 )
-from common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
@@ -48,7 +46,7 @@ async def resolve_hostnames(
     output_table: str = None,
     end_date: datetime = "2024-01-23 00:00",
     waiting_time: int = 60 * 60 * 2,
-    request_timout: float = 0.2,
+    request_timout: float = 0.1,
     request_type: str = "A",
 ) -> None:
     """repeat zdns measurement on set of VPs"""

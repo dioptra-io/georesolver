@@ -10,8 +10,8 @@ from loguru import logger
 
 from geogiant.prober import RIPEAtlasAPI
 
-from common.files_utils import dump_json
-from common.settings import ClickhouseSettings
+from geogiant.common.files_utils import dump_json
+from geogiant.common.settings import ClickhouseSettings
 
 
 class RIPEAtlasProber:
