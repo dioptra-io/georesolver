@@ -300,6 +300,7 @@ def get_hostname_score(args) -> None:
 
     hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
 
+    logger.info(f"Loading targets mapping")
     if "target_mapping_path" in score_config:
         targets_mapping = load_pickle(path_settings.DATASET / "targets_mapping.pickle")
     else:
@@ -309,6 +310,7 @@ def get_hostname_score(args) -> None:
             hostname_filter=hostnames,
         )
 
+    logger.info(f"Loading vps mapping")
     if "vps_mapping_path" in score_config:
         vps_mapping = load_pickle(path_settings.DATASET / "vps_mapping.pickle")
     else:
@@ -318,7 +320,7 @@ def get_hostname_score(args) -> None:
             hostname_filter=hostnames,
         )
 
-    logger.debug(f"{len(targets_mapping)=}")
+    logger.debug(f"Total subnets:: {len(targets_mapping)=}")
 
     target_score_answer = defaultdict(dict)
     target_score_subnet = defaultdict(dict)
@@ -363,23 +365,33 @@ def load_hostnames(hostname_per_cdn: dict) -> list[str]:
 
 
 def get_scores(score_config: dict) -> None:
-    targets_table = score_config["targets_table"]
-    vps_table = score_config["vps_table"]
-
     hostname_per_cdn = score_config["hostname_per_cdn"]
     hostnames, cdns = load_hostnames(hostname_per_cdn)
 
     if "targets_subnet_path" in score_config:
-        target_subnets = load_json(path_settings.DATASET / "targets_subnet.json")
+        targets_subnet_path = Path(score_config["targets_subnet_path"])
+        target_subnets = load_json(targets_subnet_path)
+        print("target subnets", len(target_subnets))
+    elif "targets_table" in score_config:
+        target_subnets = load_target_subnets(score_config["targets_table"])
     else:
-        target_subnets = load_target_subnets(targets_table)
+        raise RuntimeError(
+            "Either input table or input file must be given to calculate scores"
+        )
 
     if "vps_subnet_path" in score_config:
-        vp_subnets = load_json(path_settings.DATASET / "vps_subnet.json")
+        vps_subnet_path = Path(score_config["vps_subnet_path"])
+        vp_subnets = load_json(vps_subnet_path)
+    elif "vps_table" in score_config:
+        vp_subnets = load_vp_subnets(score_config["vps_table"])
     else:
-        vp_subnets = load_vp_subnets(vps_table)
+        raise RuntimeError(
+            "Either input table or input file must be given to calculate scores"
+        )
 
-    logger.info(f"score calculation with:: {len(hostnames)} hostnames")
+    logger.info(f"score calculation:: {len(hostnames)} hostnames")
+    logger.info(f"{len(target_subnets)=}")
+    logger.info(f"{len(vp_subnets)=}")
 
     # avoid overloading cpu
     if len(hostnames) > 5_00:
@@ -390,7 +402,7 @@ def get_scores(score_config: dict) -> None:
     if usable_cpu < 1:
         usable_cpu = 1
 
-    batch_size = len(target_subnets) // usable_cpu
+    batch_size = len(target_subnets) // usable_cpu + 1
 
     logger.info(f"Nb CPUs available:: {cpu_count()} (number of cpu used: {usable_cpu})")
 
@@ -446,7 +458,7 @@ def get_scores(score_config: dict) -> None:
         score_answer_bgp_prefixes=target_score_bgp_prefix,
     )
 
-    dump_pickle(data=score, output_file=score_config["output_path"])
+    dump_pickle(data=score, output_file=Path(score_config["output_path"]))
 
 
 if __name__ == "__main__":

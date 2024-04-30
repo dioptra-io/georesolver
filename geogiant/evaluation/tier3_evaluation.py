@@ -181,7 +181,7 @@ def evaluate() -> None:
     targets = load_targets(clickhouse_settings.VPS_FILTERED)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 
@@ -256,8 +256,8 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = True
-    evaluation = False
+    compute_scores = False
+    evaluation = True
 
     if compute_scores:
         compute_score()

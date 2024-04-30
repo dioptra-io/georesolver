@@ -1,7 +1,6 @@
 import subprocess
-import time
 
-from tqdm import tqdm
+from random import shuffle
 from loguru import logger
 from fabric import Connection
 from ipaddress import IPv4Address, AddressValueError
@@ -9,15 +8,12 @@ from pych_client import ClickHouseClient
 
 from geogiant.clickhouse import (
     GetHostnames,
-    GetAllDNSMapping,
     CreateDNSMappingTable,
-    CreateNameServerTable,
     InsertFromCSV,
 )
 from geogiant.common.files_utils import (
     load_csv,
     dump_csv,
-    create_tmp_csv_file,
     dump_json,
     load_json_iter,
     load_json,
@@ -27,6 +23,8 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+input_file = path_settings.DATASET / "routers_subnet.json"
+output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
 
 
 def docker_run_cmd() -> str:
@@ -181,6 +179,7 @@ if __name__ == "__main__":
     name_server_resolution = True
     ecs_resolution = False
 
+    # generate subnet file
     if not (path_settings.DATASET / "routers_subnet.json").exists():
         subnets = set()
         rows = load_json_iter(path_settings.DATASET / "routers_2ms.json")
@@ -199,6 +198,7 @@ if __name__ == "__main__":
 
         dump_json(subnets, path_settings.DATASET / "routers_subnet.json")
 
+    # generate hostname file
     if not (path_settings.DATASET / "selected_hostname_geo_score.csv").exists():
         selected_hostnames_per_cdn = load_json(
             path_settings.DATASET / "hostname_geo_score_selection.json"
@@ -214,32 +214,36 @@ if __name__ == "__main__":
             path_settings.DATASET / "selected_hostname_geo_score.csv",
         )
 
-    input_file = path_settings.DATASET / "routers_subnet.json"
-    output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
-    # "iris-southamerica-east1": "35.215.236.49",
-    # "iris-asia-south1": "35.207.223.116",
-    # "iris-europe-north1": "35.217.61.50",
-    # "iris-asia-east1": "35.206.250.197",
-    # "iris-asia-northeast1": "35.213.102.165",
-    # "iris-asia-southeast1": "35.213.136.86",
     gcp_vms = {
+        "iris-europe-north1": "35.217.61.50",
         "iris-us-east4": "35.212.77.8",
-        # "iris-europe-west6": "35.216.205.173",
-        # "iris-us-west4": "35.219.175.87",
-        # "iris-me-central1": "34.1.33.16",
+        "iris-europe-west6": "35.216.205.173",
+        "iris-us-west4": "35.219.175.87",
+        "iris-me-central1": "34.1.33.16",
+        "iris-southamerica-east1": "35.215.236.49",
+        "iris-asia-south1": "35.207.223.116",
+        "iris-asia-east1": "35.206.250.197",
+        "iris-asia-northeast1": "35.213.102.165",
+        "iris-asia-southeast1": "35.213.136.86",
     }
+
+    # load hostnames
     selected_hostnames = load_csv(
         path_settings.DATASET / "selected_hostname_geo_score.csv"
     )
 
+    # load routers subnets per VMs
     subnets_per_vm = []
     routers_subnet = load_json(path_settings.DATASET / "routers_subnet.json")
+    shuffle(routers_subnet)
     routers_subnet = routers_subnet[:50_000]
+
     batch_size = len(routers_subnet) // len(gcp_vms) + 1
     for i in range(0, len(routers_subnet), batch_size):
         subnets_per_vm.append(routers_subnet[i : i + batch_size])
 
     logger.info(f"Total number of selected hostnames:: {len(selected_hostnames)}")
+    logger.info(f"Total number of selected subnets:: {len(routers_subnet)}")
 
     config_per_vm = {}
     for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
@@ -254,10 +258,10 @@ if __name__ == "__main__":
         logger.info(
             f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}, {len(vm_config['subnets'])}"
         )
-        deploy_hostname_resolution(vm, vm_config)
+        # deploy_hostname_resolution(vm, vm_config)
         # monitor_memory_space(vm, vm_config)
-        # rsync_files(vm, vm_config, delete_after=True)
+        # rsync_files(vm, vm_config, delete_after=False)
         # time.sleep(5)
-        check_docker_running(vm, vm_config)
+        # check_docker_running(vm, vm_config)
 
-    # insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")
+    insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")

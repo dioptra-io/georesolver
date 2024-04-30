@@ -39,27 +39,27 @@ def get_ecs_vps(
     """
     # retrieve all vps belonging to subnets with highest mapping scores
     ecs_vps = []
-    for i, (subnet, score) in enumerate(target_score):
+    for subnet, score in target_score:
         # for fairness, do not take vps that are in the same subnet as the target
         if subnet == target_subnet:
             continue
 
         vps_in_subnet = vps_per_subnet[subnet]
 
-        vps_delay = []
+        vps_delay_subnet = []
         for vp in vps_in_subnet:
             try:
-                vps_delay.append((vp, last_mile_delay_vp[vp]))
+                vps_delay_subnet.append((vp, last_mile_delay_vp[vp]))
             except KeyError:
                 continue
 
         # for each subnet, elect the VP with the lowest last mile delay
-        if vps_delay:
-            elected_subnet_vp_addr, _ = min(vps_delay, key=lambda x: x[-1])
+        if vps_delay_subnet:
+            elected_subnet_vp_addr, _ = min(vps_delay_subnet, key=lambda x: x[-1])
             ecs_vps.append((elected_subnet_vp_addr, score))
 
         # take only a number of subnets up to probing budget
-        if i > probing_budget:
+        if len(ecs_vps) > probing_budget:
             break
 
     return ecs_vps
@@ -110,7 +110,7 @@ def ecs_dns_vp_selection_eval(
 
             # get vps, function of their subnet ecs score
             ecs_vps = get_ecs_vps(
-                target["subnet"], target_score, vps_per_subnet, last_mile_delay, 1_00
+                target["subnet"], target_score, vps_per_subnet, last_mile_delay, 5_00
             )
 
             # remove vps that have a high last mile delay

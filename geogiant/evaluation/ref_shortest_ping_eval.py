@@ -68,7 +68,7 @@ def main() -> None:
     targets = load_targets(clickhouse_settings.VPS_FILTERED)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    _, vps_coordinates = get_parsed_vps(vps, asndb)
+    _, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps=removed_vps)
 
     logger.info("Reference shortest ping evaluation")
 

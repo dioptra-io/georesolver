@@ -137,7 +137,7 @@ def compute_score() -> None:
                 "vps_ecs_table": vps_ecs_table,
                 "hostname_selection": "max_bgp_prefix",
                 "score_metric": ["jaccard"],
-                "answer_granularities": ["answer_subnets"],
+                "answer_granularities": ["answer_bgp_prefixes"],
                 "output_path": output_path,
             }
 

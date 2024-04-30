@@ -9,11 +9,44 @@ from geogiant.common.geoloc import (
     select_best_guess_centroid,
     haversine,
     is_within_cirle,
+    distance,
 )
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
+    distances_log = [
+        math.log(distance_per_probe[p])
+        for p in selected_probes
+        if p in distance_per_probe and distance_per_probe[p] > 0
+    ]
+    total_distance = sum(distances_log)
+    return probe, total_distance
+
+
+def greedy_vp_selection(vp_distance_matrix: dict) -> None:
+    """select VPs with greedy selection to cover maximum coverage"""
+    logger.info("Starting greedy algorithm")
+
+    selected_probes = []
+    remaining_probes = set(vp_distance_matrix.keys())
+    usable_cpu = cpu_count() - 1
+    with Pool(usable_cpu) as p:
+        while len(remaining_probes) > 0 and len(selected_probes) < 1_000:
+            args = []
+            for probe in remaining_probes:
+                args.append((probe, vp_distance_matrix[probe], selected_probes))
+
+            results = p.starmap(greedy_selection_probes_impl, args)
+
+            furthest_probe_from_selected, _ = max(results, key=lambda x: x[1])
+            selected_probes.append(furthest_probe_from_selected)
+            remaining_probes.remove(furthest_probe_from_selected)
+
+    dump_json(selected_probes, path_settings.GREEDY_VPS)
 
 
 def compute_error(dst, vp_coordinates_per_ip, rtt_per_src):
@@ -74,10 +107,10 @@ def round_based_algorithm_impl(
         else:
             is_already_found_close = False
             for selected_probe in selected_probes_per_asn[asn]:
-                distance = haversine(
+                d = haversine(
                     vp_coordinates_per_ip[probe], vp_coordinates_per_ip[selected_probe]
                 )
-                if distance < threshold:
+                if d < threshold:
                     is_already_found_close = True
                     break
             if not is_already_found_close:
@@ -88,16 +121,24 @@ def round_based_algorithm_impl(
     for _, probes in selected_probes_per_asn.items():
         selected_probes.update(probes)
 
-    vp_coordinates_per_ip_tier2 = {
-        x: vp_coordinates_per_ip[x]
-        for x in vp_coordinates_per_ip
-        if x in selected_probes
-    }
-    vp_coordinates_per_ip_tier2[dst] = vp_coordinates_per_ip[dst]
-    # Now evaluate the error with this subset of probes
-    error, circles = compute_error(dst, vp_coordinates_per_ip_tier2, rtt_per_src)
+    rtts = []
+    for probe in selected_probes:
+        try:
+            min_rtt = rtt_per_src[probe]
+            rtts.append((probe, min_rtt))
+        except KeyError:
+            continue
 
-    return dst, error, len(selected_probes)
+    if not rtts:
+        logger.info(f"No ping available for :: {dst}")
+
+    shortest_ping_vp_addr, shortest_ping_rtt = min(rtts, key=lambda x: x[-1])
+    shortest_ping_lat, shortest_ping_lon = vp_coordinates_per_ip[shortest_ping_vp_addr]
+    target_lat, target_lon = vp_coordinates_per_ip[dst]
+
+    error = distance(target_lat, shortest_ping_lat, target_lon, shortest_ping_lon)
+
+    return dst, error, len(selected_probes), shortest_ping_rtt
 
 
 def round_based_algorithm(
@@ -133,38 +174,6 @@ def round_based_algorithm(
     return results
 
 
-def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
-    distances_log = [
-        math.log(distance_per_probe[p])
-        for p in selected_probes
-        if p in distance_per_probe and distance_per_probe[p] > 0
-    ]
-    total_distance = sum(distances_log)
-    return probe, total_distance
-
-
-def greedy_vp_selection(vp_distance_matrix: dict) -> None:
-    """select VPs with greedy selection to cover maximum coverage"""
-    logger.info("Starting greedy algorithm")
-
-    selected_probes = []
-    remaining_probes = set(vp_distance_matrix.keys())
-    usable_cpu = cpu_count() - 1
-    with Pool(usable_cpu) as p:
-        while len(remaining_probes) > 0 and len(selected_probes) < 1_000:
-            args = []
-            for probe in remaining_probes:
-                args.append((probe, vp_distance_matrix[probe], selected_probes))
-
-            results = p.starmap(greedy_selection_probes_impl, args)
-
-            furthest_probe_from_selected, _ = max(results, key=lambda x: x[1])
-            selected_probes.append(furthest_probe_from_selected)
-            remaining_probes.remove(furthest_probe_from_selected)
-
-    dump_json(selected_probes, path_settings.GREEDY_VPS)
-
-
 if __name__ == "__main__":
 
     if not (path_settings.GREEDY_VPS).exists():
@@ -177,7 +186,9 @@ if __name__ == "__main__":
 
     # clickhouse is required here
     rtt_per_srcs_dst = get_pings_per_src_dst(
-        clickhouse_settings.PING_VPS_TO_TARGET, threshold=100
+        table_name=clickhouse_settings.PING_VPS_TO_TARGET,
+        removed_vps=removed_vps,
+        threshold=100,
     )
 
     vp_coordinates = {}
@@ -188,7 +199,7 @@ if __name__ == "__main__":
         vp_coordinates[vp["addr"]] = vp["lat"], vp["lon"]
 
     error_cdf_per_tier1_vps = {}
-    for tier1_vps in [10, 100, 300, 500, 1000]:
+    for tier1_vps in [10]:
         logger.info(f"Using {tier1_vps} tier1_vps")
         error_cdf = round_based_algorithm(
             greedy_probes,
