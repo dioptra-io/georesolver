@@ -12,6 +12,7 @@ from .dns_score import OverallScore, HostnameScore, CountRows
 from .get import (
     GetSubnets,
     GetVPsSubnets,
+    GetSubnets,
     GetDstPrefix,
     GetTargets,
     GetVPs,
@@ -57,6 +58,7 @@ __all__ = (
     "CreateGeolocTable",
     "GetSubnets",
     "GetVPsSubnets",
+    "GetSubnets",
     "GetDstPrefix",
     "GetTargets",
     "GetVPs",

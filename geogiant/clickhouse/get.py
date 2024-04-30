@@ -62,6 +62,16 @@ class GetTargets(Query):
         """
 
 
+class GetSubnets(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            DISTINCT toString(subnet) as subnet
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        """
+
+
 class GetVPsSubnets(Query):
     def statement(self, table_name: str, is_anchor: bool = False) -> str:
         if is_anchor:
@@ -82,7 +92,7 @@ class GetSubnets(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
-            DISTINCT toString(subnet_v4) as subnet
+            DISTINCT toString(subnet) as subnet
         FROM 
             {self.settings.DATABASE}.{table_name}
         """
@@ -90,10 +100,9 @@ class GetSubnets(Query):
 
 class GetDstPrefix(Query):
     def statement(self, table_name: str, **kwargs) -> str:
-
         latency_clause = ""
-        if "latency_thresold" in kwargs:
-            latency_clause = f"WHERE min < {kwargs['latency_thresold']}"
+        if "latency_threshold" in kwargs:
+            latency_clause = f"WHERE min < {kwargs['latency_threshold']}"
 
         return f"""
         SELECT 
@@ -180,7 +189,7 @@ class GetPingsPerTarget(Query):
             filter_vps_statement = (
                 f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
             )
-        return f"""
+        stat = f"""
         SELECT 
             toString(dst_addr) as target,
             groupArray((toString(src_addr), min)) as pings
@@ -194,6 +203,8 @@ class GetPingsPerTarget(Query):
         GROUP BY 
             target
         """
+        print(stat)
+        return stat
 
 
 class GetLastMileDelay(Query):
@@ -225,7 +236,7 @@ class GetPingsPerSrcDst(Query):
             filter_vps_statement = (
                 f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
             )
-        return f"""
+        stat = f"""
         WITH  arrayMin(groupArray(min)) as min_rtt
         SELECT 
             toString(src_addr) as src,
@@ -236,11 +247,14 @@ class GetPingsPerSrcDst(Query):
         WHERE
             min > -1 
             AND dst_addr != src_addr
+            AND dst_prefix != src_prefix
             AND min < {threshold}
             {filter_vps_statement}
         GROUP BY 
             (src, dst)
         """
+        print(stat)
+        return stat
 
 
 class GetPingsPerSubnet(Query):

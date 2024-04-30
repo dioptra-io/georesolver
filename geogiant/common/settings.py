@@ -34,6 +34,7 @@ class PathSettings(BaseSettings):
     LOG_PATH: Path = DEFAULT / "../logs"
     CONFIG_PATH: Path = DEFAULT / "../config"
     RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
+    RIPE_ATLAS_PUBLIC_PINGS: Path = DATASET / "ripe_atlas_public_pings"
 
     # hostnames default input files
     HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"

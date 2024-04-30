@@ -2,6 +2,7 @@
 
 import json
 import pickle
+import bz2
 
 from typing import Generator
 from typing import Iterator
@@ -14,6 +15,28 @@ from pathlib import Path
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
+
+
+def decompress(bz2_file: Path) -> None:
+    """decompress bz2 archive into the same directory"""
+    logger.info(f"Decompressing:: {bz2_file}")
+    output_file_path = bz2_file.parent / (str(bz2_file.name).split(".bz2")[0])
+    with open(output_file_path, "wb") as new_file, bz2.BZ2File(bz2_file, "rb") as file:
+        for data in iter(lambda: file.read(100 * 1024), b""):
+            new_file.write(data)
+
+    logger.info(f"{bz2_file} sucessfully decompressed")
+
+    return output_file_path
+
+
+def load_iter(in_file: Path) -> Generator:
+    """load iter large file"""
+    for row in in_file.open("r"):
+        try:
+            yield json.loads(row)
+        except:
+            yield None
 
 
 def load_json_iter(file_path: Path) -> Generator:

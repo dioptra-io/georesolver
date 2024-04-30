@@ -50,13 +50,15 @@ def parse_target(target: dict, asndb: pyasn) -> dict:
     }
 
 
-def get_parsed_vps(vps: list, asndb: pyasn) -> dict:
+def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = None) -> dict:
     """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
     vps_coordinates = {}
     vps_subnet = defaultdict(list)
     vps_bgp_prefix = defaultdict(list)
 
     for vp in vps:
+        if vp["addr"] in removed_vps:
+            continue
         vp_addr = vp["addr"]
         subnet = get_prefix_from_ip(vp_addr)
         vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
@@ -161,7 +163,6 @@ def select_one_vp_per_as_city(
                 filtered_vp_selection.append((vp_i, score))
             else:
                 already_found = False
-
                 for vp_j, score in selected_vps_per_as[asn]:
 
                     vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
