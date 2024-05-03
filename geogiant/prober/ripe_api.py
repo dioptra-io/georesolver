@@ -2,6 +2,7 @@ import httpx
 import asyncio
 import pyasn
 import time
+import json
 
 from tqdm import tqdm
 from numpy import mean
@@ -12,7 +13,6 @@ from uuid import uuid4
 from loguru import logger
 from enum import Enum
 from pych_client import AsyncClickHouseClient
-from datetime import datetime, timedelta
 
 from geogiant.clickhouse import (
     CreateVPsTable,
@@ -186,21 +186,97 @@ class RIPEAtlasAPI:
 
             return measurement_ids
 
-    async def get_ripe_ip_map_measurements(self, tag, output_table: str, max_age_days: int = 1):
+    def ripe_ip_map_locate(
+        self, ip_addr: int, params: dict = {"engine": "single-radius"}
+    ) -> int:
+        ripe_ip_map_url = f"https://ipmap-api.ripe.net/v1/locate/{ip_addr}/best"
+        ripe_ip_map_url += f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+
+        with httpx.Client() as client:
+            resp = client.get(url=ripe_ip_map_url, params=params)
+            resp = resp.json()
+
+            contributions = resp["metadata"]["service"]["contributions"]
+            for _, metadata in contributions.items():
+                engines = metadata["engines"]
+
+            for engine in engines:
+                if engine["engine"] == "single-radius":
+                    logger.info(f"{engine}")
+                    try:
+                        msm_id = engine["metadata"]["msmId"]
+                        logger.info(f"Locate measurement id: {msm_id}")
+                    except KeyError:
+                        return None
+
+        return msm_id
+
+    def get_tag_measurement_ids(self, params: dict) -> None:
         # Define API endpoint and parameters
-        start_time = datetime.now() - timedelta(days=max_age_days)
-        start_time = int(start_time.timestamp())
-        api_url = "https://atlas.ripe.net/api/v2/measurements/"
-        params = {"tag": tag, "type": "ping", "af": 4, "start_time__gte": start_time}
+        url = self.api_url + f"/measurements/ping/"
 
-        # load msm ids
-        measurement_ids = await self.get_ping_measurement_ids(output_table)
+        measurement_ids = []
+        target_ip_addresses = set()
+        with httpx.Client() as client:
+            resp = client.get(url=url, params=params, timeout=15)
+            measurements = resp.json()
 
-        logger.info(f"Nb measurement retrieved:: {len(measurement_ids)}")
+            nb_pages = measurements["count"]
+            logger.info(f"Loading {nb_pages} pages from RIPE Altas")
 
-        # Make request to RIPE Atlas API
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(api_url, params=params, timeout=15)
+            count = 0
+            if not measurements["next"]:
+                for measurement in measurements["results"]:
+
+                    logger.info(f"Page {count + 1}/{nb_pages}")
+
+                    for measurement in measurements["results"]:
+                        if (
+                            measurement["af"] != 4
+                            or measurement["target_ip"] in target_ip_addresses
+                        ):
+                            continue
+                        logger.debug(measurement["id"])
+                        measurement_ids.append(measurement["id"])
+                        target_ip_addresses.add(measurement["target_ip"])
+
+            while measurements["next"]:
+                logger.info(f"Page {count + 1}/{nb_pages}")
+
+                for measurement in measurements["results"]:
+                    if (
+                        measurement["af"] != 4
+                        or measurement["target_ip"] in target_ip_addresses
+                    ):
+                        continue
+
+                    measurement_ids.append(measurement["id"])
+                    target_ip_addresses.add(measurement["target_ip"])
+
+                logger.info("Loading next page")
+                resp = client.get(measurements["next"], timeout=15)
+                measurements = resp.json()
+                count += 1
+
+                time.sleep(1)
+
+                if len(measurement_ids) > 100_000:
+                    break
+
+            return measurement_ids
+
+    async def get_results_from_tag(self, params: dict, ping_table: str) -> None:
+        # Define API endpoint and parameters
+        url = self.api_url + f"/measurements/ping/"
+
+        measurement_ids = []
+        ping_results = []
+        target_ip_addresses = set()
+
+        ping_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(ping_table)
+
+        with httpx.Client() as client:
+            resp = client.get(url=url, params=params, timeout=15)
             measurements = resp.json()
 
             nb_pages = measurements["count"]
@@ -209,40 +285,78 @@ class RIPEAtlasAPI:
             count = 0
             while measurements["next"]:
                 logger.info(f"Page {count + 1}/{nb_pages}")
-                page_results = []
-                for measurement in tqdm(measurements["results"]):
 
-                    if measurement["id"] in measurement_ids:
-                        logger.debug(f"Measurement {measurement['id']} already parsed")
+                for measurement in measurements["results"]:
+                    if (
+                        measurement["af"] != 4
+                        or measurement["target_ip"] in target_ip_addresses
+                        or measurement["id"] in ping_measurement_ids
+                    ):
                         continue
 
-                    results = await self.get_ping_results(measurement["id"])
+                    ping_result = self.get_ping_results(measurement["id"])
 
-                    if not results:
+                    logger.info(f"{measurement['id']=}, {len(ping_result)}")
+
+                    if len(ping_result) <= 1:
                         continue
 
-                    page_results.extend(results)
+                    ping_results.extend(ping_result)
 
-                    time.sleep(0.1)
+                    time.sleep(0.5)
 
-                # insert results
-                if page_results:
-                    await self.insert_pings(page_results, output_table)
+                    if len(ping_results) > 100:
+                        await self.insert_pings(ping_results, table_name=ping_table)
+                        ping_results = []
 
                 logger.info("Loading next page")
-                resp = await client.get(measurements["next"], timeout=15)
+                resp = client.get(measurements["next"], timeout=15)
                 measurements = resp.json()
                 count += 1
 
-    # url = f"https://atlas.ripe.net/api/v2/measurements/tags/{tag}/results/"
+                time.sleep(1)
 
-    async def get_ping_results(self, id: int) -> dict:
+            return measurement_ids
+
+    async def get_measurements_from_tag(self, params: dict, output_table: str):
+        # Define API endpoint and parameters
+        url = self.api_url + f"/measurements/tags/{params['tags']}/results/"
+
+        ping_results = []
+        batch_size = 10_000
+        with httpx.stream("GET", url=url, params=params, timeout=60) as client:
+            for resp in client.iter_bytes():
+                resp = resp.decode()
+                print(resp)
+                # TODO: find another way
+
+                measurements = resp.split('},{"af":4,')
+
+                for measurement in measurements[1:-1]:
+                    measurement = "{" + measurement + "}"
+                    measurement = json.loads(measurement)
+                    print(measurement["msm_id"])
+                    ping_result = self.parse_ping([measurement])
+
+                    ping_results.extend(ping_result)
+
+                if len(ping_results) > batch_size:
+                    await self.insert_pings(ping_results, table_name=output_table)
+                    ping_results = []
+
+                time.sleep(0.01)
+
+    def get_ping_results(self, id: int) -> dict:
         """get results from ping measurement id"""
-        url = f"{self.measurement_url}/{id}/results/"
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=15)
+        url = (
+            f"{self.measurement_url}/{id}/results/"
+            + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+        )
+        with httpx.Client() as client:
+            resp = client.get(url, timeout=30)
             resp = resp.json()
 
+            time.sleep(0.1)
         ping_results = self.parse_ping(resp)
 
         return ping_results
@@ -262,24 +376,26 @@ class RIPEAtlasAPI:
                 )
                 continue
 
-            if rtts:
-                parsed_data.append(
-                    f"{result['timestamp']},\
-                    {result['from']},\
-                    {get_prefix_from_ip(result['from'])},\
-                    {24},\
-                    {result['prb_id']},\
-                    {result['msm_id']},\
-                    {result['dst_addr']},\
-                    {get_prefix_from_ip(result['dst_addr'])},\
-                    {result['proto']},\
-                    {result['rcvd']},\
-                    {result['sent']},\
-                    {min(rtts)},\
-                    {max(rtts)},\
-                    {result['avg']},\
-                    \"{rtts}\""
-                )
+            if not rtts:
+                rtts = [-1]
+
+            parsed_data.append(
+                f"{result['timestamp']},\
+                {result['from']},\
+                {get_prefix_from_ip(result['from'])},\
+                {24},\
+                {result['prb_id']},\
+                {result['msm_id']},\
+                {result['dst_addr']},\
+                {get_prefix_from_ip(result['dst_addr'])},\
+                {result['proto']},\
+                {result['rcvd']},\
+                {result['sent']},\
+                {min(rtts)},\
+                {max(rtts)},\
+                {result['avg']},\
+                \"{rtts}\""
+            )
 
         return parsed_data
 
@@ -304,9 +420,6 @@ class RIPEAtlasAPI:
         traceroute_results = self.parse_traceroute(resp)
 
         return traceroute_results
-
-    def get_ripe_ip_map_results(self) -> dict:
-        """retrieve all measurements from RIPE IP map"""
 
     def parse_traceroute(self, traceroutes: list) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""

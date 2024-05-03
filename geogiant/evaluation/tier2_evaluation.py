@@ -67,78 +67,72 @@ def compute_score() -> None:
     targets_ecs_table = "vps_mapping_ecs"
     vps_ecs_table = "vps_mapping_ecs"
 
-    cdn_per_hostname = load_json(
-        path_settings.DATASET / "ecs_hostnames_organization.json"
-    )
-
-    main_org_threshold = 0.8
-    bgp_prefixes_threshold = 2
-
-    bgp_prefix_per_hostname = get_bgp_prefixes_per_hostname(cdn_per_hostname)
-
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
-    hostname_per_ns_per_org = select_hostnames(
-        cdn_per_hostname,
-        bgp_prefix_per_hostname,
-        main_org_threshold,
-        bgp_prefixes_threshold,
+    hostname_per_ns_per_org = load_json(
+        path_settings.DATASET / "best_hostnames_per_org_per_ns.json"
     )
 
-    org_per_ns = {
-        "awsdns": "AMAZON",
-        "google": "GOOGLE",
-        "facebook": "FACEBOOK",
-        "akamai": "AKAMAI",
-        "impervadns": "INCAPSULA",
-        "bunny": "CDN77",
-        "dns-parking": "AS-HOSTINGER",
-    }
+    schedules = [
+        {
+            "awsdns": "AMAZON",
+            "google": "GOOGLE",
+            "akamai": "AKAMAI",
+        },
+        {
+            "awsdns": "AMAZON",
+            "google": "GOOGLE",
+            "facebook": "FACEBOOK",
+            "akamai": "AKAMAI",
+            "impervadns": "INCAPSULA",
+            "bunny": "CDN77",
+            "dns-parking": "AS-HOSTINGER",
+        },
+    ]
 
-    nb_hostnames_per_org = [1, 10, 100]
+    nb_hostnames_per_org = [10, 100]
     for nb_hostnames in nb_hostnames_per_org:
         logger.info(f"{nb_hostnames=}")
+        for schedule in schedules:
 
-        # extract hostname per cdn
-        selected_hostnames_per_cdn = defaultdict(list)
-        for ns in hostname_per_ns_per_org:
-            if not ns in org_per_ns.keys():
-                continue
-            for org, hostnames in hostname_per_ns_per_org[ns].items():
-                if not org in org_per_ns.values():
-                    continue
+            selected_hostnames_per_cdn = defaultdict(list)
+            for ns, org in schedule.items():
+
+                hostnames = hostname_per_ns_per_org[ns][org]
+
+                # extract hostname per cdn
                 selected_hostnames_per_cdn[org] = hostnames[:nb_hostnames]
 
-        selected_hostnames = set()
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            selected_hostnames.update(hostnames)
+            selected_hostnames = set()
+            for org, hostnames in selected_hostnames_per_cdn.items():
+                selected_hostnames.update(hostnames)
 
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"tier2_evaluation/scores__{nb_hostnames}_hostname_7_dns_ns.pickle"
-        )
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"tier2_evaluation/scores__{nb_hostnames}_hostname_{len(schedule)}_orgs.pickle"
+            )
 
-        # some organizations do not have enought hostnames
-        if output_path.exists():
-            continue
+            # some organizations do not have enought hostnames
+            if output_path.exists():
+                continue
 
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            logger.info(f"{org=}, {len(hostnames)=}")
+            for org, hostnames in selected_hostnames_per_cdn.items():
+                logger.info(f"{org=}, {len(hostnames)=}")
 
-        score_config = {
-            "targets_table": targets_table,
-            "main_org_threshold": main_org_threshold,
-            "bgp_prefixes_threshold": bgp_prefixes_threshold,
-            "vps_table": vps_table,
-            "hostname_per_cdn": selected_hostnames_per_cdn,
-            "targets_ecs_table": targets_ecs_table,
-            "vps_ecs_table": vps_ecs_table,
-            "hostname_selection": "max_bgp_prefix",
-            "score_metric": ["jaccard"],
-            "answer_granularities": ["answer_subnets"],
-            "output_path": output_path,
-        }
+            score_config = {
+                "targets_table": targets_table,
+                "main_org_threshold": 0.0,
+                "bgp_prefixes_threshold": 0.0,
+                "vps_table": vps_table,
+                "hostname_per_cdn": selected_hostnames_per_cdn,
+                "targets_ecs_table": targets_ecs_table,
+                "vps_ecs_table": vps_ecs_table,
+                "hostname_selection": "max_bgp_prefix",
+                "score_metric": ["jaccard"],
+                "answer_granularities": ["answer_subnets"],
+                "output_path": output_path,
+            }
 
-        get_scores(score_config)
+            get_scores(score_config)
 
 
 def evaluate() -> None:
@@ -156,7 +150,7 @@ def evaluate() -> None:
     targets = load_targets(clickhouse_settings.VPS_FILTERED)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 
@@ -231,7 +225,7 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = False
+    compute_scores = True
     evaluation = True
 
     if compute_scores:

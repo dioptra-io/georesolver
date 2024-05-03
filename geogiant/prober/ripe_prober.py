@@ -20,6 +20,7 @@ class RIPEAtlasProber:
     def __init__(
         self,
         probing_type: str,
+        probing_tag: str,
         dry_run: bool = False,
     ) -> None:
         self.dry_run = dry_run
@@ -29,7 +30,7 @@ class RIPEAtlasProber:
 
         self.uuid = uuid4()
         self.probing_type = probing_type
-        self.table_name = probing_type + "__" + str(self.uuid)
+        self.table_name = probing_tag + "__" + str(self.uuid)
         self.start_time = time.time()
         self.end_time = None
 
@@ -62,7 +63,7 @@ class RIPEAtlasProber:
         if config["end_time"] is not None:
             config["status"] = "finished"
 
-        config_file = out_path / f"{self.probing_type}__{config['uuid']}.json"
+        config_file = out_path / f"{self.table_name}.json"
         dump_json(config, config_file)
 
     async def wait_for_batch(self, ongoing_ids: set) -> list:
@@ -185,7 +186,7 @@ class RIPEAtlasProber:
         dump_json(
             data=schedule,
             output_file=self.api.settings.MEASUREMENTS_SCHEDULE
-            / f"{self.probing_type}__{self.uuid}.json",
+            / f"{self.table_name}.json",
         )
 
         if not config:

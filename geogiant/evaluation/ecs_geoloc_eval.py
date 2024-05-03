@@ -59,7 +59,7 @@ def get_ecs_vps(
             ecs_vps.append((elected_subnet_vp_addr, score))
 
         # take only a number of subnets up to probing budget
-        if len(ecs_vps) > probing_budget:
+        if len(ecs_vps) >= probing_budget:
             break
 
     return ecs_vps

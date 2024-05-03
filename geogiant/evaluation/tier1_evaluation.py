@@ -67,21 +67,12 @@ def compute_score() -> None:
     targets_ecs_table = "vps_mapping_ecs"
     vps_ecs_table = "vps_mapping_ecs"
 
-    cdn_per_hostname = load_json(
-        path_settings.DATASET / "ecs_hostnames_organization.json"
-    )
-
     main_org_threshold = 0.8
     bgp_prefixes_threshold = 2
 
-    bgp_prefix_per_hostname = get_bgp_prefixes_per_hostname(cdn_per_hostname)
-
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
-    hostname_per_ns_per_org = select_hostnames(
-        cdn_per_hostname,
-        bgp_prefix_per_hostname,
-        main_org_threshold,
-        bgp_prefixes_threshold,
+    hostname_per_ns_per_org = load_json(
+        path_settings.DATASET / "best_hostnames_per_org_per_ns.json"
     )
 
     org_per_ns = {
@@ -137,7 +128,7 @@ def compute_score() -> None:
                 "vps_ecs_table": vps_ecs_table,
                 "hostname_selection": "max_bgp_prefix",
                 "score_metric": ["jaccard"],
-                "answer_granularities": ["answer_bgp_prefixes"],
+                "answer_granularities": ["answer_subnets"],
                 "output_path": output_path,
             }
 
@@ -159,7 +150,7 @@ def evaluate() -> None:
     targets = load_targets(clickhouse_settings.VPS_FILTERED)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 

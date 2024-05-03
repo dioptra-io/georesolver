@@ -1,5 +1,8 @@
-from pych_client import ClickHouseClient
+import time
+
+from tqdm import tqdm
 from collections import defaultdict
+from pych_client import ClickHouseClient, AsyncClickHouseClient
 
 from geogiant.clickhouse import (
     GetVPs,
@@ -10,7 +13,12 @@ from geogiant.clickhouse import (
     GetDNSMappingPerHostnames,
     GetVPsSubnets,
     GetLastMileDelay,
+    InsertFromCSV,
+    CreatePingTable,
+    GetSubnets,
 )
+from geogiant.prober.ripe_api import RIPEAtlasAPI
+from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.settings import ClickhouseSettings
 
 clickhouse_settings = ClickhouseSettings()
@@ -156,6 +164,15 @@ def get_mapping_per_hostname(
     return mapping_per_hostname
 
 
+def get_subnets(dns_table: str) -> dict:
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        targets = GetSubnets().execute(client=client, table_name=dns_table)
+
+    target_subnets = [target["subnet"] for target in targets]
+
+    return target_subnets
+
+
 def load_target_subnets(dns_table: str) -> dict:
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
         targets = GetVPsSubnets().execute(
@@ -177,3 +194,24 @@ def load_vp_subnets(dns_table: str) -> dict:
     vp_subnets = [vp["subnet"] for vp in vps]
 
     return vp_subnets
+
+
+async def retrieve_pings(ids: list[int], output_table: str) -> list[dict]:
+    """retrieve all ping measurements from a list of measurement ids"""
+    csv_data = []
+    for id in tqdm(ids):
+        ping_results = RIPEAtlasAPI().get_ping_results(id)
+        csv_data.extend(ping_results)
+
+        time.sleep(0.1)
+
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        await CreatePingTable().aio_execute(client=client, table_name=output_table)
+        await InsertFromCSV().execute(
+            table_name=output_table,
+            in_file=tmp_file_path,
+        )
+
+    tmp_file_path.unlink()

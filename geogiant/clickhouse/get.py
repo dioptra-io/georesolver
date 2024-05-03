@@ -102,14 +102,16 @@ class GetDstPrefix(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         latency_clause = ""
         if "latency_threshold" in kwargs:
-            latency_clause = f"WHERE min < {kwargs['latency_threshold']}"
+            latency_clause = f"AND min < {kwargs['latency_threshold']}"
 
         return f"""
         SELECT 
             DISTINCT toString(dst_prefix) as dst_prefix
         FROM 
             {self.settings.DATABASE}.{table_name}
-        {latency_clause}
+        WHERE
+            min > -1
+            {latency_clause}
         """
 
 
@@ -189,6 +191,7 @@ class GetPingsPerTarget(Query):
             filter_vps_statement = (
                 f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
             )
+
         stat = f"""
         SELECT 
             toString(dst_addr) as target,

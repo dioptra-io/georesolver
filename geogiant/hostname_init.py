@@ -28,6 +28,7 @@ from geogiant.common.files_utils import (
     load_anycatch_data,
     create_tmp_csv_file,
     dump_json,
+    load_csv,
     load_json,
 )
 from geogiant.common.settings import PathSettings, ClickhouseSettings
@@ -204,22 +205,9 @@ async def resolve_name_servers(
     """perform ECS-DNS resolution one all VPs subnet"""
     tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
 
-    vm_config = load_json(path_settings.DATASET / "vm_config.json")
-    vps_subnet = [get_prefix_from_ip(vm_config["ip_addr"])]
-
-    if not vps_subnet:
-        raise RuntimeError(
-            f"Either var input_file or input_table must be set to load vps subnets"
-        )
-
-    if not output_file and not output_table:
-        raise RuntimeError(
-            f"Either var output_file or output_table must be set to dump results"
-        )
-
     # output file if out file instead of output table
     await resolve_hostnames(
-        subnets=vps_subnet,
+        subnets=["132.227.123.0"],
         hostname_file=tmp_hostname_file,
         output_file=output_file,
         output_table=output_table,
@@ -370,9 +358,7 @@ async def main() -> None:
     logger.info("Get ECS hostnames CDN/organization")
     # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    # selected_hostnames = load_csv(
-    #     path_settings.DATASET / "all_ecs_selected_hostnames.csv"
-    # )
+    selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
 
     # input_file = path_settings.DATASET / "vps_subnet.json"
     # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
@@ -382,12 +368,12 @@ async def main() -> None:
     #     output_file=output_file,
     # )
 
-    # await resolve_name_servers(
-    #     selected_hostnames=selected_hostnames,
-    #     output_file=path_settings.RESULTS_PATH / "name_server_resolution.csv",
-    # )
+    await resolve_name_servers(
+        selected_hostnames=selected_hostnames,
+        output_table="name_servers_end_to_end",
+    )
 
-    await get_hostname_cdn()
+    # await get_hostname_cdn()
 
     # await resolve_vps_on_selected_hostnames(
     #     selected_hostnames_file=path_settings.DATASET
