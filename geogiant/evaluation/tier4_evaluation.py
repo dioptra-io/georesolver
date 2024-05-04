@@ -90,43 +90,50 @@ def compute_score() -> None:
     vps_ecs_table = "vps_mapping_ecs"
 
     for bgp_threshold in [5, 10, 20, 50, 100]:
+        for nb_hostname_per_ns_org in [3, 5, 10]:
 
-        selected_hostnames_per_cdn = load_json(
-            path_settings.DATASET
-            / f"hostname_geo_score_selection_{bgp_threshold}_BGP.json"
-        )
+            selected_hostnames_per_cdn_per_ns = load_json(
+                path_settings.DATASET
+                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
+            )
 
-        selected_hostnames = set()
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            selected_hostnames.update(hostnames)
+            selected_hostnames = set()
+            selected_hostnames_per_cdn = defaultdict(list)
+            for ns in selected_hostnames_per_cdn_per_ns:
+                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
+                    selected_hostnames.update(hostnames)
+                    selected_hostnames_per_cdn[org].extend(hostnames)
 
-        logger.info(f"{len(selected_hostnames)=}")
+            logger.info(f"{len(selected_hostnames)=}")
 
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"tier4_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP.pickle"
-        )
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"tier4_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
+            )
 
-        # some organizations do not have enought hostnames
-        if output_path.exists():
-            logger.info(f"Score for {bgp_threshold} BGP prefix threshold alredy done")
-            continue
+            # some organizations do not have enought hostnames
+            if output_path.exists():
+                logger.info(
+                    f"Score for {bgp_threshold} BGP prefix threshold alredy done"
+                )
+                continue
 
-        score_config = {
-            "targets_table": targets_table,
-            "main_org_threshold": 0.0,
-            "bgp_prefixes_threshold": 0.0,
-            "vps_table": vps_table,
-            "hostname_per_cdn": selected_hostnames_per_cdn,
-            "targets_ecs_table": targets_ecs_table,
-            "vps_ecs_table": vps_ecs_table,
-            "hostname_selection": "max_bgp_prefix",
-            "score_metric": ["jaccard"],
-            "answer_granularities": ["answer_subnets"],
-            "output_path": output_path,
-        }
+            score_config = {
+                "targets_table": targets_table,
+                "main_org_threshold": 0.0,
+                "bgp_prefixes_threshold": 0.0,
+                "vps_table": vps_table,
+                "hostname_per_cdn_per_ns": selected_hostnames_per_cdn_per_ns,
+                "hostname_per_cdn": selected_hostnames_per_cdn,
+                "targets_ecs_table": targets_ecs_table,
+                "vps_ecs_table": vps_ecs_table,
+                "hostname_selection": "max_bgp_prefix",
+                "score_metric": ["jaccard"],
+                "answer_granularities": ["answer_subnets"],
+                "output_path": output_path,
+            }
 
-        get_scores(score_config)
+            get_scores(score_config)
 
 
 def evaluate() -> None:
@@ -194,7 +201,7 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = False
+    compute_scores = True
     evaluation = True
 
     if compute_scores:

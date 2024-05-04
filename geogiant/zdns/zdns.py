@@ -267,7 +267,7 @@ class ZDNS:
 
             elif self.request_type == "NS":
                 async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                    await CreateDNSNSTable().aio_execute(
+                    await CreateNameServerTable().aio_execute(
                         client=client, table_name=self.output_table
                     )
 

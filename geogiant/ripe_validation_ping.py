@@ -91,7 +91,7 @@ async def retrieve_pings(ids: list[int]) -> list[dict]:
             in_file=tmp_file_path,
         )
 
-    # tmp_file_path.unlink()
+    tmp_file_path.unlink()
 
 
 async def main() -> None:

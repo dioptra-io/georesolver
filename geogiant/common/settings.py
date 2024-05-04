@@ -36,6 +36,9 @@ class PathSettings(BaseSettings):
     RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
     RIPE_ATLAS_PUBLIC_PINGS: Path = DATASET / "ripe_atlas_public_pings"
 
+    # evaluation specific datasets
+    END_TO_END_DATASET: Path = DATASET / "end_to_end_evaluation"
+
     # hostnames default input files
     HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
     HOSTNAMES_CDN: Path = DATASET / "hostnames_cdn.csv"

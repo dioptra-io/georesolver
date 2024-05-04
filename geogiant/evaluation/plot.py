@@ -158,8 +158,11 @@ def plot_multiple_cdf(
     ax1.grid(linestyle="dotted")
     ax1.set_xlabel(x_label, fontsize=fontsize_axis)
     ax1.set_ylabel("proportion of targets", fontsize=fontsize_axis)
-    plot_minus_40()
 
+    if metric_evaluated == "d_error":
+        plot_limit(limit=40, metric_evaluated=metric_evaluated)
+    else:
+        plot_limit(limit=2, metric_evaluated=metric_evaluated)
     if legend_outside:
         plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
     else:
@@ -203,12 +206,19 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
     return proportion_of_ip
 
 
-def plot_minus_40() -> None:
-    x = [40, 40]
+def plot_limit(limit: float, metric_evaluated: str = "d_error") -> None:
+    x = [limit, limit]
     y = [0, 1]
 
+    label = ""
+    if metric_evaluated == "d_error":
+        label = f"under {limit} [km]"
+
+    if metric_evaluated == "rtt":
+        label = f"under {limit} ms"
+
     # Plotting the line with dots
-    plt.plot(x, y, linestyle="dotted", color="grey")
+    plt.plot(x, y, linestyle="dotted", color="grey", label=label)
 
 
 def plot_zero_ping(
@@ -266,6 +276,7 @@ def plot_ecs_shortest_ping(
     label_orgs: int = None,
     label_hostnames: int = None,
     label_bgp_prefix: int = None,
+    label_nb_hostname_per_org_ns: int = None,
     plot_zp: bool = False,
 ) -> list[tuple]:
     cdfs = []
@@ -307,6 +318,8 @@ def plot_ecs_shortest_ping(
                     label += f", {budget} VPs"
                 if label_bgp_prefix:
                     label += f",  BGP threshold={label_bgp_prefix}"
+                if label_nb_hostname_per_org_ns:
+                    label += f", {label_nb_hostname_per_org_ns} hostnames per NS/org"
 
                 cdfs.append((x, y, label))
 
@@ -714,39 +727,55 @@ def bgp_prefix_threshold(
     legend_pos: str = "lower right",
 ) -> None:
 
-    ordered_files = []
+    results_files = defaultdict(list)
     for file in eval_dir.iterdir():
-        if "result" in file.name:
+        if "result" in file.name and "hostnames_per_org_ns" in file.name:
             bgp_prefix_threshold = file.name.split("score_")[-1].split("_")[0]
-            ordered_files.append((int(bgp_prefix_threshold), file))
+            nb_hostnames_per_org_ns = file.name.split("BGP_")[-1].split("_")[0]
+            results_files[int(bgp_prefix_threshold)].append(
+                (int(nb_hostnames_per_org_ns), file)
+            )
+
+    for bgp_prefix_threshold in results_files:
+        results_files[bgp_prefix_threshold] = sorted(
+            results_files[bgp_prefix_threshold], key=lambda x: x[0]
+        )
+    results_files = OrderedDict(sorted(results_files.items(), key=lambda x: x[0]))
 
     all_cdfs = []
     ref_cdf = plot_ref(metric_evaluated)
     all_cdfs.append(ref_cdf)
-    ordered_files = sorted(ordered_files, key=lambda x: x[0])
-    for bgp_prefix_threshold, file in ordered_files:
+    for bgp_prefix_threshold in results_files:
+        for nb_hostnames_per_org_ns, file in results_files[bgp_prefix_threshold]:
 
-        logger.info(f"{bgp_prefix_threshold=}")
+            if bgp_prefix_threshold in [5, 10, 20, 50, 100]:
+                if nb_hostnames_per_org_ns in [3, 5, 10]:
 
-        eval: EvalResults = load_pickle(file)
+                    # if bgp_prefix_threshold in [5, 10, 20, 50, 100]:
+                    #     if nb_hostnames_per_org_ns in [3, 5, 10]:
 
-        logger.info(f"{file=} loaded")
-        score_config = eval.target_scores.score_config
-        hostname_per_cdn = score_config["hostname_per_cdn"]
+                    logger.info(f"{bgp_prefix_threshold=}")
 
-        total_hostnames = set()
-        for _, hostnames in hostname_per_cdn.items():
-            total_hostnames.update(hostnames)
+                    eval: EvalResults = load_pickle(file)
 
-        cdfs = plot_ecs_shortest_ping(
-            results=eval.results_answer_subnets,
-            score_metrics=["jaccard"],
-            metric_evaluated=metric_evaluated,
-            label_hostnames=len(total_hostnames),
-            label_bgp_prefix=bgp_prefix_threshold,
-            plot_zp=plot_zp,
-        )
-        all_cdfs.extend(cdfs)
+                    logger.info(f"{file=} loaded")
+                    score_config = eval.target_scores.score_config
+                    hostname_per_cdn = score_config["hostname_per_cdn"]
+
+                    total_hostnames = set()
+                    for _, hostnames in hostname_per_cdn.items():
+                        total_hostnames.update(hostnames)
+
+                    cdfs = plot_ecs_shortest_ping(
+                        results=eval.results_answer_subnets,
+                        score_metrics=["jaccard"],
+                        metric_evaluated=metric_evaluated,
+                        label_hostnames=len(total_hostnames),
+                        label_bgp_prefix=bgp_prefix_threshold,
+                        label_nb_hostname_per_org_ns=nb_hostnames_per_org_ns,
+                        plot_zp=plot_zp,
+                    )
+                    all_cdfs.extend(cdfs)
 
     plot_multiple_cdf(
         all_cdfs, output_path, metric_evaluated, legend_outside, legend_pos=legend_pos
@@ -767,6 +796,23 @@ def plot_ripe_ip_map(
     cdfs.append((x, y, "Single radius SP"))
 
     plot_multiple_cdf(cdfs, output_path=output_path, metric_evaluated="d_error")
+
+
+def plot_router_2ms(
+    geo_resolver_sp: list[tuple],
+    output_path: Path,
+) -> None:
+
+    cdfs = []
+    x, y = ecdf([sp for _, sp in geo_resolver_sp])
+    p = get_proportion_under(x, y, threshold=2)
+    m = round(np.mean(x), 2)
+
+    logger.info(f"propotion of targets under 40km: {p} [%]")
+    logger.info(f"median error: {m} [km]")
+    cdfs.append((x, y, "GeoResolve SP"))
+
+    plot_multiple_cdf(cdfs, output_path=output_path, metric_evaluated="rtt")
 
 
 if __name__ == "__main__":

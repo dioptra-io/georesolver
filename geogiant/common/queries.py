@@ -80,6 +80,19 @@ def get_pings_per_src_dst(
     return ping_vps_to_target
 
 
+def load_subnets_from_ecs_mapping() -> list:
+    """retrieve all RIPE IP map subnets"""
+    # get routers 2ms subnets
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        rows = GetSubnets().execute(client=client, table_name=ECS_TABLE)
+
+    end_to_end_subnets = []
+    for row in rows:
+        end_to_end_subnets.append(row["subnet"])
+
+    return end_to_end_subnets
+
+
 def load_all_vps(input_table: str) -> list:
     """retrieve all VPs from clickhouse"""
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:

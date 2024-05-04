@@ -23,16 +23,17 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
-input_file = path_settings.DATASET / "routers_subnet.json"
-output_file = path_settings.RESULTS_PATH / "routers_ecs_resolution.csv"
+
+END_TO_END_HOSTNAME_PATH = path_settings.END_TO_END_DATASET / "end_to_end_hostnames.csv"
+END_TO_END_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_subnets.json"
 
 
 def docker_run_cmd() -> str:
     return """
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/selected_hostname_geo_score.csv:/app/geogiant/datasets/selected_hostname_geo_score.csv" \
-        -v "$(pwd)/datasets/routers_subnet.json:/app/geogiant/datasets/routers_subnet.json" \
+        -v "$(pwd)/datasets/selected_hostname_geo_score.csv:/app/geogiant/datasets/selected_hostnames.csv" \
+        -v "$(pwd)/datasets/end_to_end_subnets.json:/app/geogiant/datasets/end_to_end_subnets.json" \
         --network host \
         ghcr.io/dioptra-io/geogiant:main
     """
@@ -78,15 +79,6 @@ def insert_ecs_mapping_results(gcp_vms: dict, output_table: str) -> None:
                     table_name=output_table,
                     in_file=file,
                 )
-
-
-def get_resolved_hostnames(input_table: str) -> list:
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        hostnames = GetHostnames().execute(client, input_table)
-
-    hostnames = [hostname["hostname"] for hostname in hostnames]
-
-    return hostnames
 
 
 def free_memory(vm: str, vm_config: dict) -> None:
@@ -143,11 +135,11 @@ def deploy_hostname_resolution(vm: str, vm_config: dict) -> None:
     logger.info(f"Results ouput dir:: {vm_result_path}")
 
     # dump ecs hostname file for VM
-    selected_hostnames_file = vm_result_path / "selected_hostname_geo_score.csv"
-    dump_csv(vm_config["hostnames"], vm_result_path / "selected_hostname_geo_score.csv")
+    selected_hostnames_file = vm_result_path / "selected_hostnames.csv"
+    dump_csv(vm_config["hostnames"], vm_result_path / "selected_hostnames.csv")
 
-    vm_subnet_file_path = vm_result_path / "routers_subnet.json"
-    dump_json(vm_config["subnets"], vm_result_path / "routers_subnet.json")
+    vm_subnet_file_path = vm_result_path / "end_to_end_subnets.json"
+    dump_json(vm_config["subnets"], vm_result_path / "end_to_end_subnets.json")
 
     # upload hostname file
     result = c.put(
@@ -179,71 +171,34 @@ if __name__ == "__main__":
     name_server_resolution = True
     ecs_resolution = False
 
-    # generate subnet file
-    if not (path_settings.DATASET / "routers_subnet.json").exists():
-        subnets = set()
-        rows = load_json_iter(path_settings.DATASET / "routers_2ms.json")
-        for row in rows:
-            addr = row["ip"]
-            # remove IPv6 and private IP addresses
-            try:
-                if not IPv4Address(addr).is_private:
-                    subnet = get_prefix_from_ip(addr)
-                    subnets.add(subnet)
-            except AddressValueError:
-                continue
-
-        logger.info(f"Number of subnets in routers datasets:: {len(subnets)}")
-        subnets = list(subnets)
-
-        dump_json(subnets, path_settings.DATASET / "routers_subnet.json")
-
-    # generate hostname file
-    if not (path_settings.DATASET / "selected_hostname_geo_score.csv").exists():
-        selected_hostnames_per_cdn = load_json(
-            path_settings.DATASET / "hostname_geo_score_selection.json"
-        )
-
-        selected_hostnames = set()
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            logger.info(f"{org=}, {len(hostnames)=}")
-            selected_hostnames.update(hostnames)
-
-        dump_csv(
-            selected_hostnames,
-            path_settings.DATASET / "selected_hostname_geo_score.csv",
-        )
+    # "iris-me-central1": "34.1.33.16",
+    # "iris-asia-southeast1": "35.213.136.86",
 
     gcp_vms = {
-        "iris-europe-north1": "35.217.61.50",
-        "iris-us-east4": "35.212.77.8",
-        "iris-europe-west6": "35.216.205.173",
-        "iris-us-west4": "35.219.175.87",
-        "iris-me-central1": "34.1.33.16",
-        "iris-southamerica-east1": "35.215.236.49",
-        "iris-asia-south1": "35.207.223.116",
-        "iris-asia-east1": "35.206.250.197",
-        "iris-asia-northeast1": "35.213.102.165",
-        "iris-asia-southeast1": "35.213.136.86",
+        "iris-europe-north1": "35.217.17.6",
+        # "iris-us-east4": "35.212.12.175",
+        # "iris-europe-west6": "35.216.186.30",
+        # "iris-us-west4": "35.219.147.41",
+        # "iris-southamerica-east1": "35.215.234.244",
+        # "iris-asia-south1": "35.207.233.237",
+        # "iris-asia-east1": "35.213.132.83",
+        # "iris-asia-northeast1": "35.213.95.10",
     }
 
-    # load hostnames
-    selected_hostnames = load_csv(
-        path_settings.DATASET / "selected_hostname_geo_score.csv"
-    )
-
-    # load routers subnets per VMs
-    subnets_per_vm = []
-    routers_subnet = load_json(path_settings.DATASET / "routers_subnet.json")
-    shuffle(routers_subnet)
-    routers_subnet = routers_subnet[:50_000]
-
-    batch_size = len(routers_subnet) // len(gcp_vms) + 1
-    for i in range(0, len(routers_subnet), batch_size):
-        subnets_per_vm.append(routers_subnet[i : i + batch_size])
+    # load hostnames and subnets
+    selected_hostnames = load_csv(END_TO_END_HOSTNAME_PATH)
+    routers_subnet = load_json(END_TO_END_SUBNETS_PATH)
+    selected_hostnames = selected_hostnames[:2]
+    routers_subnet = routers_subnet[:100]
 
     logger.info(f"Total number of selected hostnames:: {len(selected_hostnames)}")
     logger.info(f"Total number of selected subnets:: {len(routers_subnet)}")
+
+    # load routers subnets per VMs
+    subnets_per_vm = []
+    batch_size = len(routers_subnet) // len(gcp_vms) + 1
+    for i in range(0, len(routers_subnet), batch_size):
+        subnets_per_vm.append(routers_subnet[i : i + batch_size])
 
     config_per_vm = {}
     for i, (vm, ip_addr) in enumerate(gcp_vms.items()):
@@ -260,8 +215,8 @@ if __name__ == "__main__":
         )
         # deploy_hostname_resolution(vm, vm_config)
         # monitor_memory_space(vm, vm_config)
-        # rsync_files(vm, vm_config, delete_after=False)
+        rsync_files(vm, vm_config, delete_after=True)
         # time.sleep(5)
         # check_docker_running(vm, vm_config)
 
-    insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")
+    # insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")

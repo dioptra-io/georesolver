@@ -27,7 +27,7 @@ from geogiant.common.queries import (
     get_min_rtt_per_vp,
     get_pings_per_target,
     load_vps,
-    load_target_subnets,
+    get_subnets,
     retrieve_pings,
 )
 from geogiant.common.utils import EvalResults, TargetScores, get_parsed_vps
@@ -100,170 +100,7 @@ async def insert_results_from_tag() -> None:
     )
 
 
-def get_ids_from_ripe_ip_map() -> None:
-
-    # download data
-    measurement_ids = load_json(best_measurement_ids_path)
-    old_targets = []
-    for id in measurement_ids:
-        try:
-            IPv4Address(id)
-            old_targets.append(id)
-        except ValueError:
-            continue
-
-    pings_router_2ms = get_pings_per_target("pings_routers_2ms")
-
-    if not (path_settings.DATASET / "ripe_ip_map_targets.json").exists():
-        targets = [target for target in pings_router_2ms]
-        shuffle(targets)
-        targets = targets[: max_nb_measurements + len(old_targets)]
-
-        dump_json(targets, path_settings.DATASET / "ripe_ip_map_targets.json")
-
-    targets = load_json(path_settings.DATASET / "ripe_ip_map_targets.json")
-
-    filtered_targets = []
-    for target in targets:
-        if target in old_targets:
-            continue
-
-        filtered_targets.append(target)
-
-    logger.info(f"Starting measurements on:: {len(filtered_targets)}")
-
-    for target in filtered_targets:
-        # url
-        measurement_id = RIPEAtlasAPI().ripe_ip_map_locate(target)
-        if measurement_id:
-            measurement_ids.append(measurement_id)
-            measurement_ids.append(target)
-        else:
-            measurement_ids.append(target)
-            time.sleep(5)
-
-        logger.info(f"{target=}, {measurement_id=}")
-        time.sleep(1)
-
-        if len(measurement_ids) > 10:
-            old_measurement_ids = load_json(best_measurement_ids_path)
-            measurement_ids = list(set(measurement_ids).union(set(old_measurement_ids)))
-            dump_json(measurement_ids, best_measurement_ids_path)
-
-    old_measurement_ids = load_json(best_measurement_ids_path)
-    measurement_ids = list(set(measurement_ids).union(set(old_measurement_ids)))
-    dump_json(measurement_ids, best_measurement_ids_path)
-
-
-def get_ripe_ip_map_ids() -> None:
-    """get all measurements from RIPE IP map single radius engine"""
-    start_time = datetime.strptime(START_DATE, "%Y-%m-%d")
-    start_time = int(start_time.timestamp())
-
-    ripe_ip_map_ids = load_json(best_measurement_ids_path)
-    logger.info(f"Retrieving measurements for:: {len(ripe_ip_map_ids)}")
-
-    parsed_ripe_ip_map_ids = []
-    for id in ripe_ip_map_ids:
-        try:
-            IPv4Address(id)
-            logger.info(
-                f"Fetching measurement metadata from:: {START_DATE} to {END_DATE}"
-            )
-
-            params = {
-                "tags": "single-radius",
-                "target_ip": id,
-                "type": "ping",
-                "af": 4,
-                "start_time__gte": start_time,
-            }
-            msm_id = RIPEAtlasAPI().get_tag_measurement_ids(params=params)
-        except ValueError:
-            msm_id = [id]
-
-        parsed_ripe_ip_map_ids.extend(msm_id)
-
-    dump_json(
-        parsed_ripe_ip_map_ids, path_settings.DATASET / "parsed_ripe_ip_map_ids.json"
-    )
-
-
-async def get_ripe_ip_map_from_ids(use_cache: bool = False) -> None:
-    ping_results = []
-    batch_size = 100
-
-    measurement_ids = load_json(path_settings.DATASET / "parsed_ripe_ip_map_ids.json")
-    remaining_ids = set()
-    if use_cache:
-        cached_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(
-            ping_ripe_ip_map_table
-        )
-        remaining_ids = set(measurement_ids).symmetric_difference(
-            set(cached_measurement_ids)
-        )
-
-    if remaining_ids:
-        measurement_ids = remaining_ids
-
-    # # filter out ids that were flagged without results
-    filetered_ids = set()
-    if (filtered_measurement_ids_path).exists():
-        filetered_ids = load_json(filtered_measurement_ids_path)
-        filetered_ids = set(filetered_ids)
-
-    if filetered_ids:
-        measurement_ids = set(filetered_ids).symmetric_difference(set(measurement_ids))
-
-    for i, measurement_id in enumerate(measurement_ids):
-        logger.info(
-            f"Retreiving measurement uuid:: {measurement_id} ({i+1}/{len(measurement_ids)})"
-        )
-        ping_result = RIPEAtlasAPI().get_ping_results(measurement_id)
-
-        logger.debug(f"Nb of pings retreived:: {len(ping_result)}")
-
-        if len(ping_result) < 1:
-            filetered_ids.add(measurement_id)
-        else:
-            time.sleep(1)
-
-        ping_results.extend(ping_result)
-
-        if len(ping_results) > batch_size:
-            await RIPEAtlasAPI().insert_pings(
-                ping_results, table_name=ping_ripe_ip_map_table
-            )
-            ping_results = []
-            old_filtered_ids = []
-            if filtered_measurement_ids_path.exists():
-                old_filtered_ids = load_json(filtered_measurement_ids_path)
-
-            filetered_ids.update(old_filtered_ids)
-            dump_json(
-                list(filetered_ids),
-                filtered_measurement_ids_path,
-            )
-
-    await RIPEAtlasAPI().insert_pings(ping_results, table_name=ping_ripe_ip_map_table)
-
-
-async def get_ripe_ip_map_results(get_measurement_ids: bool = False) -> None:
-
-    if get_measurement_ids:
-        previous_measurement_ids = load_json(measurement_ids_path)
-        measurement_ids = get_ripe_ip_map_ids()
-        measurement_ids = list(
-            set(previous_measurement_ids).union(set(measurement_ids))
-        )
-
-        # load and dump
-        dump_json(measurement_ids, measurement_ids_path)
-
-    await get_ripe_ip_map_from_ids()
-
-
-def get_ripe_ip_map_subnets(latency_threshold: int) -> list:
+def get_ripe_ip_map_dst_prefix(latency_threshold: int) -> list:
     """retrieve all RIPE IP map subnets"""
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
         rows = GetDstPrefix().execute(
@@ -280,14 +117,15 @@ def get_ripe_ip_map_subnets(latency_threshold: int) -> list:
 
 
 def get_subnets_from_pings(use_cache: bool = False) -> list[str]:
-    ripe_ip_map_subnets = get_ripe_ip_map_subnets(latency_threshold)
+    ripe_ip_map_subnets = get_ripe_ip_map_dst_prefix(latency_threshold)
 
     if use_cache:
-        resolved_subnets = load_target_subnets(ecs_table)
-        remaining_subnets = set(resolved_subnets).symmetric_difference(
-            set(ripe_ip_map_subnets)
-        )
-        ripe_ip_map_subnets = remaining_subnets
+        resolved_subnets = get_subnets(ecs_table)
+        if resolved_subnets:
+            remaining_subnets = set(resolved_subnets).symmetric_difference(
+                set(ripe_ip_map_subnets)
+            )
+            ripe_ip_map_subnets = remaining_subnets
 
     logger.info(
         f"Retrieved:: {len(ripe_ip_map_subnets)} RIPE IP map subnets, {latency_threshold=}"

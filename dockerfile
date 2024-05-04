@@ -32,7 +32,7 @@ COPY geogiant/clickhouse geogiant/clickhouse
 COPY geogiant/common geogiant/common
 COPY geogiant/zdns geogiant/zdns
 COPY geogiant/hostname_init.py geogiant/
-COPY geogiant/routers_2ms.py geogiant/
+COPY geogiant/end_to_end_ecs_mapping.py geogiant/
 COPY geogiant/hostname_datasets/vps_subnet.json geogiant/datasets
 COPY geogiant/hostname_datasets/rib_table.dat geogiant/datasets
 COPY README.md README.md
@@ -51,4 +51,4 @@ RUN poetry config virtualenvs.in-project true
 RUN poetry lock && \
     poetry install
 
-ENTRYPOINT poetry run python geogiant/routers_2ms.py
+ENTRYPOINT poetry run python geogiant/end_to_end_ecs_mapping.py
