@@ -300,7 +300,6 @@ def get_hostname_score(args) -> None:
 
     hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
 
-    logger.info(f"Loading targets mapping")
     if "target_mapping_path" in score_config:
         targets_mapping = load_pickle(path_settings.DATASET / "targets_mapping.pickle")
     else:
@@ -310,7 +309,6 @@ def get_hostname_score(args) -> None:
             hostname_filter=hostnames,
         )
 
-    logger.info(f"Loading vps mapping")
     if "vps_mapping_path" in score_config:
         vps_mapping = load_pickle(path_settings.DATASET / "vps_mapping.pickle")
     else:
@@ -371,7 +369,6 @@ def get_scores(score_config: dict) -> None:
     if "targets_subnet_path" in score_config:
         targets_subnet_path = Path(score_config["targets_subnet_path"])
         target_subnets = load_json(targets_subnet_path)
-        print("target subnets", len(target_subnets))
     elif "targets_table" in score_config:
         target_subnets = load_target_subnets(score_config["targets_table"])
     else:

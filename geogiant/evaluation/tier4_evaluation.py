@@ -16,6 +16,7 @@ from geogiant.common.queries import (
 )
 from geogiant.common.utils import (
     get_parsed_vps,
+    get_vps_country,
     EvalResults,
     TargetScores,
 )
@@ -152,6 +153,7 @@ def evaluate() -> None:
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+    vps_country = get_vps_country(vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 
@@ -171,8 +173,8 @@ def evaluate() -> None:
             / f"tier4_evaluation/{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        if output_file.exists():
-            continue
+        # if output_file.exists():
+        #     continue
 
         results_answer_subnets = {}
         results_answer_subnets = ecs_dns_vp_selection_eval(
@@ -183,6 +185,7 @@ def evaluate() -> None:
             last_mile_delay=last_mile_delay,
             vps_coordinates=vps_coordinates,
             probing_budgets=probing_budgets,
+            vps_country=vps_country,
         )
 
         results = EvalResults(
@@ -201,7 +204,7 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = True
+    compute_scores = False
     evaluation = True
 
     if compute_scores:

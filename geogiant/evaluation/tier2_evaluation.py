@@ -75,8 +75,11 @@ def compute_score() -> None:
     schedules = [
         {
             "awsdns": "AMAZON",
-            "google": "GOOGLE",
+        },
+        {
+            "awsdns": "AMAZON",
             "akamai": "AKAMAI",
+            "impervadns": "INCAPSULA",
         },
         {
             "awsdns": "AMAZON",
@@ -89,7 +92,7 @@ def compute_score() -> None:
         },
     ]
 
-    nb_hostnames_per_org = [10, 100]
+    nb_hostnames_per_org = [1, 3, 5, 10, 100]
     for nb_hostnames in nb_hostnames_per_org:
         logger.info(f"{nb_hostnames=}")
         for schedule in schedules:
@@ -100,11 +103,13 @@ def compute_score() -> None:
                 hostnames = hostname_per_ns_per_org[ns][org]
 
                 # extract hostname per cdn
-                selected_hostnames_per_cdn[org] = hostnames[:nb_hostnames]
+                selected_hostnames_per_cdn[org] = [
+                    h[1] for h in hostnames[:nb_hostnames]
+                ]
 
             selected_hostnames = set()
             for org, hostnames in selected_hostnames_per_cdn.items():
-                selected_hostnames.update(hostnames)
+                selected_hostnames.update([h[1] for h in hostnames])
 
             output_path = (
                 path_settings.RESULTS_PATH

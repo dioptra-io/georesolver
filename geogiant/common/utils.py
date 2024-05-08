@@ -38,6 +38,7 @@ class EvalResults:
 def parse_target(target: dict, asndb: pyasn) -> dict:
     """simply get target into a nice dict structure"""
     addr = target["addr"]
+    country_code = target["country_code"]
     subnet = get_prefix_from_ip(addr)
     bgp_prefix = route_view_bgp_prefix(subnet, asndb)
 
@@ -45,9 +46,18 @@ def parse_target(target: dict, asndb: pyasn) -> dict:
         "addr": addr,
         "subnet": subnet,
         "bgp_prefix": bgp_prefix,
+        "country_code": country_code,
         "lat": target["lat"],
         "lon": target["lon"],
     }
+
+
+def get_vps_country(vps: list) -> dict[str]:
+    vps_country = {}
+    for vp in vps:
+        vps_country[vp["addr"]] = vp["country_code"]
+
+    return vps_country
 
 
 def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = None) -> dict:
@@ -57,12 +67,14 @@ def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = None) -> dict:
     vps_bgp_prefix = defaultdict(list)
 
     for vp in vps:
-        if vp["addr"] in removed_vps:
-            continue
+        if removed_vps:
+            if vp["addr"] in removed_vps:
+                continue
         vp_addr = vp["addr"]
         subnet = get_prefix_from_ip(vp_addr)
         vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
         vp_lat, vp_lon = vp["lat"], vp["lon"]
+        vp_country_code = vp["country_code"]
 
         vps_subnet[subnet].append(vp_addr)
         vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
@@ -90,6 +102,7 @@ def get_vp_info(
     vp_addr: str,
     vps_coordinates: dict,
     rtt: float = None,
+    major_country: str = None,
 ) -> dict:
     """get all useful information about a selected VP"""
     vp_subnet = get_prefix_from_ip(vp_addr)
@@ -110,6 +123,8 @@ def get_vp_info(
         "subnet": vp_subnet,
         "lat": lat,
         "lon": lon,
+        "country": target["country_code"],
+        "major_country": major_country,
         "rtt": rtt,
         "d_error": d_error,
         "score": score,

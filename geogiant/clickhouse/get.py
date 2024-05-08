@@ -183,6 +183,16 @@ class GetSubnetPerHostname(Query):
         """
 
 
+class GetMSMid(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            distinct(msm_id) as msm_id
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        """
+
+
 class GetPingsPerTarget(Query):
     def statement(self, table_name: str, filtered_vps: list = []) -> str:
         filter_vps_statement = ""

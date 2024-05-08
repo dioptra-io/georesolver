@@ -23,6 +23,50 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
     return round(proportion_of_ip, 2)
 
 
+def zero_pinp_major_country(
+    results: dict,
+    score_metrics: list[str] = ["jaccard"],
+) -> list[tuple]:
+    no_ping_per_metric = defaultdict(list)
+    for _, target_results_per_metric in results.items():
+        for metric, target_results in target_results_per_metric[
+            "result_per_metric"
+        ].items():
+            if not metric in score_metrics:
+                continue
+
+            target_country = target_results["no_ping_vp"]["country"]
+            major_vp_country, proportion = target_results["no_ping_vp"]["major_country"]
+
+            no_ping_per_metric[metric].append(
+                (target_country, major_vp_country, proportion)
+            )
+
+    correct_country = 0
+    proportion_threhsold = 0.8
+    correct_country_fct_proportion = []
+    for metric, major_countries in no_ping_per_metric.items():
+        for target_country, major_vp_country, proportion in major_countries:
+            if target_country == major_vp_country:
+                correct_country += 1
+
+            if proportion > proportion_threhsold:
+                correct_country_fct_proportion.append(
+                    1 if target_country == major_vp_country else 0
+                )
+
+        proportion = correct_country * 100 / len(major_countries)
+        logger.info(f"Zero ping:: geolocation country level={round(proportion,2)} [%]")
+        proportion = (
+            correct_country_fct_proportion.count(1)
+            * 100
+            / len(correct_country_fct_proportion)
+        )
+        logger.info(
+            f"Zero ping:: geolocation country level={round(proportion,2)} ({len(correct_country_fct_proportion)}) [%]"
+        )
+
+
 def zero_ping_data(
     results: dict,
     score_metrics: list[str] = ["jaccard"],

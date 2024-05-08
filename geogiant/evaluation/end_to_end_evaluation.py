@@ -1,5 +1,6 @@
 import asyncio
 
+from tqdm import tqdm
 from random import shuffle
 from pyasn import pyasn
 from loguru import logger
@@ -9,7 +10,7 @@ from pych_client import ClickHouseClient
 from ipaddress import IPv4Address, AddressValueError
 
 
-from geogiant.clickhouse import GetSubnets, GetDstPrefix
+from geogiant.clickhouse import CreateDNSMappingTable, GetDstPrefix, InsertFromCSV
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
 from geogiant.hostname_init import resolve_vps_subnet
 from geogiant.evaluation.plot import plot_router_2ms
@@ -19,14 +20,16 @@ from geogiant.evaluation.ecs_geoloc_eval import (
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
 )
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
     load_vps,
     retrieve_pings,
+    retrieve_pings_from_tag,
+    insert_pings,
     get_pings_per_target,
+    get_subnets,
 )
-from geogiant.common.utils import TargetScores, get_parsed_vps
 from geogiant.common.files_utils import (
     load_csv,
     dump_csv,
@@ -34,6 +37,7 @@ from geogiant.common.files_utils import (
     dump_json,
     load_pickle,
     load_json_iter,
+    load_anycatch_data,
 )
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -58,10 +62,8 @@ filtered_end_to_end_targets_path = (
     path_settings.END_TO_END_DATASET / "filtered_end_to_end_targets.json"
 )
 end_to_end_targets_path = path_settings.END_TO_END_DATASET / "end_to_end_targets.json"
-END_TO_END_SUBNETS_PATH = (
-    path_settings.END_TO_END_DATASET / "end_to_end_subnet_evaluation.json"
-)
-VPS_SUBNET_PATH = path_settings.END_TO_END_DATASET / "vps_subnet.json"
+END_TO_END_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_subnets.json"
+VPS_SUBNET_PATH = path_settings.DATASET / "vps_subnet.json"
 SCORE_FILE = (
     path_settings.RESULTS_PATH
     / f"end_to_end_evaluation/scores__best_hostname_geo_score.pickle"
@@ -105,7 +107,6 @@ def load_targets(target_subnets: list) -> None:
 
         generate_routers_targets_file()
         all_targets = load_json(end_to_end_targets_path)
-
         for target_addr, target_info in all_targets.items():
             if not target_info["subnet"] in target_subnets:
                 continue
@@ -200,58 +201,85 @@ async def resolve_subnets() -> None:
         dump_json(routers_subnets, ROUTERS_SUBNETS)
         dump_json(list(end_to_end_subnets), END_TO_END_SUBNETS_PATH)
 
+    ripe_ip_map_targets = load_json(
+        path_settings.END_TO_END_DATASET / "ripe_ip_map_targets_evaluation.json",
+    )
+    final_routers_evaluation = load_json(
+        path_settings.END_TO_END_DATASET / "routers_targets_evaluation.json",
+    )
+    targets = set(ripe_ip_map_targets).union(final_routers_evaluation)
+
+    target_subnets = set()
+    for target in targets:
+        subnet = get_prefix_from_ip(target)
+        target_subnets.add(subnet)
+
+    dump_json(list(target_subnets), END_TO_END_SUBNETS_PATH)
+
+    cached_subnets = get_subnets("end_to_end_mapping_ecs")
+    remaining_subnets = list(set(target_subnets).difference(set(cached_subnets)))
+
+    logger.info(f"Missing subnets:: {len(remaining_subnets)}")
+
+    dump_json(
+        remaining_subnets, path_settings.END_TO_END_DATASET / "missing_subnets.json"
+    )
+
     end_to_end_hostnames = load_csv(END_TO_END_HOSTNAMES_PATH)
     await resolve_vps_subnet(
         selected_hostnames=end_to_end_hostnames,
-        input_file=END_TO_END_SUBNETS_PATH,
+        input_file=path_settings.END_TO_END_DATASET / "missing_subnets.json",
         output_table=ECS_TABLE,
         chunk_size=100,
     )
 
 
 def get_end_to_end_score() -> None:
-    # END_TO_END_SUBNETS_PATH.unlink()
+    for bgp_threshold in [20, 50, 10]:
+        for nb_hostname_per_ns_org in [3]:
 
-    for bgp_threshold in [10, 20, 50]:
+            selected_hostnames_per_cdn_per_ns = load_json(
+                path_settings.DATASET
+                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
+            )
 
-        selected_hostnames_per_cdn = load_json(
-            path_settings.DATASET
-            / f"hostname_geo_score_selection_{bgp_threshold}_BGP.json"
-        )
+            selected_hostnames = set()
+            selected_hostnames_per_cdn = defaultdict(list)
+            for ns in selected_hostnames_per_cdn_per_ns:
+                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
+                    selected_hostnames.update(hostnames)
+                    selected_hostnames_per_cdn[org].extend(hostnames)
 
-        SCORE_FILE = (
-            path_settings.RESULTS_PATH
-            / f"end_to_end_evaluation/scores__best_hostname_geo_score_{bgp_threshold}.pickle"
-        )
+            logger.info(
+                f"{bgp_threshold=}, {nb_hostname_per_ns_org}, {len(selected_hostnames)=}"
+            )
 
-        selected_hostnames = set()
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            logger.info(f"{org=}, {len(hostnames)=}")
-            selected_hostnames.update(hostnames)
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"end_to_end_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
+            )
 
-        logger.info(f"{len(selected_hostnames)=}")
+            # some organizations do not have enought hostnames
+            if output_path.exists():
+                logger.info(
+                    f"Score for {bgp_threshold} BGP prefix threshold alredy exists"
+                )
+                continue
 
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            logger.info(f"{org=}, {len(hostnames)=}")
+            score_config = {
+                "targets_subnet_path": END_TO_END_SUBNETS_PATH,
+                "vps_subnet_path": VPS_SUBNET_PATH,
+                "hostname_per_cdn": selected_hostnames_per_cdn,
+                "selected_hostnames": selected_hostnames,
+                "targets_ecs_table": ECS_TABLE,
+                "vps_ecs_table": VPS_ECS_TABLE,
+                "hostname_selection": "max_bgp_prefix",
+                "score_metric": ["jaccard"],
+                "answer_granularities": ["answer_subnets"],
+                "output_path": output_path,
+            }
 
-        score_config = {
-            "targets_subnet_path": END_TO_END_SUBNETS_PATH,
-            "VPS_SUBNET_PATH": VPS_SUBNET_PATH,
-            "hostname_per_cdn": selected_hostnames_per_cdn,
-            "selected_hostnames": selected_hostnames,
-            "targets_ECS_TABLE": ECS_TABLE,
-            "VPS_ECS_TABLE": VPS_ECS_TABLE,
-            "hostname_selection": "max_bgp_prefix",
-            "score_metric": [
-                "jaccard",
-            ],
-            "answer_granularities": [
-                "answer_subnets",
-            ],
-            "output_path": SCORE_FILE,
-        }
-
-        get_scores(score_config)
+            get_scores(score_config)
 
 
 def get_end_to_end_schedule(
@@ -288,64 +316,191 @@ def get_end_to_end_schedule(
     return target_schedule
 
 
-def get_measurement_schedule(max_nb_measurements: int = 10_000) -> dict[list]:
-    """calculate distance error and latency for each score"""
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+def get_schedule_for_targets(
+    targets: list[str], vps: list[str], vp_addr_per_id: dict
+) -> dict:
+    logger.info(
+        f"Ping Schedule for:: {len(targets)} targets, {len(vps)} VPs per target"
     )
-    removed_vps = load_json(path_settings.REMOVED_VPS)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    target_subnets = get_end_to_end_subnets()
-    targets = load_targets(target_subnets)
+    batch_size = RIPEAtlasAPI().settings.MAX_VP
+    measurement_schedule = []
+    for target in targets:
+        for i in range(0, len(vps), 1):
+            batch_vps = vps[i * batch_size : (i + 1) * batch_size]
+
+            if not batch_vps:
+                break
+
+            measurement_schedule.append(
+                (
+                    target,
+                    [vp_addr_per_id[vp["addr"]] for vp in batch_vps],
+                )
+            )
+
+    return measurement_schedule
+
+
+def get_measurement_schedule() -> dict[list]:
+    """calculate distance error and latency for each score"""
+    anycatch_db = load_anycatch_data()
+    asndb = pyasn(str(path_settings.RIB_TABLE))
+    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    ripe_ip_map_subnets = load_json(RIPE_IP_MAP_SUBNETS)
+    ping_vps_to_target = get_pings_per_target(PING_RIPE_IP_MAP_TABLE)
 
     vp_id_per_addr = {}
     for vp in vps:
         vp_id_per_addr[vp["addr"]] = vp["id"]
 
-    vps_per_subnet, vps_coordinates = get_parsed_vps(
-        vps, asndb, removed_vps=removed_vps
-    )
+    if not (
+        path_settings.END_TO_END_DATASET / "ripe_ip_map_targets_evaluation.json"
+    ).exists():
 
-    logger.info("BGP prefix score geoloc evaluation")
+        ripe_ip_map_targets = []
+        for target in ping_vps_to_target:
+            target_subnet = get_prefix_from_ip(target)
+            _, target_bgp_prefix = route_view_bgp_prefix(target, asndb)
 
-    scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / SCORE_FILE)
-    scores = scores.score_answer_subnets
+            if target_subnet not in ripe_ip_map_subnets:
+                continue
 
-    logger.info(f"Score retrieved for:: {len(scores)}")
-    logger.info(f"Ping schedule for:: {len(targets)}")
+            if not target_bgp_prefix:
+                continue
 
-    measurement_schedule = get_end_to_end_schedule(
-        targets=targets,
-        subnet_scores=scores,
-        vps_per_subnet=vps_per_subnet,
-        last_mile_delay=last_mile_delay,
-        vps_coordinates=vps_coordinates,
-    )
+            if target_bgp_prefix in anycatch_db:
+                continue
 
-    ping_schedule_with_id = []
-    for target, selected_vps in measurement_schedule.items():
+            if len(ripe_ip_map_targets) >= 1_100:
+                break
 
-        # find vp id
-        ping_schedule_with_id.append(
-            (target, [vp_id_per_addr[vp_addr] for vp_addr in selected_vps])
+            ripe_ip_map_targets.append(target)
+
+        # routers dataset
+        ecs_routers_subnets = load_json(ROUTERS_SUBNETS)
+        routers_2ms_subnets = load_json(
+            path_settings.END_TO_END_DATASET / "routers_2ms_subnets.json"
+        )
+        routers_2ms_targets = load_json(
+            path_settings.END_TO_END_DATASET / "routers_2ms_targets.json"
+        )
+        routers_targets = load_csv(
+            path_settings.END_TO_END_DATASET / "2500_random_routers_more_than_2ms.csv"
+        )
+        shuffle(routers_targets)
+
+        routers_2ms_targets_evaluation = []
+        for target in routers_2ms_targets:
+            target_subnet = get_prefix_from_ip(target)
+            if target_subnet in routers_2ms_subnets:
+                routers_2ms_targets_evaluation.append(target)
+
+            if len(routers_2ms_targets_evaluation) >= 800:
+                break
+
+        routers_targets_evaluation = []
+        for target in routers_targets:
+            target_subnet = get_prefix_from_ip(target)
+            if target_subnet in ecs_routers_subnets:
+                routers_targets_evaluation.append(target)
+
+            if len(routers_targets_evaluation) >= 300:
+                break
+
+        final_routers_evaluation = list(
+            set(routers_2ms_targets_evaluation).union(set(routers_targets_evaluation))
         )
 
-    # randomly select some IP addresses to geolocate
-    if len(ping_schedule_with_id) > max_nb_measurements:
-        shuffle(ping_schedule_with_id)
-        ping_schedule_with_id = ping_schedule_with_id[:max_nb_measurements]
+        logger.info(
+            f"Selected:: {len(ripe_ip_map_targets)} RIPE IP map IP addresses selected"
+        )
+        logger.info(
+            f"Selected:: {len(final_routers_evaluation)} routers IP addresses selected"
+        )
 
-    logger.info(f"Ping schedule for:: {len(ping_schedule_with_id)}")
+        # dump_json(
+        #     ripe_ip_map_targets,
+        #     path_settings.END_TO_END_DATASET / "ripe_ip_map_targets_evaluation.json",
+        # )
+        # dump_json(
+        #     final_routers_evaluation,
+        #     path_settings.END_TO_END_DATASET / "routers_targets_evaluation.json",
+        # )
 
-    return ping_schedule_with_id
+    ripe_ip_map_targets = load_json(
+        path_settings.END_TO_END_DATASET / "ripe_ip_map_targets_evaluation.json",
+    )
+    final_routers_evaluation = load_json(
+        path_settings.END_TO_END_DATASET / "routers_targets_evaluation.json",
+    )
+
+    targets = list(set(ripe_ip_map_targets).union(set(final_routers_evaluation)))
+
+    logger.info(f"Ping schedule for:: {len(targets)}")
+    measurement_schedule = get_schedule_for_targets(
+        targets=targets,
+        vps=vps,
+        vp_addr_per_id=vp_id_per_addr,
+    )
+
+    return measurement_schedule
 
 
-async def ping_targets() -> None:
+async def ping_targets(ping_from_cache: bool = True) -> None:
     """perfrom geolocation based on score similarity function"""
-    measurement_schedule = get_measurement_schedule()
+    if not ping_from_cache:
+        measurement_schedule = get_measurement_schedule()
+    else:
+        # load previous measurements
+        ping_vps_to_target = get_pings_per_target("pings_end_to_end")
+        vps = load_vps(clickhouse_settings.VPS_FILTERED)
+        vps_id_per_addr = {}
+        for vp in vps:
+            vps_id_per_addr[vp["addr"]] = vp["id"]
+
+        for schedule_file in RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE.iterdir():
+            filtered_schedule = []
+            if "end_to_end" in schedule_file.name:
+                logger.debug(f"Loading ping schedule:: {schedule_file.name}")
+
+                # load schedule
+                measurement_schedule = load_json(schedule_file)
+
+                logger.info(
+                    f"Size of original measurement schedule:: {len(measurement_schedule)}"
+                )
+
+                for target, vp_ids in tqdm(measurement_schedule):
+                    measurement_done = False
+
+                    try:
+                        cached_pings = ping_vps_to_target[target]
+                    except KeyError:
+                        filtered_schedule.append((target, vp_ids))
+
+                    cached_vp_ids = []
+                    for vp_addr, _ in cached_pings:
+                        try:
+                            cached_vp_ids.append(vps_id_per_addr[vp_addr])
+                        except KeyError:
+                            continue
+
+                    for vp_id in vp_ids:
+                        if vp_id in cached_vp_ids:
+                            measurement_done = True
+                            break
+
+                    if not measurement_done:
+                        filtered_schedule.append((target, vp_ids))
+
+                measurement_schedule = filtered_schedule
+
+                logger.info(
+                    f"Size of filtered measurement schedule:: {len(measurement_schedule)}"
+                )
+
+                break
 
     await RIPEAtlasProber(probing_type="ping", probing_tag="ping_end_to_end").main(
         measurement_schedule
@@ -353,16 +508,31 @@ async def ping_targets() -> None:
 
 
 async def insert_measurements() -> None:
-    # retrive ping measurements and insert them into clickhouse db
+    cached_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(
+        PING_END_TO_END_TABLE
+    )
+
     measurement_ids = []
     for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_end_to_end" in config_file.name:
             config = load_json(config_file)
             measurement_ids.extend([id for id in config["ids"]])
 
-    logger.info(f"Retreiving results for {len(measurement_ids)} measurements")
+            logger.info(f"{config_file}:: {len(config['ids'])} ran")
 
-    await retrieve_pings(measurement_ids, PING_END_TO_END_TABLE)
+    measurement_to_insert = list(
+        set(measurement_ids).difference(set(cached_measurement_ids))
+    )
+
+    config_uuid = config["uuid"]
+    logger.info(f"{len(measurement_to_insert)} measurements to insert")
+
+    logger.info(
+        f"Retreiving results for {len(measurement_to_insert)} measurements for {config_uuid=}"
+    )
+
+    await retrieve_pings(measurement_to_insert, PING_END_TO_END_TABLE)
+    # await retrieve_pings_from_tag(tag=config_uuid, output_table=PING_END_TO_END_TABLE)
 
 
 def evaluate() -> None:
@@ -381,14 +551,10 @@ def evaluate() -> None:
 
 
 async def main() -> None:
-    # retrieve all IP addresses with < 2ms
-    # analysis
-    # score
-    # Ping schedule + measurement
-    ecs_resoltion = True
+    ecs_resoltion = False
     calculate_score = False
     geolocate = False
-    insert = False
+    insert = True
     evaluation = False
 
     if ecs_resoltion:

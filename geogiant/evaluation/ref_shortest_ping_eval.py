@@ -12,7 +12,8 @@ from geogiant.common.utils import (
     parse_target,
     get_vp_info,
 )
-from geogiant.common.files_utils import load_json, dump_pickle
+from geogiant.common.utils import TargetScores
+from geogiant.common.files_utils import load_json, dump_pickle, load_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -23,6 +24,7 @@ def ref_shortest_ping_eval(
     targets: list,
     ping_vps_to_target: dict,
     vps_coordinates: dict,
+    subnet_scores: dict = None,
 ) -> tuple[dict, dict]:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
@@ -30,6 +32,15 @@ def ref_shortest_ping_eval(
     for target in tqdm(targets):
 
         target = parse_target(target, asndb)
+
+        if subnet_scores:
+            try:
+                target_scores: dict = subnet_scores[target["subnet"]]
+            except KeyError:
+                logger.error(
+                    f"cannot find target score for subnet : {target['subnet']}"
+                )
+                continue
 
         try:
             pings = ping_vps_to_target[target["addr"]]
@@ -40,7 +51,7 @@ def ref_shortest_ping_eval(
 
         ref_shortest_ping_vp = get_vp_info(
             target,
-            None,
+            target_scores["jaccard"],
             ref_shortest_ping_addr,
             vps_coordinates,
             ref_min_rtt,
@@ -72,8 +83,14 @@ def main() -> None:
 
     logger.info("Reference shortest ping evaluation")
 
+    score_file: TargetScores = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier4_evaluation/scores__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle"
+    )
+
     ref_shortest_ping_results = ref_shortest_ping_eval(
         targets=targets,
+        subnet_scores=score_file.score_answer_subnets,
         ping_vps_to_target=ping_vps_to_target,
         vps_coordinates=vps_coordinates,
     )

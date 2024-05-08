@@ -89,52 +89,28 @@ def compute_score() -> None:
     targets_ecs_table = "vps_mapping_ecs"
     vps_ecs_table = "vps_mapping_ecs"
 
-    selected_hostnames_per_cdn = load_json(
-        path_settings.DATASET / "hostname_geo_score_selection.json"
+    selected_hostnames_per_cdn_per_ns = load_json(
+        path_settings.DATASET
+        / f"hostname_geo_score_selection_20_BGP_3_hostnames_per_org_ns.json"
     )
 
-    # selected_hostnames_per_org_per_ns = defaultdict(dict)
-    # for org, hostnames in hostname_per_cdn.items():
-    #     for hostname in hostnames:
-    #         try:
-    #             ns = ns_per_hostname[hostname]
-    #         except KeyError:
-    #             continue
-    #         try:
-    #             selected_hostnames_per_org_per_ns[ns][org].append(hostname)
-    #         except KeyError:
-    #             selected_hostnames_per_org_per_ns[ns][org] = [hostname]
-
-    # # extract hostname per cdn
-    # selected_hostnames_per_cdn = defaultdict(list)
-    # total_nb_hostnames = set()
-    # for ns in selected_hostnames_per_org_per_ns:
-    #     logger.info(f"{ns=}")
-    #     for org, hostnames in selected_hostnames_per_org_per_ns[ns].items():
-    #         logger.info(f"{org=}, {len(hostnames)=}")
-    #         selected_hostnames_per_cdn[org].extend(hostnames)
-    #         total_nb_hostnames.update(hostnames)
-
-    #     logger.info("###################################")
-
     selected_hostnames = set()
-    for org, hostnames in selected_hostnames_per_cdn.items():
-        logger.info(f"{org=}, {len(hostnames)=}")
-        selected_hostnames.update(hostnames)
+    selected_hostnames_per_cdn = defaultdict(list)
+    for ns in selected_hostnames_per_cdn_per_ns:
+        for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
+            selected_hostnames.update(hostnames)
+            selected_hostnames_per_cdn[org].extend(hostnames)
 
     logger.info(f"{len(selected_hostnames)=}")
 
     output_path = (
         path_settings.RESULTS_PATH
-        / f"tier3_evaluation/scores__best_hostname_geo_score.pickle"
+        / f"tier3_evaluation/scores__best_hostname_geo_score_answers.pickle"
     )
 
-    # # some organizations do not have enought hostnames
-    # if output_path.exists():
-    #     return None
-
-    for org, hostnames in selected_hostnames_per_cdn.items():
-        logger.info(f"{org=}, {len(hostnames)=}")
+    # some organizations do not have enought hostnames
+    if output_path.exists():
+        return None
 
     score_config = {
         "targets_table": targets_table,
@@ -146,19 +122,17 @@ def compute_score() -> None:
         "vps_ecs_table": vps_ecs_table,
         "hostname_selection": "max_bgp_prefix",
         "score_metric": [
-            "intersection",
+            # "intersection",
             "jaccard",
-            "jaccard_scope_linear_weight",
-            "jaccard_scope_poly_weight",
-            "jaccard_scope_exp_weight",
-            "intersection_scope_linear_weight",
-            "intersection_scope_poly_weight",
-            "intersection_scope_exp_weight",
+            # "jaccard_scope_linear_weight",
+            # "jaccard_scope_poly_weight",
+            # "intersection_scope_linear_weight",
+            # "intersection_scope_poly_weight",
         ],
         "answer_granularities": [
             "answers",
-            "answer_subnets",
-            "answer_bgp_prefixes",
+            # "answer_subnets",
+            # "answer_bgp_prefixes",
         ],
         "output_path": output_path,
     }
@@ -168,7 +142,7 @@ def compute_score() -> None:
 
 def evaluate() -> None:
     """calculate distance error and latency for each score"""
-    probing_budgets = [5, 10, 20, 30, 50]
+    probing_budgets = [1, 10, 20, 50, 100, 500]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(
@@ -201,8 +175,8 @@ def evaluate() -> None:
             / f"tier3_evaluation/{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        # if output_file.exists():
-        #     continue
+        if output_file.exists():
+            continue
 
         results_answers = {}
         results_answer_subnets = {}
@@ -211,7 +185,7 @@ def evaluate() -> None:
             results_answers = ecs_dns_vp_selection_eval(
                 targets=targets,
                 vps_per_subnet=vps_per_subnet,
-                subnet_scores=scores.score_answer_subnets,
+                subnet_scores=scores.score_answers,
                 ping_vps_to_target=ping_vps_to_target,
                 last_mile_delay=last_mile_delay,
                 vps_coordinates=vps_coordinates,
@@ -256,7 +230,7 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = False
+    compute_scores = True
     evaluation = True
 
     if compute_scores:

@@ -199,7 +199,7 @@ if __name__ == "__main__":
         vp_coordinates[vp["addr"]] = vp["lat"], vp["lon"]
 
     error_cdf_per_tier1_vps = {}
-    for tier1_vps in [10]:
+    for tier1_vps in [500]:
         logger.info(f"Using {tier1_vps} tier1_vps")
         error_cdf = round_based_algorithm(
             greedy_probes,

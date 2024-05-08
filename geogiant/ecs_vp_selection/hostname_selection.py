@@ -683,6 +683,10 @@ async def main() -> None:
         best_hostnames_per_org_per_ns,
         path_settings.DATASET / "best_hostnames_per_org_per_ns.json",
     )
+    dump_json(
+        best_hostnames_per_org,
+        path_settings.DATASET / "best_hostnames_per_org.json",
+    )
 
     hostname_per_ns = defaultdict(set)
     for hostname, ns in ns_per_hostname.items():

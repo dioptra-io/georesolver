@@ -35,7 +35,6 @@ def get_ecs_vps(
 ) -> list:
     """
     get the target score and extract best VPs function of the probing budget
-    return 1 VP per subnet, TODO: get best connected VP per subnet
     """
     # retrieve all vps belonging to subnets with highest mapping scores
     ecs_vps = []
@@ -66,7 +65,11 @@ def get_ecs_vps(
 
 
 def get_no_ping_vp(
-    target, target_score: list, vps_per_subnet: dict, vps_coordinates: dict
+    target,
+    target_score: list,
+    vps_per_subnet: dict,
+    vps_coordinates: dict,
+    major_country: str = None,
 ) -> dict:
     """return VP with maximum score"""
     target_subnet = get_prefix_from_ip(target["addr"])
@@ -80,7 +83,9 @@ def get_no_ping_vp(
             vp_addr = vps_per_subnet[subnet][0]
             break
 
-    return get_vp_info(target, target_score, vp_addr, vps_coordinates)
+    return get_vp_info(
+        target, target_score, vp_addr, vps_coordinates, major_country=major_country
+    )
 
 
 def ecs_dns_vp_selection_eval(
@@ -91,6 +96,7 @@ def ecs_dns_vp_selection_eval(
     last_mile_delay: dict,
     vps_coordinates: dict,
     probing_budgets: list,
+    vps_country: dict[str] = None,
 ) -> tuple[dict, dict]:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
@@ -124,19 +130,28 @@ def ecs_dns_vp_selection_eval(
                     ecs_vps, vps_coordinates, last_mile_delay
                 )[:budget]
 
+            country_no_ping = []
+            if vps_country:
+                countries = [
+                    vps_country[vp_addr] for vp_addr, _ in ecs_vps_per_budget[50]
+                ]
+                major_country = max(set(countries), key=countries.count)
+                proportion = countries.count(major_country) / len(countries)
+                country_no_ping = (major_country, proportion)
+
             # NOT PING GEOLOC
             no_ping_vp = get_no_ping_vp(
                 target,
                 target_score,
                 vps_per_subnet,
                 vps_coordinates,
+                major_country=country_no_ping,
             )
 
             # SHORTEST PING GEOLOC
             try:
                 ecs_shortest_ping_per_budget = {}
                 for budget, ecs_vps in ecs_vps_per_budget.items():
-
                     ecs_shortest_ping_per_budget[budget] = shortest_ping(
                         [addr for addr, _ in ecs_vps],
                         ping_vps_to_target[target["addr"]],
@@ -165,7 +180,7 @@ def ecs_dns_vp_selection_eval(
             result_per_metric[metric] = {
                 "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
                 "no_ping_vp": no_ping_vp,
-                "ecs_scores": target_score[:50],
+                "ecs_scores": ecs_vps_per_budget[budget],
                 "ecs_vps": ecs_vps,
             }
 
@@ -178,7 +193,7 @@ def ecs_dns_vp_selection_eval(
 
 
 def main() -> None:
-    probing_budgets = [5, 10, 20, 30, 50]
+    probing_budgets = [1, 5, 10, 20, 30, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(

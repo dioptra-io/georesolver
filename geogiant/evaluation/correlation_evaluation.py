@@ -1,7 +1,7 @@
 from scipy.stats import pearsonr
 
 from geogiant.common.files_utils import load_pickle
-from geogiant.common.utils import TargetScores
+from geogiant.common.utils import EvalResults
 from geogiant.common.settings import PathSettings
 from geogiant.common.plot import (
     plot_save,
@@ -20,62 +20,56 @@ def compute_correlation():
     top_n_vps = 50
     path = (
         path_settings.RESULTS_PATH
-        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+        / "tier4_evaluation/results__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle"
     )
-    eval_results: TargetScores = load_pickle(path)
+    eval_results: EvalResults = load_pickle(path)
 
     # Look at the correlation between score and error
     elected_rtt_score_dist = []
-    results = eval_results.results_answer_bgp_prefixes
-
+    results = eval_results.results_answer_subnets
     for _, target_results_per_metric in results.items():
         for metric, target_results in target_results_per_metric[
             "result_per_metric"
         ].items():
             if not metric in ["jaccard"]:
                 continue
-            for budget, ecs_shortest_ping_vp in target_results[
-                "ecs_shortest_ping_vp_per_budget"
-            ].items():
-                if budget not in [50]:
-                    continue
 
-                elected_rtt = ecs_shortest_ping_vp["rtt"]
-                elected_score = ecs_shortest_ping_vp["score"]
-                elected_d_error = ecs_shortest_ping_vp["d_error"]
+            no_ping_vp = target_results["no_ping_vp"]
 
-                print(elected_rtt, elected_score, elected_d_error)
+            elected_rtt = -1
+            elected_score = 1 - no_ping_vp["score"]
+            elected_d_error = no_ping_vp["d_error"]
 
-                elected_rtt_score_dist.append(
-                    (elected_rtt, elected_score, elected_d_error)
-                )
+            print(elected_rtt, elected_score, elected_d_error)
 
-    score_dist = [x[1] for x in elected_rtt_score_dist]
+            elected_rtt_score_dist.append((elected_rtt, elected_score, elected_d_error))
+
     rtt_dist = [x[0] for x in elected_rtt_score_dist]
+    score_dist = [x[1] for x in elected_rtt_score_dist]
     error_dist = [x[2] for x in elected_rtt_score_dist]
     corr, _ = pearsonr(score_dist, error_dist)
     print("Correlation", corr)
     marker_colors = [c[0] for c in colors_blind]
-    fig, ax = plot_scatter_multiple(
-        [score_dist],
-        [rtt_dist],
-        xmin=0,
-        xmax=1,
-        ymin=0,
-        ymax=300,
-        xscale="linear",
-        yscale="log",
-        xlabel="Maximum score",
-        ylabel="RTT of the VP with the maximum score (ms)",
-        marker_size=[1],
-        markers=markers,
-        marker_colors=marker_colors,
-    )
 
-    homogenize_legend(ax, "lower right")
-    ofile = path_settings.FIGURE_PATH / "rtt_score_correlation.pdf"
+    # fig, ax = plot_scatter_multiple(
+    #     [score_dist],
+    #     [rtt_dist],
+    #     xmin=0,
+    #     xmax=1,
+    #     ymin=0,
+    #     ymax=300,
+    #     xscale="linear",
+    #     yscale="log",
+    #     xlabel="Minimum redirection distance",
+    #     ylabel="RTT (ms)",
+    #     marker_size=[1],
+    #     markers=markers,
+    #     marker_colors=marker_colors,
+    # )
 
-    plot_save(ofile, is_tight_layout=True)
+    # homogenize_legend(ax, "lower right")
+    # ofile = path_settings.FIGURE_PATH / "rtt_score_correlation.pdf"
+    # plot_save(ofile, is_tight_layout=True)
 
     fig, ax = plot_scatter_multiple(
         [score_dist],
@@ -86,14 +80,15 @@ def compute_correlation():
         ymax=10000,
         xscale="linear",
         yscale="log",
-        xlabel="Maximum score",
-        ylabel="Distance error of the VP with the maximum score (km)",
+        xlabel="Minimum redirection distance",
+        ylabel="Distance error (km)",
         marker_size=[1],
         markers=markers,
         marker_colors=marker_colors,
     )
     homogenize_legend(ax, "lower right")
     ofile = path_settings.FIGURE_PATH / "error_score_correlation.pdf"
+    ofile = path_settings.FIGURE_PATH / "error_score_correlation.png"
 
     plot_save(ofile, is_tight_layout=True)
 
@@ -102,35 +97,35 @@ def compute_correlation():
     for elected_rtt, elected_score, elected_d_error in elected_rtt_score_dist:
         for score_threshold in error_per_score_threshold:
             if elected_score > score_threshold:
-                error_per_score_threshold[score_threshold].append(elected_rtt)
+                error_per_score_threshold[score_threshold].append(elected_d_error)
 
     Y_40 = []
     Y_100 = []
     coverage = []
     X = []
     min_threshold = min(elected_rtt_score_dist, key=lambda x: x[1])[1]
-    for score_threshold, errors in sorted(error_per_score_threshold.items()):
+    for score_threshold, distance_per_threhsold in sorted(
+        error_per_score_threshold.items()
+    ):
 
-        if not errors:
+        if not distance_per_threhsold:
             continue
 
         if score_threshold >= min_threshold:
-            bad_geolocation_100 = [x for x in errors if x > 1]
-            bad_geolocation_40 = [x for x in errors if x > 2]
-            ratio_40 = len(bad_geolocation_40) / len(errors)
-            ratio_100 = len(bad_geolocation_100) / len(errors)
-            coverage.append(len(errors))
+            good_geoloc_40 = [x for x in distance_per_threhsold if x < 40]
 
-            print(score_threshold, ratio_40, ratio_100, len(errors))
+            ratio_40 = len(good_geoloc_40) / len(distance_per_threhsold)
+            coverage.append(len(distance_per_threhsold))
+
+            print(score_threshold, ratio_40, len(distance_per_threhsold))
             Y_40.append(ratio_40)
-            Y_100.append(ratio_100)
             X.append(score_threshold)
 
     Y_coverage = [c / len(elected_rtt_score_dist) for c in coverage]
-    Ys = [Y_40, Y_100, Y_coverage]
+    Ys = [Y_40, Y_coverage]
     Xs = [X for _ in Ys]
 
-    labels = ["Error > 40 km", "Error > 100 km", "Coverage"]
+    labels = ["Error < 40 km", "Error < 100 km", "Coverage"]
     colors = [colors_blind[i % len(colors_blind)][0] for i in range(len(Ys))]
     fig, ax = plot_multiple(
         Xs,
@@ -149,7 +144,7 @@ def compute_correlation():
     )
 
     homogenize_legend(ax, "upper left")
-    ofile = path_settings.FIGURE_PATH / "bad_geolocation_threshold.pdf"
+    ofile = path_settings.FIGURE_PATH / "bad_geolocation_threshold.png"
     plot_save(ofile, is_tight_layout=True)
 
     return

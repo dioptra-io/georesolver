@@ -46,6 +46,7 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
     """
     ping_vps_to_target = {}
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        CreatePingTable().execute(client, table_name)
         resp = GetPingsPerTarget().execute(
             client=client,
             table_name=table_name,
@@ -209,15 +210,7 @@ def load_vp_subnets(dns_table: str) -> dict:
     return vp_subnets
 
 
-async def retrieve_pings(ids: list[int], output_table: str) -> list[dict]:
-    """retrieve all ping measurements from a list of measurement ids"""
-    csv_data = []
-    for id in tqdm(ids):
-        ping_results = RIPEAtlasAPI().get_ping_results(id)
-        csv_data.extend(ping_results)
-
-        time.sleep(0.1)
-
+async def insert_pings(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
@@ -228,3 +221,22 @@ async def retrieve_pings(ids: list[int], output_table: str) -> list[dict]:
         )
 
     tmp_file_path.unlink()
+
+
+async def retrieve_pings(ids: list[int], output_table: str) -> None:
+    """retrieve all ping measurements from a list of measurement ids"""
+    csv_data = []
+    for id in tqdm(ids):
+        ping_results = RIPEAtlasAPI().get_ping_results(id)
+        csv_data.extend(ping_results)
+
+        time.sleep(0.1)
+
+    await insert_pings(csv_data, output_table)
+
+
+async def retrieve_pings_from_tag(tag, output_table: str) -> None:
+    """retrieve all results for a specific tag and insert data"""
+    csv_data = await RIPEAtlasAPI().get_measurements_from_tag(tag)
+
+    await insert_pings(csv_data, output_table)

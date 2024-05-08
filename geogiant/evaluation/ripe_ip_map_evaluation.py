@@ -1,8 +1,6 @@
 import asyncio
-import time
 
-
-from ipaddress import IPv4Address
+from pathlib import Path
 from random import shuffle
 from datetime import datetime
 from pyasn import pyasn
@@ -11,17 +9,14 @@ from tqdm import tqdm
 from collections import defaultdict
 from pych_client import ClickHouseClient
 
-
 from geogiant.clickhouse import GetDstPrefix, GetSubnets
 from geogiant.prober.ripe_api import RIPEAtlasAPI
 from geogiant.prober.ripe_prober import RIPEAtlasProber
 from geogiant.hostname_init import resolve_vps_subnet
 from geogiant.ecs_vp_selection.scores import get_scores
 from geogiant.evaluation.plot import plot_ripe_ip_map
-from geogiant.evaluation.ecs_geoloc_eval import (
-    get_ecs_vps,
-    ecs_dns_vp_selection_eval,
-)
+from geogiant.evaluation.ecs_geoloc_eval import get_ecs_vps
+from geogiant.common.geoloc import rtt_to_km
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
@@ -40,35 +35,35 @@ from geogiant.common.files_utils import (
     dump_csv,
     load_anycatch_data,
 )
-from geogiant.common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings, ConstantSettings
 
 path_settings = PathSettings()
+constant_settings = ConstantSettings()
 clickhouse_settings = ClickhouseSettings()
 
-# CLICKHOUSE TABLE
-ping_ripe_altas_table = "pings_ripe_altas"
-ping_ripe_ip_map_table = "pings_ripe_ip_map"
-ping_ripe_ip_map_dioptra = "ping_ripe_ip_map_dioptra"
-ecs_table = "ripe_ip_map_evaluation_mapping_ecs"
-vps_ecs_table = "vps_mapping_ecs"
+# INPUT TABLE
+PING_RIPE_ATLAS_TABLE = "pings_ripe_altas"
+PING_RIPE_IP_MAP_TABLE = "pings_ripe_ip_map"
+
+# OUTPUT TABLES
+ECS_TABLE = "end_to_end_mapping_ecs"
+VPS_ECS_TABLE = "vps_mapping_ecs"
+PING_RIPE_IP_MAP_GEO_RESOLVER = "ping_ripe_ip_map_geo_resolver"
 
 # FILE PATHS
-ripe_ip_map_subnets_path = path_settings.DATASET / "ripe_ip_map_subnets.json"
-measurement_ids_path = path_settings.DATASET / "ripe_ip_map_ids.json"
-best_measurement_ids_path = path_settings.DATASET / "ripe_ip_map_locate_ids.json"
-filtered_measurement_ids_path = path_settings.DATASET / "ripe_ip_map_filtered_ids.json"
-vps_subnet_path = path_settings.DATASET / "vps_subnet.json"
-score_file = (
-    path_settings.RESULTS_PATH
-    / f"ripe_ip_map_evaluation/scores__best_hostname_geo_score.pickle"
+RIPE_IP_MAP_SUBNETS = path_settings.END_TO_END_DATASET / "ripe_ip_map_subnets.json"
+ROUTERS_SUBNETS = path_settings.END_TO_END_DATASET / "routers_subnets.json"
+END_TO_END_HOSTNAMES_PATH = (
+    path_settings.END_TO_END_DATASET / "end_to_end_hostnames.csv"
 )
-results_file = (
-    path_settings.RESULTS_PATH
-    / f"ripe_ip_map_evaluation/{'results' + str(score_file).split('scores')[-1]}"
-)
+END_TO_END_TARGETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_targets.json"
+END_TO_END_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_subnets.json"
+RIPE_IP_MAP_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "ripe_ip_map_subnets.json"
+VPS_SUBNET_PATH = path_settings.DATASET / "vps_subnet.json"
+
 
 # CONSTANT PARAMETERS
-latency_threshold = 10
+latency_threshold = 50_000
 probing_budget = 500
 max_nb_measurements = 1_000
 
@@ -96,7 +91,7 @@ async def insert_results_from_tag() -> None:
 
     logger.info(f"Retreiving measurement results:: {start_time} - {end_time}")
     await RIPEAtlasAPI().get_results_from_tag(
-        params=params, ping_table=ping_ripe_ip_map_table
+        params=params, ping_table=PING_RIPE_IP_MAP_TABLE
     )
 
 
@@ -105,7 +100,7 @@ def get_ripe_ip_map_dst_prefix(latency_threshold: int) -> list:
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
         rows = GetDstPrefix().execute(
             client=client,
-            table_name=ping_ripe_ip_map_table,
+            table_name=PING_RIPE_IP_MAP_TABLE,
             latency_threshold=latency_threshold,
         )
 
@@ -148,25 +143,11 @@ def get_subnets_from_ecs() -> list[str]:
 
 
 async def resolve_subnets() -> None:
-    selected_hostnames = set()
-    for bgp_threshold in [5, 10, 20, 50, 100]:
-        selected_hostnames_per_cdn = load_json(
-            path_settings.DATASET
-            / f"hostname_geo_score_selection_{bgp_threshold}_BGP.json"
-        )
-
-        for org, hostnames in selected_hostnames_per_cdn.items():
-            selected_hostnames.update(hostnames)
+    selected_hostnames = load_csv(
+        path_settings.END_TO_END_DATASET / "end_to_end_hostnames.csv"
+    )
 
     logger.info(f"Nb total hostnames:: {len(selected_hostnames)}")
-    dump_csv(
-        selected_hostnames,
-        path_settings.DATASET / "all_threshold_geo_score_hostnames.csv",
-    )
-
-    selected_hostnames = load_csv(
-        path_settings.DATASET / "all_threshold_geo_score_hostnames.csv",
-    )
 
     get_subnets_from_pings()
 
@@ -179,38 +160,51 @@ async def resolve_subnets() -> None:
 
 
 def get_ripe_ip_map_score() -> None:
-    selected_hostnames_per_cdn = load_json(
-        path_settings.DATASET / "hostname_geo_score_selection.json"
-    )
+    for bgp_threshold in [20, 50, 10]:
+        for nb_hostname_per_ns_org in [3]:
 
-    selected_hostnames = set()
-    for org, hostnames in selected_hostnames_per_cdn.items():
-        logger.info(f"{org=}, {len(hostnames)=}")
-        selected_hostnames.update(hostnames)
+            selected_hostnames_per_cdn_per_ns = load_json(
+                path_settings.DATASET
+                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
+            )
 
-    logger.info(f"{len(selected_hostnames)=}")
+            selected_hostnames = set()
+            selected_hostnames_per_cdn = defaultdict(list)
+            for ns in selected_hostnames_per_cdn_per_ns:
+                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
+                    selected_hostnames.update(hostnames)
+                    selected_hostnames_per_cdn[org].extend(hostnames)
 
-    for org, hostnames in selected_hostnames_per_cdn.items():
-        logger.info(f"{org=}, {len(hostnames)=}")
+            logger.info(
+                f"{bgp_threshold=}, {nb_hostname_per_ns_org}, {len(selected_hostnames)=}"
+            )
 
-    score_config = {
-        "targets_table": ecs_table,
-        "vps_subnet_path": vps_subnet_path,
-        "hostname_per_cdn": selected_hostnames_per_cdn,
-        "selected_hostnames": selected_hostnames,
-        "targets_ecs_table": ecs_table,
-        "vps_ecs_table": vps_ecs_table,
-        "hostname_selection": "max_bgp_prefix",
-        "score_metric": [
-            "jaccard",
-        ],
-        "answer_granularities": [
-            "answer_subnets",
-        ],
-        "output_path": score_file,
-    }
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"ripe_ip_map_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
+            )
 
-    get_scores(score_config)
+            # some organizations do not have enought hostnames
+            if output_path.exists():
+                logger.info(
+                    f"Score for {bgp_threshold} BGP prefix threshold alredy done"
+                )
+                continue
+
+            score_config = {
+                "targets_subnet_path": RIPE_IP_MAP_SUBNETS_PATH,
+                "vps_subnet_path": VPS_SUBNET_PATH,
+                "hostname_per_cdn": selected_hostnames_per_cdn,
+                "selected_hostnames": selected_hostnames,
+                "targets_ecs_table": ECS_TABLE,
+                "vps_ecs_table": VPS_ECS_TABLE,
+                "hostname_selection": "max_bgp_prefix",
+                "score_metric": ["jaccard"],
+                "answer_granularities": ["answer_subnets"],
+                "output_path": output_path,
+            }
+
+            get_scores(score_config)
 
 
 def get_vps_pings(
@@ -232,6 +226,7 @@ def get_ripe_ip_map_schedule(
     subnet_scores: dict,
     vps_per_subnet: dict,
     last_mile_delay: dict,
+    cached_pings: dict,
 ) -> dict:
     """get all remaining measurments for ripe ip map evaluation"""
     target_schedule = {}
@@ -252,18 +247,32 @@ def get_ripe_ip_map_schedule(
                 probing_budget,
             )
 
-            target_schedule[target] = [vp_addr for vp_addr, _ in ecs_vps]
+            filtered_vps = []
+            try:
+                target_cached_pings = cached_pings[target]
+                cached_vps = [vp_addr for vp_addr, _ in target_cached_pings]
+                for vp_addr, score in ecs_vps:
+                    if vp_addr in cached_vps:
+                        continue
+
+                    filtered_vps.append((vp_addr, score))
+
+            except KeyError:
+                filtered_vps = ecs_vps
+
+            if filtered_vps:
+                target_schedule[target] = [vp_addr for vp_addr, _ in filtered_vps]
 
     return target_schedule
 
 
 def filter_targets(
-    targets: list[str],
+    target_subnets: list[str],
     scores: dict,
     ping_vps_to_target: dict,
     latency_threshold: int,
-    use_cache: bool = True,
-    max_nb_targets: int = 1500,
+    use_cache: bool = False,
+    max_nb_targets: int = 5_000,
 ) -> list[str]:
     filtered_targets = []
     anycatch_db = load_anycatch_data()
@@ -284,7 +293,7 @@ def filter_targets(
 
     anycast_ip_addr = 0
     filtere_ip_per_subent = defaultdict(list)
-    for target in targets:
+    for target in ping_vps_to_target:
 
         if target in geolocated_ip_addrs:
             continue
@@ -292,21 +301,24 @@ def filter_targets(
         target_subnet = get_prefix_from_ip(target)
         _, target_bgp_prefix = route_view_bgp_prefix(target, asndb)
 
+        if target_subnet not in target_subnets:
+            continue
+
         if not target_bgp_prefix:
             continue
 
         try:
             _ = scores[target_subnet]
 
+            # filter anycast
+            if target_bgp_prefix in anycatch_db:
+                anycast_ip_addr += 1
+                continue
+
             # filter per min rtt
             _, vp_min_rtt = min(ping_vps_to_target[target], key=lambda x: x[-1])
 
             if vp_min_rtt > latency_threshold:
-                continue
-
-            # filter anycast
-            if target_bgp_prefix in anycatch_db:
-                anycast_ip_addr += 1
                 continue
 
             filtered_targets.append(target)
@@ -326,7 +338,7 @@ def filter_targets(
     return filtered_targets
 
 
-def get_measurement_schedule() -> dict[list]:
+def get_measurement_schedule(score_file: Path) -> dict[list]:
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
@@ -334,8 +346,11 @@ def get_measurement_schedule() -> dict[list]:
         clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
-    ping_vps_to_target = get_pings_per_target(ping_ripe_ip_map_table)
-    targets = set([target for target in ping_vps_to_target.keys()])
+    ping_vps_to_target = get_pings_per_target(PING_RIPE_IP_MAP_TABLE)
+    cached_pings = get_pings_per_target(PING_RIPE_IP_MAP_GEO_RESOLVER)
+    target_subnets = load_json(
+        path_settings.END_TO_END_DATASET / "ripe_ip_map_subnets.json"
+    )
 
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
     vp_id_per_addr = {}
@@ -351,7 +366,9 @@ def get_measurement_schedule() -> dict[list]:
 
     logger.info(f"Score retrieved for:: {len(scores)}")
 
-    targets = filter_targets(targets, scores, ping_vps_to_target, latency_threshold)
+    targets = filter_targets(
+        target_subnets, scores, ping_vps_to_target, latency_threshold
+    )
 
     logger.info(f"Ping schedule for:: {len(targets)}")
 
@@ -360,6 +377,7 @@ def get_measurement_schedule() -> dict[list]:
         subnet_scores=scores,
         vps_per_subnet=vps_per_subnet,
         last_mile_delay=last_mile_delay,
+        cached_pings=cached_pings,
     )
 
     logger.info(f"Ping schedule for:: {len(measurement_schedule)}")
@@ -376,24 +394,53 @@ def get_measurement_schedule() -> dict[list]:
 
 async def ping_targets() -> None:
     """perfrom geolocation based on score similarity function"""
-    measurement_schedule = get_measurement_schedule()
+    score_path = path_settings.RESULTS_PATH / "ripe_ip_map_evaluation/"
 
-    await RIPEAtlasProber(probing_type="ping", probing_tag="ping_ripe_ip_map").main(
-        measurement_schedule
-    )
+    score_files = [
+        score_path
+        / "scores__best_hostname_geo_score_50_BGP_3_hostnames_per_org_ns.pickle",
+        score_path
+        / "scores__best_hostname_geo_score_10_BGP_3_hostnames_per_org_ns.pickle",
+    ]
+
+    for file in score_files:
+        if "score_" in file.name:
+            logger.info(f"Measurement config for file:: {file}")
+            measurement_schedule = get_measurement_schedule(file)
+
+            logger.info(f"Measurement schedule for {len(measurement_schedule)} targets")
+            for i, (target, vp_ids) in enumerate(measurement_schedule):
+                logger.debug(f"{target=}, {len(vp_ids)=}")
+                if i > 10:
+                    break
+
+            await RIPEAtlasProber(
+                probing_type="ping", probing_tag="ping_ripe_ip_map"
+            ).main(measurement_schedule)
 
 
 async def insert_measurements() -> None:
-    # retrive ping measurements and insert them into clickhouse db
+    cached_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(
+        PING_RIPE_IP_MAP_GEO_RESOLVER
+    )
+
     measurement_ids = []
     for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_ripe_ip_map" in config_file.name:
             config = load_json(config_file)
             measurement_ids.extend([id for id in config["ids"]])
 
-    logger.info(f"Retreiving results for {len(measurement_ids)} measurements")
+            logger.info(f"{config_file}:: {len(measurement_ids)} retrieved")
 
-    await retrieve_pings(measurement_ids, ping_ripe_ip_map_dioptra)
+            measurement_to_insert = list(
+                set(measurement_ids).difference(set(cached_measurement_ids))
+            )
+
+            logger.info(f"{len(measurement_to_insert)} measurements to insert")
+
+    logger.info(f"Retreiving results for {len(measurement_to_insert)} measurements")
+
+    await retrieve_pings(measurement_to_insert, PING_RIPE_IP_MAP_GEO_RESOLVER)
 
 
 def load_ripe_ip_map_targets() -> None:
@@ -402,7 +449,7 @@ def load_ripe_ip_map_targets() -> None:
 
 def get_ripe_ip_map_shortest_ping(targets: list[str]) -> None:
     """for each IP addresses retrieved from RIPE IP map, get the shortest ping"""
-    pings_single_radius = get_pings_per_target(ping_ripe_ip_map_table)
+    pings_single_radius = get_pings_per_target(PING_RIPE_IP_MAP_TABLE)
 
     shortest_ping_per_target = []
     for target, pings in pings_single_radius.items():
@@ -413,9 +460,31 @@ def get_ripe_ip_map_shortest_ping(targets: list[str]) -> None:
     return shortest_ping_per_target
 
 
-def evaluate() -> None:
+def detect_anycast(
+    ping_vps_to_target: list,
+    vp_distance_matrix: dict[dict],
+) -> bool:
+    """detect if an IP address is anycast or not based on measured pings"""
+    soi = []
+    for vp_i, min_rtt_i in ping_vps_to_target:
+        for vp_j, min_rtt_j in ping_vps_to_target:
+            if vp_i == vp_i:
+                continue
+
+            vps_distance = vp_distance_matrix[vp_i][vp_j]
+            cumulative_rtt_dist = rtt_to_km(min_rtt_i) + rtt_to_km(min_rtt_j)
+
+            if vps_distance > cumulative_rtt_dist:
+                soi.append((vp_i, vp_j))
+
+    if soi:
+        return True
+    else:
+        return False
+
+
+def evaluate(score_file: Path, latency_threhsold: int = 10_000) -> None:
     """calculate distance error and latency for each score"""
-    probing_budgets = [10, 20, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(
@@ -423,75 +492,89 @@ def evaluate() -> None:
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+    vps_per_subnet, _ = get_parsed_vps(vps, asndb, removed_vps)
 
-    ping_vps_to_target = get_pings_per_target(ping_ripe_ip_map_dioptra, removed_vps)
+    ping_vps_to_target = get_pings_per_target(
+        PING_RIPE_IP_MAP_GEO_RESOLVER, removed_vps
+    )
     targets = [target for target in ping_vps_to_target]
 
     scores: TargetScores = load_pickle(score_file)
 
     logger.info(f"ECS evaluation for score:: {score_file}, {len(targets)} targets")
 
-    geo_resolver_shortest_pings = []
-    for target in tqdm(targets):
-        target_subnet = get_prefix_from_ip(target)
-        target_scores = scores.score_answer_subnets[target_subnet]
+    geo_resolver_shortest_pings = defaultdict(list)
+    probing_budgets = [50]
+    for probing_budget in probing_budgets:
+        for target in tqdm(targets):
+            target_subnet = get_prefix_from_ip(target)
+            target_scores = scores.score_answer_subnets[target_subnet]
 
-        if not target_scores:
-            logger.error(f"{target_subnet} does not have score")
-        for _, target_score in target_scores.items():
+            # soi = detect_anycast(ping_vps_to_target[target], vp_distance_matrix)
+            # if soi:
+            #     logger.info(f"{target} is flagged as anycast")
+            #     continue
 
-            # get vps, function of their subnet ecs score
-            ecs_vps = get_ecs_vps(
-                target_subnet,
-                target_score,
-                vps_per_subnet,
-                last_mile_delay,
-                50,
-            )
+            if not target_scores:
+                logger.error(f"{target_subnet} does not have score")
+            for _, target_score in target_scores.items():
 
-            # find shortest ping in ecs vps
-            selected_pings = []
-            selected_vps_addr = [vp_addr for vp_addr, _ in ecs_vps]
-            all_vps = ping_vps_to_target[target]
-            for vp, min_rtt in all_vps:
-                if vp in selected_vps_addr:
-                    selected_pings.append((vp, min_rtt))
+                # get vps, function of their subnet ecs score
+                ecs_vps = get_ecs_vps(
+                    target_subnet,
+                    target_score,
+                    vps_per_subnet,
+                    last_mile_delay,
+                    probing_budget,
+                )
 
-            if not selected_pings:
-                continue
+                # find shortest ping in ecs vps
+                selected_pings = []
+                selected_vps_addr = [vp_addr for vp_addr, _ in ecs_vps]
+                all_vps = ping_vps_to_target[target]
+                for vp, min_rtt in all_vps:
+                    if vp in selected_vps_addr:
+                        selected_pings.append((vp, min_rtt))
 
-            shortest_ping_vp_addr, shortest_ping_rtt = min(
-                selected_pings, key=lambda x: x[-1]
-            )
-            geo_resolver_shortest_pings.append((target, shortest_ping_rtt))
+                if not selected_pings:
+                    continue
+
+                shortest_ping_vp_addr, shortest_ping_rtt = min(
+                    selected_pings, key=lambda x: x[-1]
+                )
+                geo_resolver_shortest_pings[probing_budget].append(
+                    (target, shortest_ping_rtt)
+                )
 
     ripe_ip_map_shortest_pings = get_ripe_ip_map_shortest_ping(targets)
 
     filtered_targets = set()
     filtered_ripe_ip_map_sp = []
     for target, min_rtt in ripe_ip_map_shortest_pings:
-        if min_rtt < 10:
+        if min_rtt < latency_threhsold:
             filtered_targets.add(target)
             filtered_ripe_ip_map_sp.append((target, min_rtt))
 
-    filtered_geo_resolver_sp = []
-    for target, min_rtt in geo_resolver_shortest_pings:
-        if target in filtered_targets:
-            filtered_geo_resolver_sp.append((target, min_rtt))
+    filtered_geo_resolver_sp = defaultdict(list)
+    for probing_budget, results in geo_resolver_shortest_pings.items():
+        for target, min_rtt in results:
+            if target in filtered_targets:
+                filtered_geo_resolver_sp[probing_budget].append((target, min_rtt))
 
-    logger.info(f"{len(filtered_geo_resolver_sp)} IP addresses remaining under 10ms")
+    logger.info(
+        f"{len(filtered_geo_resolver_sp[50])} IP addresses remaining under {latency_threhsold}ms"
+    )
 
     return filtered_geo_resolver_sp, filtered_ripe_ip_map_sp
 
 
 async def main() -> None:
     retrieve_public_measurements = False
-    ecs_resoltion = True
+    ecs_resoltion = False
     calculate_score = False
     geolocate = False
     insert = False
-    evaluation = False
+    evaluation = True
 
     if retrieve_public_measurements:
         await insert_results_from_tag()
@@ -509,9 +592,28 @@ async def main() -> None:
         await insert_measurements()
 
     if evaluation:
-        geo_resolver_sp, ripe_ip_map_sp = evaluate()
+        score_files = [
+            path_settings.RESULTS_PATH
+            / "ripe_ip_map_evaluation/scores__best_hostname_geo_score_10_BGP_3_hostnames_per_org_ns.pickle",
+            path_settings.RESULTS_PATH
+            / "ripe_ip_map_evaluation/scores__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle",
+            path_settings.RESULTS_PATH
+            / "ripe_ip_map_evaluation/scores__best_hostname_geo_score_50_BGP_3_hostnames_per_org_ns.pickle",
+        ]
+        geo_resolver_sp = {}
+        for score_file in score_files:
+            bgp_prefix_threshold = score_file.name.split("score_")[-1].split("_")[0]
+            nb_hostnames_per_org_ns = score_file.name.split("BGP_")[-1].split("_")[0]
+            logger.info(f"{score_file}=")
+            (
+                geo_resolver_sp[(bgp_prefix_threshold, nb_hostnames_per_org_ns)],
+                ripe_ip_map_sp,
+            ) = evaluate(score_file)
+
         plot_ripe_ip_map(
-            geo_resolver_sp, ripe_ip_map_sp, output_path="ripe_ip_map_evaluation"
+            geo_resolver_sp,
+            ripe_ip_map_sp,
+            output_path="ripe_ip_map_evaluation",
         )
 
 

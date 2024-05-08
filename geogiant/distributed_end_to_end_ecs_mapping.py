@@ -26,15 +26,17 @@ clickhouse_settings = ClickhouseSettings()
 
 END_TO_END_HOSTNAME_PATH = path_settings.END_TO_END_DATASET / "end_to_end_hostnames.csv"
 END_TO_END_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_subnets.json"
+DOCKER_IMAGE_NAME = "geogiant-agent"
 
 
 def docker_run_cmd() -> str:
-    return """
+    return f"""
         docker run -d \
         -v "$(pwd)/results:/app/geogiant/results" \
-        -v "$(pwd)/datasets/selected_hostname_geo_score.csv:/app/geogiant/datasets/selected_hostnames.csv" \
+        -v "$(pwd)/datasets/selected_hostnames.csv:/app/geogiant/datasets/selected_hostnames.csv" \
         -v "$(pwd)/datasets/end_to_end_subnets.json:/app/geogiant/datasets/end_to_end_subnets.json" \
         --network host \
+        --name {DOCKER_IMAGE_NAME} \
         ghcr.io/dioptra-io/geogiant:main
     """
 
@@ -48,7 +50,12 @@ def check_docker_running(vm: str, vm_config: dict) -> None:
     except:
         logger.error(f"Could not connect to VM:: {vm}:{vm_config['ip_addr']}")
 
-    result = c.run("docker ps")
+    result = c.run(f"docker ps -f name={DOCKER_IMAGE_NAME} --format json", hide=True)
+
+    if result.stdout:
+        logger.info(f"{DOCKER_IMAGE_NAME} running on {vm}")
+    else:
+        logger.info(f"{DOCKER_IMAGE_NAME} NOT running on {vm}")
 
 
 def insert_ecs_mapping_results(gcp_vms: dict, output_table: str) -> None:
@@ -60,11 +67,8 @@ def insert_ecs_mapping_results(gcp_vms: dict, output_table: str) -> None:
         result_files = [
             file
             for file in vm_results_path.iterdir()
-            if "routers_ecs_resolution_" in file.name
+            if "end_to_end_ecs_resolution" in file.name
         ]
-        if len(result_files) != 4:
-            logger.info(f"Not all results are available for VM:: {vm}")
-            continue
 
         logger.info(f"Inserting mapping results for VM:: {vm}")
 
@@ -86,7 +90,7 @@ def free_memory(vm: str, vm_config: dict) -> None:
     logger.info(f"Freeing memory on vm:: {vm}")
 
     c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
-    result = c.run("rm -rf results/name_server_resolution_*")
+    result = c.run("rm -rf results/end_to_end_ecs_resolution_*")
 
 
 def rsync_files(vm: str, vm_config: dict, delete_after: bool = False) -> None:
@@ -176,20 +180,18 @@ if __name__ == "__main__":
 
     gcp_vms = {
         "iris-europe-north1": "35.217.17.6",
-        # "iris-us-east4": "35.212.12.175",
-        # "iris-europe-west6": "35.216.186.30",
-        # "iris-us-west4": "35.219.147.41",
-        # "iris-southamerica-east1": "35.215.234.244",
-        # "iris-asia-south1": "35.207.233.237",
-        # "iris-asia-east1": "35.213.132.83",
-        # "iris-asia-northeast1": "35.213.95.10",
+        "iris-us-east4": "35.212.12.175",
+        "iris-europe-west6": "35.216.186.30",
+        "iris-us-west4": "35.219.147.41",
+        "iris-southamerica-east1": "35.215.234.244",
+        "iris-asia-south1": "35.207.233.237",
+        "iris-asia-east1": "35.213.132.83",
+        "iris-asia-northeast1": "35.213.95.10",
     }
 
     # load hostnames and subnets
     selected_hostnames = load_csv(END_TO_END_HOSTNAME_PATH)
     routers_subnet = load_json(END_TO_END_SUBNETS_PATH)
-    selected_hostnames = selected_hostnames[:2]
-    routers_subnet = routers_subnet[:100]
 
     logger.info(f"Total number of selected hostnames:: {len(selected_hostnames)}")
     logger.info(f"Total number of selected subnets:: {len(routers_subnet)}")
@@ -214,9 +216,9 @@ if __name__ == "__main__":
             f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}, {len(vm_config['subnets'])}"
         )
         # deploy_hostname_resolution(vm, vm_config)
+        check_docker_running(vm, vm_config)
         # monitor_memory_space(vm, vm_config)
-        rsync_files(vm, vm_config, delete_after=True)
+        # rsync_files(vm, vm_config, delete_after=False)
         # time.sleep(5)
-        # check_docker_running(vm, vm_config)
 
-    # insert_ecs_mapping_results(gcp_vms, output_table="routers_2ms_mapping_ecs")
+    # insert_ecs_mapping_results(gcp_vms, output_table="end_to_end_mapping_ecs")
