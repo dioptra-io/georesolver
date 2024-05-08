@@ -21,6 +21,7 @@ class RIPEAtlasProber:
         self,
         probing_type: str,
         probing_tag: str,
+        uuid: str = None,
         dry_run: bool = False,
     ) -> None:
         self.dry_run = dry_run
@@ -28,7 +29,7 @@ class RIPEAtlasProber:
         self.api = RIPEAtlasAPI()
         self.settings = ClickhouseSettings()
 
-        self.uuid = uuid4()
+        self.uuid = uuid4() if not uuid else uuid
         self.probing_type = probing_type
         self.table_name = probing_tag + "__" + str(self.uuid)
         self.start_time = time.time()

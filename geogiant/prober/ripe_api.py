@@ -178,6 +178,7 @@ class RIPEAtlasAPI:
     async def get_ping_measurement_ids(self, table_name: str) -> list[int]:
         """return all measurement ids that were already inserted within clickhouse"""
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            await CreatePingTable().aio_execute(client, table_name)
             resp = await GetMeasurementIds().aio_execute(client, table_name)
 
             measurement_ids = []
@@ -318,33 +319,22 @@ class RIPEAtlasAPI:
 
             return measurement_ids
 
-    async def get_measurements_from_tag(self, params: dict, output_table: str):
+    async def get_measurements_from_tag(self, tag: str):
         # Define API endpoint and parameters
-        url = self.api_url + f"/measurements/tags/{params['tags']}/results/"
+        url = self.api_url + f"/measurements/tags/{tag}/results/"
 
+        params = {"tags": tag, "format": "json"}
         ping_results = []
-        batch_size = 10_000
         with httpx.stream("GET", url=url, params=params, timeout=60) as client:
+            decoded_bytes = b""
             for resp in client.iter_bytes():
-                resp = resp.decode()
-                print(resp)
-                # TODO: find another way
+                decoded_bytes += resp
 
-                measurements = resp.split('},{"af":4,')
+        decoded_bytes = decoded_bytes.decode()
 
-                for measurement in measurements[1:-1]:
-                    measurement = "{" + measurement + "}"
-                    measurement = json.loads(measurement)
-                    print(measurement["msm_id"])
-                    ping_result = self.parse_ping([measurement])
+        ping_results = json.loads(resp)
 
-                    ping_results.extend(ping_result)
-
-                if len(ping_results) > batch_size:
-                    await self.insert_pings(ping_results, table_name=output_table)
-                    ping_results = []
-
-                time.sleep(0.01)
+        return self.parse_ping(ping_results)
 
     def get_ping_results(self, id: int) -> dict:
         """get results from ping measurement id"""
@@ -365,7 +355,10 @@ class RIPEAtlasAPI:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         parsed_data = []
         for result in results:
-            rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
+            try:
+                rtts = [rtt["rtt"] for rtt in result["result"] if "rtt" in rtt]
+            except TypeError as e:
+                logger.error(f"{e}:: {result=}")
 
             if not "from" in result or not "dst_addr" in result:
                 continue
