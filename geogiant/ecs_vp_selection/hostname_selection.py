@@ -692,9 +692,8 @@ async def main() -> None:
     for hostname, ns in ns_per_hostname.items():
         hostname_per_ns[ns].add(hostname)
 
-    hostname_ns_missing = set()
-    for nb_hostname_per_ns_org in [3, 5, 10, 100]:
-        for bgp_threshold in [5, 10, 20, 50, 100]:
+    for nb_hostname_per_ns_org in [3]:
+        for bgp_threshold in [20]:
             filtered_hostname_per_org = defaultdict(dict)
             for ns in best_hostnames_per_org_per_ns:
                 for org, hostnames in best_hostnames_per_org_per_ns[ns].items():
@@ -742,8 +741,6 @@ async def main() -> None:
             #     path_settings.DATASET
             #     / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json",
             # )
-
-    dump_csv(hostname_ns_missing, path_settings.DATASET / "hostname_ns_missing.csv")
 
 
 if __name__ == "__main__":

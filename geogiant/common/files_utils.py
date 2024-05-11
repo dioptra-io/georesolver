@@ -4,6 +4,7 @@ import json
 import pickle
 import bz2
 
+from ipaddress import IPv4Address, AddressValueError
 from typing import Generator
 from typing import Iterator
 from uuid import uuid4
@@ -12,6 +13,7 @@ from dateutil import parser
 from datetime import datetime
 from pathlib import Path
 
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
@@ -154,6 +156,18 @@ def create_tmp_csv_file(csv_data: list[str]) -> Path:
     return file_path
 
 
+def create_tmp_json_file(json_data) -> Path:
+    """create a tmp file into TMP with uuid"""
+    file_path = path_settings.TMP_PATH / f"tmp__{uuid4()}.csv"
+
+    if not file_path.parent.exists():
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    dump_json(json_data, file_path)
+
+    return file_path
+
+
 def load_pickle(input_file: Path) -> dict:
     """load json file"""
     try:
@@ -284,3 +298,26 @@ def match_mapping_to_vp(ripe_servers: list, dns_mapping_results: list) -> None:
                 ]
 
     return ripe_servers
+
+
+def generate_routers_targets_file(routers_path: Path) -> None:
+    if not (routers_path).exists():
+        rows = load_json_iter(path_settings.DATASET / "routers.json")
+        targets = {}
+        for row in rows:
+            addr = row["ip"]
+            # remove IPv6 and private IP addresses
+            try:
+                if not IPv4Address(addr).is_private:
+                    subnet = get_prefix_from_ip(addr)
+                    targets[addr] = {
+                        "subnet": subnet,
+                        "lat": row["probe_latitude"],
+                        "lon": row["probe_longitude"],
+                    }
+            except AddressValueError:
+                continue
+
+        logger.info(f"Number of targets in routers datasets:: {len(targets)}")
+
+        dump_json(targets, routers_path)

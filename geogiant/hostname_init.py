@@ -356,17 +356,17 @@ async def main() -> None:
     logger.info("Retrieved ECS hostnames")
 
     logger.info("Get ECS hostnames CDN/organization")
-    # await get_hostname_cdn(input_table="hostnames_1M_resolution")
+    await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
+    # selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
 
     # input_file = path_settings.DATASET / "vps_subnet.json"
-    # output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
-    # await resolve_vps_subnet(
-    #     selected_hostnames=selected_hostnames,
-    #     input_file=input_file,
-    #     output_file=output_file,
-    # )
+    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    await resolve_vps_subnet(
+        selected_hostnames=selected_hostnames,
+        input_file=input_file,
+        output_file=output_file,
+    )
 
     await resolve_name_servers(
         selected_hostnames=selected_hostnames,

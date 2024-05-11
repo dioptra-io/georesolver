@@ -1,29 +1,75 @@
 from pyasn import pyasn
 from tqdm import tqdm
 from loguru import logger
+from pathlib import Path
+from collections import defaultdict
 
 from geogiant.common.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
-    load_targets,
-    load_vps,
 )
 from geogiant.common.utils import (
-    select_one_vp_per_as_city,
     filter_vps_last_mile_delay,
     get_parsed_vps,
     shortest_ping,
     get_vp_info,
     parse_target,
-    EvalResults,
     TargetScores,
 )
-from geogiant.common.files_utils import load_json, load_pickle, dump_pickle
+from geogiant.common.files_utils import load_pickle
+from geogiant.common.geoloc import distance
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+def select_one_vp_per_as_city(
+    raw_vp_selection: list,
+    vp_coordinates: dict,
+    last_mile_delay: dict,
+    threshold: int = 40,
+) -> list:
+    """from a list of VP, select one per AS and per city"""
+    filtered_vp_selection = []
+    vps_per_as = defaultdict(list)
+    for vp_addr, score in raw_vp_selection:
+        _, _, vp_asn = vp_coordinates[vp_addr]
+        try:
+            last_mile_delay_vp = last_mile_delay[vp_addr]
+        except KeyError:
+            continue
+
+        vps_per_as[vp_asn].append((vp_addr, last_mile_delay_vp, score))
+
+    # select one VP per AS, take maximum VP score in AS
+    selected_vps_per_as = defaultdict(list)
+    for asn, vps in vps_per_as.items():
+        vps_per_as[asn] = sorted(vps, key=lambda x: x[1])
+        for vp_i, last_mile_delay, score in vps_per_as[asn]:
+            vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
+
+            if not selected_vps_per_as[asn]:
+                selected_vps_per_as[asn].append((vp_i, score))
+                filtered_vp_selection.append((vp_i, score))
+            else:
+                already_found = False
+                for vp_j, score in selected_vps_per_as[asn]:
+
+                    vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
+
+                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+
+                    if d < threshold:
+                        already_found = True
+                        break
+
+                if not already_found:
+                    selected_vps_per_as[asn].append((vp_i, score))
+                    filtered_vp_selection.append((vp_i, score))
+
+    return filtered_vp_selection
 
 
 def get_ecs_vps(
@@ -38,6 +84,7 @@ def get_ecs_vps(
     """
     # retrieve all vps belonging to subnets with highest mapping scores
     ecs_vps = []
+    # target_score = sorted(target_score, key=lambda x: x[1], reverse=True)
     for subnet, score in target_score:
         # for fairness, do not take vps that are in the same subnet as the target
         if subnet == target_subnet:
@@ -192,108 +239,76 @@ def ecs_dns_vp_selection_eval(
     return results
 
 
-def main() -> None:
-    probing_budgets = [1, 5, 10, 20, 30, 50]
+def get_shortest_ping_geo_resolver(
+    targets: list[str],
+    vps: list[dict],
+    score_file: Path,
+    ping_table: str,
+    removed_vps: list[str] = [],
+    probing_budgets: list[int] = [50],
+) -> dict:
+    geo_resolver_sp = defaultdict(list)
+
     asndb = pyasn(str(path_settings.RIB_TABLE))
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+
+    scores: TargetScores = load_pickle(score_file)
+    scores = scores.score_answer_subnets
 
     last_mile_delay = get_min_rtt_per_vp(
         clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
     )
-    removed_vps = load_json(path_settings.REMOVED_VPS)
-    ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
-    )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
 
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
+    ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
+    for budget in probing_budgets:
+        targets_shortest_ping = []
+        for target in tqdm(targets):
+            target_subnet = get_prefix_from_ip(target)
+            target_scores = scores[target_subnet]
 
-    logger.info("BGP prefix score geoloc evaluation")
+            # soi = detect_anycast(ping_vps_to_target[target], vp_distance_matrix)
+            # if soi:
+            #     logger.info(f"{target} is flagged as anycast")
+            #     continue
 
-    score_files = [
-        # "scores__AMAZON-02_1_greedy_per_cdn.pickle",
-        # "scores__AMAZON-02_5_greedy_per_cdn.pickle",
-        # "scores__AMAZON-02_10_greedy_per_cdn.pickle",
-        # "scores__AMAZON-02_100_greedy_per_cdn.pickle",
-        # "scores__AMAZON-02_500_greedy_per_cdn.pickle",
-        # "scores__AMAZON-02_1000_greedy_per_cdn.pickle",
-        # "scores__GOOGLE_1_max_bgp_prefixes.pickle",
-        # "scores__GOOGLE_5_max_bgp_prefixes.pickle",
-        # "scores__GOOGLE_10_max_bgp_prefixes.pickle",
-        # "scores__GOOGLE_100_max_bgp_prefixes.pickle",
-        # "scores__GOOGLE_500_max_bgp_prefixes.pickle",
-        # "scores__GOOGLE_541_max_bgp_prefixes.pickle",
-        "scores__all_cdns_10_hostname_per_cdn_max_bgp_prefix.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_2.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_5.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.6_bgp_prefix_threshold_2.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_5.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.2_bgp_prefix_threshold_10.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.6_bgp_prefix_threshold_2.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.6_bgp_prefix_threshold_10.pickle",
-        # "scores__10_hostname_per_cdn_per_ns_major_cdn_threshold_0.8_bgp_prefix_threshold_10.pickle",
-    ]
+            if not target_scores:
+                logger.error(f"{target_subnet} does not have score")
 
-    for score_file in score_files:
+            for _, target_score in target_scores.items():
 
-        scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / score_file)
+                # get vps, function of their subnet ecs score
+                ecs_vps = get_ecs_vps(
+                    target_subnet,
+                    target_score,
+                    vps_per_subnet,
+                    last_mile_delay,
+                    5_00,
+                )
 
-        logger.info(f"ECS evaluation for score:: {score_file}")
+                # remove vps that have a high last mile delay
+                ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
 
-        results_answers = {}
-        results_answer_subnets = {}
-        results_answer_bgp_prefixes = {}
-        if "answers" in scores.score_config["answer_granularities"]:
-            results_answers = ecs_dns_vp_selection_eval(
-                targets=targets,
-                vps_per_subnet=vps_per_subnet,
-                subnet_scores=scores.score_answer_subnets,
-                ping_vps_to_target=ping_vps_to_target,
-                last_mile_delay=last_mile_delay,
-                vps_coordinates=vps_coordinates,
-                probing_budgets=probing_budgets,
-            )
+                # take only one address per city and per AS
+                ecs_vps_per_budget = []
+                ecs_vps_per_budget = select_one_vp_per_as_city(
+                    ecs_vps, vps_coordinates, last_mile_delay
+                )[:budget]
 
-        if "answer_subnets" in scores.score_config["answer_granularities"]:
-            results_answer_subnets = ecs_dns_vp_selection_eval(
-                targets=targets,
-                vps_per_subnet=vps_per_subnet,
-                subnet_scores=scores.score_answer_subnets,
-                ping_vps_to_target=ping_vps_to_target,
-                last_mile_delay=last_mile_delay,
-                vps_coordinates=vps_coordinates,
-                probing_budgets=probing_budgets,
-            )
+                # SHORTEST PING GEOLOC
+                try:
+                    vp_shortest_ping_addr, shortest_ping_rtt = shortest_ping(
+                        [vp_addr for vp_addr, _ in ecs_vps_per_budget],
+                        ping_vps_to_target[target],
+                    )
+                    if vp_shortest_ping_addr:
+                        targets_shortest_ping.append(
+                            (target, vp_shortest_ping_addr, shortest_ping_rtt)
+                        )
 
-        if "answer_bgp_prefixes" in scores.score_config["answer_granularities"]:
-            results_answer_bgp_prefixes = ecs_dns_vp_selection_eval(
-                targets=targets,
-                vps_per_subnet=vps_per_subnet,
-                subnet_scores=scores.score_answer_bgp_prefixes,
-                ping_vps_to_target=ping_vps_to_target,
-                last_mile_delay=last_mile_delay,
-                vps_coordinates=vps_coordinates,
-                probing_budgets=probing_budgets,
-            )
+                except KeyError:
+                    logger.debug(f"No ping available for target:: {target}")
+                    continue
 
-        results = EvalResults(
-            target_scores=scores,
-            results_answers=results_answers,
-            results_answer_subnets=results_answer_subnets,
-            results_answer_bgp_prefixes=results_answer_bgp_prefixes,
-        )
+        geo_resolver_sp[budget] = targets_shortest_ping
 
-        output_file = (
-            path_settings.RESULTS_PATH / f"{'results' + score_file.split('scores')[-1]}"
-        )
-
-        logger.info(f"output file:: {output_file}")
-
-        dump_pickle(
-            data=results,
-            output_file=output_file,
-        )
-
-
-if __name__ == "__main__":
-    main()
+    return geo_resolver_sp

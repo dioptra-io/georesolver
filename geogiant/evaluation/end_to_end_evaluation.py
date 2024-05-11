@@ -453,7 +453,9 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
         measurement_schedule = get_measurement_schedule()
     else:
         # load previous measurements
-        ping_vps_to_target = get_pings_per_target("pings_end_to_end")
+        ping_vps_to_target = get_pings_per_target(PING_END_TO_END_TABLE)
+
+        logger.info(f"Number of pings:: {len(ping_vps_to_target)}")
         vps = load_vps(clickhouse_settings.VPS_FILTERED)
         vps_id_per_addr = {}
         for vp in vps:
@@ -461,7 +463,7 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
 
         for schedule_file in RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE.iterdir():
             filtered_schedule = []
-            if "end_to_end" in schedule_file.name:
+            if "ba1bc8e0-b28a-4184-87ad-1936777230c3" in schedule_file.name:
                 logger.debug(f"Loading ping schedule:: {schedule_file.name}")
 
                 # load schedule
@@ -478,6 +480,7 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
                         cached_pings = ping_vps_to_target[target]
                     except KeyError:
                         filtered_schedule.append((target, vp_ids))
+                        continue
 
                     cached_vp_ids = []
                     for vp_addr, _ in cached_pings:
@@ -500,9 +503,7 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
                     f"Size of filtered measurement schedule:: {len(measurement_schedule)}"
                 )
 
-                break
-
-    await RIPEAtlasProber(probing_type="ping", probing_tag="ping_end_to_end").main(
+    await RIPEAtlasProber(probing_type="pening", probing_tag="ping_end_to_end").main(
         measurement_schedule
     )
 
@@ -531,7 +532,10 @@ async def insert_measurements() -> None:
         f"Retreiving results for {len(measurement_to_insert)} measurements for {config_uuid=}"
     )
 
-    await retrieve_pings(measurement_to_insert, PING_END_TO_END_TABLE)
+    batch_size = 100
+    for i in range(0, len(measurement_to_insert), batch_size):
+        ids = measurement_to_insert[i : i + batch_size]
+        await retrieve_pings(ids, PING_END_TO_END_TABLE)
     # await retrieve_pings_from_tag(tag=config_uuid, output_table=PING_END_TO_END_TABLE)
 
 

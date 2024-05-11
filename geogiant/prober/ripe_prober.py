@@ -138,7 +138,7 @@ class RIPEAtlasProber:
                 ongoing_ids = await self.wait_for_batch(ongoing_ids)
 
             # wait some time between the beginning of each measurements
-            time.sleep(1)
+            time.sleep(0.1)
 
         self.measurement_done = True
         self.end_time = time.time()

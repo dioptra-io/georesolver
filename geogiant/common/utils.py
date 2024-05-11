@@ -1,10 +1,19 @@
+from random import sample
 from pyasn import pyasn
 from collections import defaultdict
 from dataclasses import dataclass
 from loguru import logger
+from tqdm import tqdm
+from pathlib import Path
 
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
+from geogiant.common.files_utils import load_pickle
+from geogiant.common.queries import get_pings_per_target, get_min_rtt_per_vp
 from geogiant.common.geoloc import distance
+from geogiant.common.settings import PathSettings, ClickhouseSettings
+
+path_settings = PathSettings()
+clickhouse_settings = ClickhouseSettings()
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,48 @@ def get_vp_score(vp_subnet: str, target_score: list) -> tuple[float, float]:
     return score, index
 
 
+def get_random_shortest_ping(
+    targets: list[str], ping_table: str, removed_vps: list[str] = []
+) -> None:
+    """for each IP addresses retrieved the shortest ping"""
+    ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
+
+    shortest_ping_per_target = []
+    for target_addr in tqdm(targets):
+        try:
+            target_pings = ping_vps_to_target[target_addr]
+        except KeyError:
+            continue
+
+        target_pings = sample(
+            target_pings, 50 if len(target_pings) >= 50 else len(target_pings)
+        )
+
+        _, shortest_ping_rtt = min(target_pings, key=lambda x: x[-1])
+        shortest_ping_per_target.append((target_addr, shortest_ping_rtt))
+
+    return shortest_ping_per_target
+
+
+def get_shortest_ping_all_vp(
+    targets: list[str], ping_table: str, removed_vps: list[str] = []
+) -> None:
+    """for each IP addresses retrieved the shortest ping"""
+    ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
+
+    shortest_ping_per_target = []
+    for target_addr in tqdm(targets):
+        try:
+            target_pings = ping_vps_to_target[target_addr]
+        except KeyError:
+            continue
+
+        _, shortest_ping_rtt = min(target_pings, key=lambda x: x[-1])
+        shortest_ping_per_target.append((target_addr, shortest_ping_rtt))
+
+    return shortest_ping_per_target
+
+
 def get_vp_info(
     target: dict,
     target_score: list,
@@ -148,53 +199,6 @@ def filter_vps_last_mile_delay(
     return filtered_vps
 
 
-def select_one_vp_per_as_city(
-    raw_vp_selection: list,
-    vp_coordinates: dict,
-    last_mile_delay: dict,
-    threshold: int = 40,
-) -> list:
-    """from a list of VP, select one per AS and per city"""
-    filtered_vp_selection = []
-    vps_per_as = defaultdict(list)
-    for vp_addr, score in raw_vp_selection:
-        _, _, vp_asn = vp_coordinates[vp_addr]
-        try:
-            last_mile_delay_vp = last_mile_delay[vp_addr]
-        except KeyError:
-            continue
-
-        vps_per_as[vp_asn].append((vp_addr, last_mile_delay_vp, score))
-
-    # select one VP per AS, take maximum VP score in AS
-    selected_vps_per_as = defaultdict(list)
-    for asn, vps in vps_per_as.items():
-        vps_per_as[asn] = sorted(vps, key=lambda x: x[1])
-        for vp_i, last_mile_delay, score in vps_per_as[asn]:
-            vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
-
-            if not selected_vps_per_as[asn]:
-                selected_vps_per_as[asn].append((vp_i, score))
-                filtered_vp_selection.append((vp_i, score))
-            else:
-                already_found = False
-                for vp_j, score in selected_vps_per_as[asn]:
-
-                    vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
-
-                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
-
-                    if d < threshold:
-                        already_found = True
-                        break
-
-                if not already_found:
-                    selected_vps_per_as[asn].append((vp_i, score))
-                    filtered_vp_selection.append((vp_i, score))
-
-    return filtered_vp_selection
-
-
 def get_vps_pings(
     target_associated_vps: list,
     ping_to_target: list,
@@ -211,13 +215,11 @@ def get_vps_pings(
 
 def shortest_ping(selected_vps: list, pings: dict) -> tuple:
     """return the shortest ping for a selection of VPs and a set of measurements"""
-    try:
-        selected_pings = get_vps_pings(
-            target_associated_vps=selected_vps,
-            ping_to_target=pings,
-        )
-    except KeyError:
-        return None
+
+    selected_pings = get_vps_pings(
+        target_associated_vps=selected_vps,
+        ping_to_target=pings,
+    )
 
     if not selected_pings:
         return None, None

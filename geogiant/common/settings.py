@@ -25,6 +25,7 @@ class PathSettings(BaseSettings):
     GITHUB_TOKEN: str = ""
     DOCKER_USERNAME: str = ""
     SSH_USER: str = ""
+    SUDO_PWD: str = ""
 
     # main dataset dirs
     DATASET: Path = DEFAULT / "../datasets/"
@@ -36,8 +37,18 @@ class PathSettings(BaseSettings):
     RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
     RIPE_ATLAS_PUBLIC_PINGS: Path = DATASET / "ripe_atlas_public_pings"
 
+    # internet scale file
+    ADDRESS_FILE: Path = (
+        DATASET
+        / "internet_address_hitlist_it106w-20231222/internet_address_hitlist_it106w-20231222.fsdb"
+    )
+
+    USER_HITLIST_FILE: Path = DATASET / "ipv4_hitlist.json"
+
     # evaluation specific datasets
     END_TO_END_DATASET: Path = DATASET / "end_to_end_evaluation"
+    INTERNET_SCALE_DATASET: Path = DATASET / "internet_scale_evaluation"
+    INTERNET_SCALE_RESULTS: Path = RESULTS_PATH / "internet_scale_evaluation"
 
     # hostnames default input files
     HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
@@ -159,7 +170,7 @@ class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
 
     # default ripe atlas parameters
     MAX_VP: int = 1_000
-    MAX_MEASUREMENT: int = 1_500
+    MAX_MEASUREMENT: int = 2_000
     PING_NB_PACKETS: int = 3
     PROTOCOL: str = "ICMP"
 

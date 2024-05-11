@@ -20,7 +20,7 @@ from geogiant.clickhouse import (
     InsertCSV,
     GetMeasurementIds,
 )
-from geogiant.common.files_utils import create_tmp_csv_file
+from geogiant.common.files_utils import create_tmp_csv_file, dump_pickle
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings
 
@@ -56,8 +56,8 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "size": 48,
-                    "tags": [uuid],
-                    "description": f"Dioptra Geolocation of {target}",
+                    "tags": ["dioptra"],
+                    "description": f"Active Geolocation of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
                     "include_probe_id": False,
@@ -68,7 +68,7 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
+            # "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def get_traceroute_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
@@ -332,6 +332,10 @@ class RIPEAtlasAPI:
 
         decoded_bytes = decoded_bytes.decode()
 
+        dump_pickle(
+            decoded_bytes, self.settings.END_TO_END_DATASET / "decoded_bytes.pickle"
+        )
+
         ping_results = json.loads(resp)
 
         return self.parse_ping(ping_results)
@@ -350,6 +354,19 @@ class RIPEAtlasAPI:
         ping_results = self.parse_ping(resp)
 
         return ping_results
+
+    def get_probe_requested(self, id: int) -> int:
+        url = (
+            f"{self.measurement_url}/{id}/"
+            + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+        )
+        with httpx.Client() as client:
+            resp = client.get(url, timeout=30)
+            resp = resp.json()
+
+            time.sleep(0.1)
+
+        return resp["probes_requested"], resp["target_ip"]
 
     def parse_ping(self, results: list[dict]) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
@@ -523,7 +540,12 @@ class RIPEAtlasAPI:
             resp = await client.get(f"{self.measurement_url}/{measurement_id}/")
             resp = resp.json()
 
-        if resp["status"]["name"] not in ["Ongoing", "Scheduled", "Specified"]:
+        if resp["status"]["name"] not in [
+            "Ongoing",
+            "Scheduled",
+            "Specified",
+            "synchronizing",
+        ]:
             logger.debug(f"{resp['status']['name']=}")
             return True
 

@@ -171,6 +171,41 @@ def get_x_label(metric_evaluated) -> str:
     return x_label
 
 
+def plot_cdf(
+    x: list,
+    y: list,
+    output_path: str,
+    x_label: str,
+    y_label: str,
+    x_lim: int = 1,
+    y_lim: int = 1,
+    legend_outside: str = False,
+    legend_pos: str = "upper left",
+    legend_size: int = 10,
+) -> None:
+
+    fig, ax1 = plt.subplots(1, 1)
+    ax1.plot(x, y, color=colors_blind[0][1])
+    ax1.grid(linestyle="dotted")
+    ax1.set_xlabel(x_label, fontsize=fontsize_axis)
+    ax1.set_ylabel(y_label, fontsize=fontsize_axis)
+
+    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
+    plt.tight_layout()
+    plt.xscale("log")
+    plt.xlim(left=x_lim)
+    plt.ylim((0, y_lim))
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"{output_path}.png",
+        bbox_inches="tight",
+    )
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"{output_path}.pdf",
+        bbox_inches="tight",
+    )
+    plt.show()
+
+
 def plot_multiple_cdf(
     cdfs: list,
     output_path: str,
@@ -178,6 +213,8 @@ def plot_multiple_cdf(
     legend_outside: str = False,
     legend_pos: str = "upper left",
     legend_size: int = 10,
+    under_padding: int = 0,
+    x_limit_left: int = 1,
 ) -> None:
 
     fig, ax1 = plt.subplots(1, 1)
@@ -195,9 +232,13 @@ def plot_multiple_cdf(
     ax1.set_ylabel("CDF of targets", fontsize=fontsize_axis)
 
     if metric_evaluated == "d_error":
-        plot_limit(limit=40, metric_evaluated=metric_evaluated)
+        plot_limit(
+            limit=40, metric_evaluated=metric_evaluated, under_padding_d=under_padding
+        )
     else:
-        plot_limit(limit=2, metric_evaluated=metric_evaluated)
+        plot_limit(
+            limit=2, metric_evaluated=metric_evaluated, under_padding_d=under_padding
+        )
     if legend_outside:
         plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
     else:
@@ -206,7 +247,7 @@ def plot_multiple_cdf(
     homogenize_legend(ax1, legend_pos, legend_size=legend_size)
     plt.tight_layout()
     plt.xscale("log")
-    plt.xlim(left=1)
+    plt.xlim(left=x_limit_left)
     plt.ylim((0, 1))
     plt.savefig(
         path_settings.FIGURE_PATH / f"{output_path}_{metric_evaluated}.png",
@@ -291,6 +332,7 @@ def plot_random(metric_evaluated: str) -> None:
 
 
 def get_proportion_under(x, y, threshold: int = 40) -> int:
+    proportion_of_ip = 1
     for i, distance in enumerate(x):
         if distance > threshold:
             proportion_of_ip = y[i]
@@ -299,7 +341,12 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
     return proportion_of_ip
 
 
-def plot_limit(limit: float, metric_evaluated: str = "d_error") -> None:
+def plot_limit(
+    limit: float,
+    metric_evaluated: str = "d_error",
+    under_padding_d: int = 29,
+    under_padding_rtt: int = 0.95,
+) -> None:
     x = [limit, limit]
     y = [0, 1]
 
@@ -314,7 +361,14 @@ def plot_limit(limit: float, metric_evaluated: str = "d_error") -> None:
     plt.plot(x, y, linestyle="dotted", color="grey")
     plt.annotate(
         f"{x[0]} {'km' if metric_evaluated == 'd_error' else 'ms'}",
-        xy=(x[0] - 29 if metric_evaluated == "d_error" else x[0] - 1, 0.01),
+        xy=(
+            (
+                x[0] - under_padding_d
+                if metric_evaluated == "d_error"
+                else x[0] - under_padding_rtt
+            ),
+            1 - 0.1,
+        ),
         size=12,
     )
 
@@ -374,7 +428,7 @@ def distance_error_vs_latency(
     results: dict,
     probing_budgets_evaluated: list[int] = [50],
     score_metrics: list[str] = ["jaccard"],
-    latency_threshold: list[int] = [(0, 2)],
+    latency_threshold: list[int] = [(0, 1)],
     distance_threshold: int = 40,
 ) -> list[tuple]:
     cdfs = []
@@ -403,21 +457,46 @@ def distance_error_vs_latency(
                 d_error_under_latency = []
                 for d_error, latency in target_results:
                     if (
-                        latency > latency_threshold[0]
+                        latency >= latency_threshold[0]
                         and latency < latency_threshold[1]
                     ):
                         d_error_under_latency.append(d_error)
 
                 x, y = ecdf(d_error_under_latency)
                 cdfs.append(
-                    (x, y, f"{latency_threshold} < rtt < {latency_threshold} ms")
+                    (x, y, f"{latency_threshold[0]} <= rtt < {latency_threshold[1]} ms")
                 )
 
                 proportion_of_ip = get_proportion_under(x, y, 40)
 
-                logger.info(
-                    f"ECS SP proportion of IP addresses <{distance_threshold}km; <{latency_threshold}ms={round(proportion_of_ip, 2)}"
+                print(
+                    f"IP addresses={len(d_error_under_latency)}; <{distance_threshold}km; {latency_threshold[0]}<= rtt <={latency_threshold[1]}ms = {round(proportion_of_ip, 2)}"
                 )
+
+    return cdfs
+
+
+def geo_resolver_cdfs(results: dict, metric_evaluated: str, label: list[str]) -> None:
+    cdfs = []
+    data = []
+    for _, target_results_per_metric in results.items():
+        try:
+            ecs_shortest_ping_vp = target_results_per_metric["result_per_metric"][
+                "jaccard"
+            ]["ecs_shortest_ping_vp_per_budget"][50]
+        except KeyError:
+            continue
+
+        if ecs_shortest_ping_vp[metric_evaluated]:
+            data.append(ecs_shortest_ping_vp[metric_evaluated])
+
+    x, y = ecdf(data)
+    cdfs.append((x, y, label))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+    logger.info(f"ECS SP:: {label}: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"ECS SP:: {label}: median_error={round(m_error, 2)} [km]")
 
     return cdfs
 
@@ -560,134 +639,6 @@ def plot_end_to_end_results(
     plot_multiple_cdf(all_cdfs, output_path, metric_evaluated, False, legend_pos)
 
 
-def score_metrics_and_granularity(
-    eval_file: Path,
-    output_path: Path,
-    metric_evaluated: str = "d_error",
-    plot_zp: bool = True,
-    legend_outside: bool = False,
-    probing_budgets_evaluated: list[int] = [50],
-    score_metrics: list[str] = [
-        "intersection",
-        "jaccard",
-        "jaccard_scope_linear_weight",
-        "intersection_scope_linear_weight",
-        "jaccard_scope_poly_weight",
-        "intersection_scope_poly_weight",
-    ],
-    granularities: list[str] = [
-        "answer_subnets",
-        "answer_bgp_prefixes",
-    ],
-    legend_pos: str = "lower right",
-    legend_size: int = 10,
-) -> None:
-
-    all_cdfs = []
-
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-
-    eval: EvalResults = load_pickle(eval_file)
-
-    logger.info(f"{eval_file=} loaded")
-
-    if "answers" in granularities:
-        answer_eval: EvalResults = load_pickle(
-            path_settings.RESULTS_PATH
-            / "tier3_evaluation/results__best_hostname_geo_score_answers.pickle"
-        )
-        logger.debug("ANSWERS")
-        cdfs = plot_ecs_shortest_ping(
-            results=answer_eval.results_answers,
-            probing_budgets_evaluated=probing_budgets_evaluated,
-            score_metrics=score_metrics,
-            metric_evaluated=metric_evaluated,
-            label_granularity="answers" if len(granularities) > 1 else None,
-            plot_zp=plot_zp,
-        )
-        all_cdfs.extend(cdfs)
-
-    if "answer_subnets" in granularities:
-        cdfs = plot_ecs_shortest_ping(
-            results=eval.results_answer_subnets,
-            probing_budgets_evaluated=probing_budgets_evaluated,
-            score_metrics=score_metrics,
-            metric_evaluated=metric_evaluated,
-            label_granularity="/24 subnet" if len(granularities) > 1 else None,
-            plot_zp=plot_zp,
-        )
-        all_cdfs.extend(cdfs)
-
-    if "answer_bgp_prefixes" in granularities:
-        cdfs = plot_ecs_shortest_ping(
-            results=eval.results_answer_bgp_prefixes,
-            probing_budgets_evaluated=probing_budgets_evaluated,
-            score_metrics=score_metrics,
-            metric_evaluated=metric_evaluated,
-            label_granularity="BGP prefix" if len(granularities) > 1 else None,
-            plot_zp=plot_zp,
-        )
-        all_cdfs.extend(cdfs)
-
-    plot_multiple_cdf(
-        all_cdfs, output_path, metric_evaluated, legend_outside, legend_pos, legend_size
-    )
-
-
-def one_org_vs_many(
-    eval_dir: Path,
-    output_path: Path,
-    metric_evaluated: str = "d_error",
-    nb_orgs_evaluated: list[int] = [1, 7],
-    nb_hostnames_evaluated: list[int] = [3, 5, 10, 100],
-    legend_pos: str = "upper left",
-) -> None:
-    all_cdfs = []
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-
-    eval_files = []
-    for file in eval_dir.iterdir():
-        if "result" in file.name:
-            eval_files.append(file)
-
-    filtered_eval_files = defaultdict(list)
-    for file in eval_files:
-        nb_hostnames = file.name.split("__")[1].split("_")[0]
-        nb_orgs = file.name.split("hostname_")[1].split("_")[0]
-        filtered_eval_files[int(nb_orgs)].append((int(nb_hostnames), file))
-        eval_files = filtered_eval_files
-
-    for org in filtered_eval_files:
-        filtered_eval_files[org] = sorted(filtered_eval_files[org], key=lambda x: x[0])
-
-    filtered_eval_files = OrderedDict(
-        sorted(filtered_eval_files.items(), key=lambda x: x[0])
-    )
-    for nb_orgs in filtered_eval_files:
-        if not nb_orgs in nb_orgs_evaluated:
-            continue
-
-        for nb_hostnames, file in filtered_eval_files[nb_orgs]:
-            if not nb_hostnames in nb_hostnames_evaluated:
-                continue
-
-            eval: EvalResults = load_pickle(file)
-
-            logger.info(f"{file=} loaded")
-
-            cdfs = plot_ecs_shortest_ping(
-                results=eval.results_answer_subnets,
-                metric_evaluated=metric_evaluated,
-                label_hostnames=nb_hostnames,
-                label_orgs=nb_orgs,
-            )
-            all_cdfs.extend(cdfs)
-
-    plot_multiple_cdf(all_cdfs, output_path, metric_evaluated, False, legend_pos)
-
-
 def plot_d_error_vs_latency(
     score_file: Path,
     output_path: Path,
@@ -714,7 +665,13 @@ def plot_d_error_vs_latency(
         all_cdfs.extend(cdfs)
 
     plot_multiple_cdf(
-        all_cdfs, output_path, "d_error", legend_outside, legend_pos=legend_pos
+        all_cdfs,
+        output_path,
+        "d_error",
+        legend_outside,
+        legend_pos=legend_pos,
+        legend_size=10,
+        under_padding=22,
     )
 
 
@@ -782,56 +739,148 @@ def bgp_prefix_threshold(
     )
 
 
-def plot_ripe_ip_map(
+def plot_routers(
     geo_resolver_sp: dict[list[tuple]],
-    ripe_ip_map_sp: list[tuple],
+    ref_sp: list[tuple],
+    random_sp: list[tuple],
     output_path: Path,
 ) -> None:
 
     cdfs = []
-    for params in geo_resolver_sp:
-        for budget, results in geo_resolver_sp[(params)].items():
-            x, y = ecdf([sp for _, sp in results])
-            cdfs.append(
-                (
-                    x,
-                    y,
-                    f"GeoResolve SP, {params[0]}, {params[1]}",
-                )
-            )
 
-            m = round(np.mean(x), 2)
-            proportion = get_proportion_under(x, y, threshold=2)
-            logger.info(f"{params[0]=}, {params[1]=}")
-            logger.info(f"Proportion under 2ms: {proportion} ms")
-            logger.info(f"Median latency: {m} ms")
+    x, y = ecdf([sp for _, sp in ref_sp])
+    m = round(np.mean(x), 2)
+    proportion = get_proportion_under(x, y, threshold=2)
+    logger.info("Reference::")
+    logger.info(f"Nb targets:: {len(x)}")
+    logger.info(f"Proportion under 2ms: {proportion} ms")
+    logger.info(f"Median latency: {m} ms")
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    for budget, results in geo_resolver_sp.items():
+        if budget not in [50]:
+            continue
+        x, y = ecdf([sp for _, _, sp in results])
+        cdfs.append(
+            (
+                x,
+                y,
+                f"GeoResolver",
+            )
+        )
+
+        m = round(np.mean(x), 2)
+        proportion = get_proportion_under(x, y, threshold=2)
+        logger.info(f"Nb targets:: {len(x)}")
+        logger.info(f"Proportion under 2ms: {proportion} ms")
+        logger.info(f"Median latency: {m} ms")
+
+    x, y = ecdf([sp for _, sp in random_sp])
+    m = round(np.mean(x), 2)
+    proportion = get_proportion_under(x, y, threshold=2)
+    logger.info("Random 50 VPs::")
+    logger.info(f"Nb targets:: {len(x)}")
+    logger.info(f"Proportion under 2ms: {proportion} ms")
+    logger.info(f"Median latency: {m} ms")
+    cdfs.append((x, y, "Random shortest ping, 50 VPs"))
+
+    plot_multiple_cdf(
+        cdfs,
+        output_path=output_path,
+        metric_evaluated="rtt",
+        legend_pos="lower right",
+        legend_size=9,
+    )
+
+
+def plot_ripe_ip_map(
+    geo_resolver_sp: dict[list[tuple]],
+    ripe_ip_map_sp: list[tuple],
+    ref_sp: list[tuple],
+    random_sp: list[tuple],
+    output_path: Path,
+) -> None:
+
+    cdfs = []
+
+    x, y = ecdf([sp for _, sp in ref_sp])
+    m = round(np.mean(x), 2)
+    proportion = get_proportion_under(x, y, threshold=2)
+    logger.info("Reference::")
+    logger.info(f"Nb targets:: {len(x)}")
+    logger.info(f"Proportion under 2ms: {proportion} ms")
+    logger.info(f"Median latency: {m} ms")
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    for budget, results in geo_resolver_sp.items():
+        if budget not in [50]:
+            continue
+        x, y = ecdf([sp for _, _, sp in results])
+        cdfs.append(
+            (
+                x,
+                y,
+                f"GeoResolver",
+            )
+        )
+
+        m = round(np.mean(x), 2)
+        proportion = get_proportion_under(x, y, threshold=2)
+        logger.info(f"Nb targets:: {len(x)}")
+        logger.info(f"Proportion under 2ms: {proportion} ms")
+        logger.info(f"Median latency: {m} ms")
 
     x, y = ecdf([sp for _, sp in ripe_ip_map_sp])
     m = round(np.mean(x), 2)
     proportion = get_proportion_under(x, y, threshold=2)
     logger.info("Single radius::")
+    logger.info(f"Nb targets:: {len(x)}")
+
     logger.info(f"Proportion under 2ms: {proportion} ms")
     logger.info(f"Median latency: {m} ms")
-    cdfs.append((x, y, "Single radius SP"))
+    cdfs.append((x, y, "Single-radius, AVG 500 VPs"))
 
-    plot_multiple_cdf(cdfs, output_path=output_path, metric_evaluated="rtt")
+    x, y = ecdf([sp for _, sp in random_sp])
+    m = round(np.mean(x), 2)
+    proportion = get_proportion_under(x, y, threshold=2)
+    logger.info("Random 50 VPs::")
+    logger.info(f"Nb targets:: {len(x)}")
+    logger.info(f"Proportion under 2ms: {proportion} ms")
+    logger.info(f"Median latency: {m} ms")
+    cdfs.append((x, y, "Random shortest ping, 50 VPs"))
+
+    plot_multiple_cdf(
+        cdfs,
+        output_path=output_path,
+        metric_evaluated="rtt",
+        legend_pos="lower right",
+        legend_size=8,
+    )
 
 
-def plot_router_2ms(
-    geo_resolver_sp: list[tuple],
+def plot_internet_scale(
+    geo_resolver_sp: dict[list[tuple]],
     output_path: Path,
 ) -> None:
 
     cdfs = []
+
     x, y = ecdf([sp for _, sp in geo_resolver_sp])
-    p = get_proportion_under(x, y, threshold=2)
+    cdfs.append((x, y, f"GeoResolver"))
+
     m = round(np.mean(x), 2)
+    proportion = get_proportion_under(x, y, threshold=2)
+    logger.info(f"Nb targets:: {len(x)}")
+    logger.info(f"Proportion under 2ms: {proportion} ms")
+    logger.info(f"Median latency: {m} ms")
 
-    logger.info(f"propotion of targets under 40km: {p} [%]")
-    logger.info(f"median error: {m} [km]")
-    cdfs.append((x, y, "GeoResolve SP"))
-
-    plot_multiple_cdf(cdfs, output_path=output_path, metric_evaluated="rtt")
+    plot_multiple_cdf(
+        cdfs,
+        output_path=output_path,
+        metric_evaluated="rtt",
+        legend_pos="lower right",
+        legend_size=9,
+    )
 
 
 if __name__ == "__main__":
@@ -844,16 +893,22 @@ if __name__ == "__main__":
     #     metric_evaluated="d_error",
     # )
 
-    score_metrics_and_granularity(
-        eval_file=path_settings.RESULTS_PATH
+    # score_metrics_and_granularity(
+    #     eval_file=path_settings.RESULTS_PATH
+    #     / "tier3_evaluation/results__best_hostname_geo_score.pickle",
+    #     output_path="granularity_evaluation",
+    #     metric_evaluated="d_error",
+    #     score_metrics=["jaccard"],
+    #     granularities=[
+    #         "answers",
+    #         "answer_subnets",
+    #         "answer_bgp_prefixes",
+    #     ],
+    #     plot_zp=False,
+    # )
+
+    plot_d_error_vs_latency(
+        score_file=path_settings.RESULTS_PATH
         / "tier3_evaluation/results__best_hostname_geo_score.pickle",
-        output_path="granularity_evaluation",
-        metric_evaluated="d_error",
-        score_metrics=["jaccard"],
-        granularities=[
-            "answers",
-            "answer_subnets",
-            "answer_bgp_prefixes",
-        ],
-        plot_zp=False,
+        output_path="d_error_vs_latency",
     )

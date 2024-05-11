@@ -173,34 +173,35 @@ def evaluate() -> None:
             / f"tier4_evaluation/{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        # if output_file.exists():
-        #     continue
+        if "20_BGP_3" in score_file.name:
+            # if output_file.exists():
+            #     continue
 
-        results_answer_subnets = {}
-        results_answer_subnets = ecs_dns_vp_selection_eval(
-            targets=targets,
-            vps_per_subnet=vps_per_subnet,
-            subnet_scores=scores.score_answer_subnets,
-            ping_vps_to_target=ping_vps_to_target,
-            last_mile_delay=last_mile_delay,
-            vps_coordinates=vps_coordinates,
-            probing_budgets=probing_budgets,
-            vps_country=vps_country,
-        )
+            results_answer_subnets = {}
+            results_answer_subnets = ecs_dns_vp_selection_eval(
+                targets=targets,
+                vps_per_subnet=vps_per_subnet,
+                subnet_scores=scores.score_answer_subnets,
+                ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
+                vps_coordinates=vps_coordinates,
+                probing_budgets=probing_budgets,
+                vps_country=vps_country,
+            )
 
-        results = EvalResults(
-            target_scores=scores,
-            results_answers=None,
-            results_answer_subnets=results_answer_subnets,
-            results_answer_bgp_prefixes=None,
-        )
+            results = EvalResults(
+                target_scores=scores,
+                results_answers=None,
+                results_answer_subnets=results_answer_subnets,
+                results_answer_bgp_prefixes=None,
+            )
 
-        logger.info(f"output file:: {output_file}")
+            logger.info(f"output file:: {output_file}")
 
-        dump_pickle(
-            data=results,
-            output_file=output_file,
-        )
+            dump_pickle(
+                data=results,
+                output_file=output_file,
+            )
 
 
 if __name__ == "__main__":

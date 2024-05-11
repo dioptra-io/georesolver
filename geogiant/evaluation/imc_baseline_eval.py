@@ -2,9 +2,10 @@ import math
 
 from multiprocessing import Pool, cpu_count
 from loguru import logger
+from pathlib import Path
 
 from geogiant.common.files_utils import load_json, dump_json
-from geogiant.common.queries import get_pings_per_src_dst, load_vps
+from geogiant.common.queries import get_pings_per_src_dst, load_vps, load_targets
 from geogiant.common.geoloc import (
     select_best_guess_centroid,
     haversine,
@@ -69,6 +70,7 @@ def round_based_algorithm_impl(
     vps_per_target_greedy,
     asn_per_vp,
     threshold,
+    compute_distance: bool = True,
 ):
     # Only take the first n_vps
     vp_coordinates_per_ip_allowed = {
@@ -131,18 +133,33 @@ def round_based_algorithm_impl(
 
     if not rtts:
         logger.info(f"No ping available for :: {dst}")
+        return (dst, -1, -1, -1)
 
     shortest_ping_vp_addr, shortest_ping_rtt = min(rtts, key=lambda x: x[-1])
     shortest_ping_lat, shortest_ping_lon = vp_coordinates_per_ip[shortest_ping_vp_addr]
-    target_lat, target_lon = vp_coordinates_per_ip[dst]
 
-    error = distance(target_lat, shortest_ping_lat, target_lon, shortest_ping_lon)
+    if compute_distance:
+        target_lat, target_lon = vp_coordinates_per_ip[dst]
+        error = distance(target_lat, shortest_ping_lat, target_lon, shortest_ping_lon)
+    else:
+        error = -1
 
-    return dst, error, len(selected_probes), shortest_ping_rtt
+    return (
+        dst,
+        error,
+        len(vps_per_target_greedy) + len(selected_probes),
+        shortest_ping_rtt,
+    )
 
 
 def round_based_algorithm(
-    greedy_probes, rtt_per_srcs_dst, vp_coordinates_per_ip, asn_per_vp, n_vps, threshold
+    greedy_probes,
+    rtt_per_srcs_dst,
+    vp_coordinates_per_ip,
+    asn_per_vp,
+    n_vps,
+    threshold,
+    compute_dist: bool = True,
 ):
     """
     First is to use a subset of greedy probes, and then take 1 probe/AS in the given CBG area
@@ -154,8 +171,6 @@ def round_based_algorithm(
 
     args = []
     for _, (dst, rtt_per_src) in enumerate(sorted(rtt_per_srcs_dst.items())):
-        if dst not in vp_coordinates_per_ip:
-            continue
         args.append(
             (
                 dst,
@@ -164,6 +179,7 @@ def round_based_algorithm(
                 vps_per_target_greedy,
                 asn_per_vp,
                 threshold,
+                compute_dist,
             )
         )
 
@@ -174,8 +190,12 @@ def round_based_algorithm(
     return results
 
 
-if __name__ == "__main__":
-
+def main(
+    targets: list[str],
+    ping_table: str,
+    output_path: str,
+    compute_dist: bool = True,
+) -> None:
     if not (path_settings.GREEDY_VPS).exists():
         vp_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE)
         greedy_vp_selection(vp_distance_matrix)
@@ -184,12 +204,18 @@ if __name__ == "__main__":
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
-    # clickhouse is required here
     rtt_per_srcs_dst = get_pings_per_src_dst(
-        table_name=clickhouse_settings.PING_VPS_TO_TARGET,
+        table_name=ping_table,
         removed_vps=removed_vps,
-        threshold=100,
     )
+
+    # filter pings
+    filtered_rtt_per_srcs_dst = {}
+    for dst_addr, rtt_per_srcs in rtt_per_srcs_dst.items():
+        if dst_addr not in targets:
+            continue
+
+        filtered_rtt_per_srcs_dst[dst_addr] = rtt_per_srcs
 
     vp_coordinates = {}
     asn_per_vp_ip = {}
@@ -203,15 +229,81 @@ if __name__ == "__main__":
         logger.info(f"Using {tier1_vps} tier1_vps")
         error_cdf = round_based_algorithm(
             greedy_probes,
-            rtt_per_srcs_dst,
+            filtered_rtt_per_srcs_dst,
             vp_coordinates,
             asn_per_vp_ip,
             tier1_vps,
             threshold=40,
+            compute_dist=compute_dist,
         )
         error_cdf_per_tier1_vps[tier1_vps] = error_cdf
 
     dump_json(
         error_cdf_per_tier1_vps,
-        path_settings.RESULTS_PATH / "round_based_algo_file.json",
+        output_path,
     )
+
+
+def measurement_overhead(input_path: Path) -> int:
+    results = load_json(input_path)
+    overall_cost = 0
+    for _, results_per_target in results.items():
+        logger.info(f"NB targets:: {len(results_per_target)}")
+        for result in results_per_target:
+            if result[2]:
+                overall_cost += result[2]
+
+    return overall_cost
+
+
+if __name__ == "__main__":
+    # 1. measurement overhead for anchors
+    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    targets = [target["addr"] for target in targets]
+    ping_table = clickhouse_settings.PING_VPS_TO_TARGET
+    output_path = path_settings.RESULTS_PATH / "imc_baseline_anchors_dataset.json"
+
+    if not output_path.exists():
+        main(
+            targets=targets,
+            ping_table=ping_table,
+            compute_dist=False,
+            output_path=output_path,
+        )
+
+    overhead = measurement_overhead(output_path)
+    logger.info(f"ANCHORS dataset:: {overhead*3} pings overhead")
+
+    # 2. measurement overhead for ripe ip map
+    targets = load_json(
+        path_settings.END_TO_END_DATASET / "ripe_ip_map_targets_evaluation.json"
+    )
+    ping_table = "pings_end_to_end"
+    output_path = path_settings.RESULTS_PATH / "imc_baseline_ripe_ip_map_dataset.json"
+    if not output_path.exists():
+        main(
+            targets=targets,
+            ping_table=ping_table,
+            compute_dist=False,
+            output_path=output_path,
+        )
+
+    overhead = measurement_overhead(output_path)
+    logger.info(f"RIPE IP MAP dataset:: {overhead* 3} pings overhead")
+
+    # 3. measurement overhead for routers
+    targets = load_json(
+        path_settings.END_TO_END_DATASET / "routers_targets_evaluation.json"
+    )
+    ping_table = "pings_end_to_end"
+    output_path = path_settings.RESULTS_PATH / "imc_baseline_routers_dataset.json"
+    if not output_path.exists():
+        main(
+            targets=targets,
+            ping_table=ping_table,
+            compute_dist=False,
+            output_path=output_path,
+        )
+
+    overhead = measurement_overhead(output_path)
+    logger.info(f"ROUTERS dataset:: {overhead * 3} pings overhead")

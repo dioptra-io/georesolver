@@ -1,3 +1,5 @@
+import numpy as np
+
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
@@ -21,6 +23,12 @@ from geogiant.common.utils import (
 )
 from geogiant.evaluation.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.ecs_vp_selection.scores import get_scores
+from geogiant.evaluation.plot import (
+    plot_ref,
+    get_proportion_under,
+    ecdf,
+    plot_multiple_cdf,
+)
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -229,12 +237,238 @@ def evaluate() -> None:
         )
 
 
+def plot_granularity(
+    results: dict, metric_evaluated: str, budget: int, label: str
+) -> None:
+
+    cdfs = []
+    data = []
+    for _, target_results_per_metric in results.items():
+        try:
+            ecs_shortest_ping_vp = target_results_per_metric["result_per_metric"][
+                "jaccard"
+            ]["ecs_shortest_ping_vp_per_budget"][budget]
+        except KeyError:
+            continue
+
+        if ecs_shortest_ping_vp[metric_evaluated]:
+            data.append(ecs_shortest_ping_vp[metric_evaluated])
+
+    x, y = ecdf(data)
+    cdfs.append((x, y, label))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+    logger.info(f"ECS SP:: {label}: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"ECS SP:: {label}: median_error={round(m_error, 2)} [km]")
+
+    return cdfs
+
+
+def plot_score_distance(
+    results: dict, metric_evaluated: str, score_distance: str, budget: int, label: str
+) -> None:
+
+    cdfs = []
+    data = []
+    for _, target_results_per_metric in results.items():
+        try:
+            ecs_shortest_ping_vp = target_results_per_metric["result_per_metric"][
+                score_distance
+            ]["ecs_shortest_ping_vp_per_budget"][budget]
+        except KeyError:
+            continue
+
+        if ecs_shortest_ping_vp[metric_evaluated]:
+            data.append(ecs_shortest_ping_vp[metric_evaluated])
+
+    x, y = ecdf(data)
+    cdfs.append((x, y, label))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+    logger.info(f"ECS SP:: {label}: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"ECS SP:: {label}: median_error={round(m_error, 2)} [km]")
+
+    return cdfs
+
+
+def plot_per_granularity() -> None:
+    all_cdfs = []
+    probing_budgets = [50, 1]
+
+    ref_cdf = plot_ref("d_error")
+    all_cdfs.append(ref_cdf)
+
+    answer_eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score_answers.pickle"
+    )
+
+    granularities_eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+    )
+
+    output_path = "granularity_evaluation"
+
+    for budget in probing_budgets:
+        cdfs = plot_granularity(
+            results=answer_eval.results_answers,
+            metric_evaluated="d_error",
+            budget=budget,
+            label="Server IP addresses" + f", {budget} {'VPs' if budget > 1 else 'VP'}",
+        )
+        all_cdfs.extend(cdfs)
+
+        cdfs = plot_granularity(
+            results=granularities_eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            budget=budget,
+            label="/24"
+            + f", {budget} {'VPs' if budget > 1 else 'VP'}"
+            + f"{' (GeoResolver)' if budget == 50 else ''}",
+        )
+        all_cdfs.extend(cdfs)
+
+        cdfs = plot_granularity(
+            results=granularities_eval.results_answer_bgp_prefixes,
+            metric_evaluated="d_error",
+            budget=budget,
+            label="BGP" + f", {budget} {'VPs' if budget > 1 else 'VP'}",
+        )
+        all_cdfs.extend(cdfs)
+
+    plot_multiple_cdf(all_cdfs, output_path, "d_error", False, "lower right", 10)
+
+
+def plot_per_scores_distance():
+    all_cdfs = []
+    probing_budgets = [50, 1]
+
+    ref_cdf = plot_ref("d_error")
+    all_cdfs.append(ref_cdf)
+
+    eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+    )
+
+    output_path = "score_distance_evaluation"
+
+    for budget in probing_budgets:
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="jaccard",
+            budget=budget,
+            label=f"Jaccard"
+            + f", {budget} {'VPs' if budget > 1 else 'VP'}"
+            + f"{' (GeoResolver)' if budget == 50 else ''}",
+        )
+        all_cdfs.extend(cdfs)
+
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="intersection",
+            budget=budget,
+            label=f"Szymkiewicz–Simpson"
+            + f", {budget} {'VPs' if budget > 1 else 'VP'}",
+        )
+        all_cdfs.extend(cdfs)
+
+    plot_multiple_cdf(all_cdfs, output_path, "d_error", False, "lower right", 10)
+
+
+def plot_per_scores_distance_scope():
+    all_cdfs = []
+    probing_budgets = [50, 1]
+
+    ref_cdf = plot_ref("d_error")
+    all_cdfs.append(ref_cdf)
+
+    eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+    )
+
+    output_path = "score_distance_with_scope_evaluation"
+
+    for budget in probing_budgets:
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="jaccard",
+            budget=budget,
+            label=f"Unweighted"
+            + f", {budget} {'VPs' if budget > 1 else 'VP'}"
+            + f"{' (GeoResolver)' if budget == 50 else ''}",
+        )
+        all_cdfs.extend(cdfs)
+
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="jaccard_scope_linear_weight",
+            budget=budget,
+            label=f"Linear weight" + f", {budget} {'VPs' if budget > 1 else 'VP'}",
+        )
+        all_cdfs.extend(cdfs)
+
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="jaccard_scope_poly_weight",
+            budget=budget,
+            label=f"Square weight" + f", {budget} {'VPs' if budget > 1 else 'VP'}",
+        )
+        all_cdfs.extend(cdfs)
+
+    plot_multiple_cdf(all_cdfs, output_path, "d_error", False, "lower right", 9)
+
+
+def plot_per_vp_selection():
+    all_cdfs = []
+    probing_budgets = [500, 100, 50, 20, 10, 1]
+
+    ref_cdf = plot_ref("d_error")
+    all_cdfs.append(ref_cdf)
+
+    eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+    )
+
+    output_path = "vp_selection_evaluation"
+
+    for budget in probing_budgets:
+        cdfs = plot_score_distance(
+            results=eval.results_answer_subnets,
+            metric_evaluated="d_error",
+            score_distance="jaccard",
+            budget=budget,
+            label=f"{budget} {'VPs' if budget > 1 else 'VP'}"
+            + f"{' (GeoResolver)' if budget == 50 else ''}",
+        )
+        all_cdfs.extend(cdfs)
+
+    plot_multiple_cdf(all_cdfs, output_path, "d_error", False, "lower right", 8)
+
+
 if __name__ == "__main__":
-    compute_scores = True
-    evaluation = True
+    compute_scores = False
+    evaluation = False
+    make_figures = True
 
     if compute_scores:
         compute_score()
 
     if evaluation:
         evaluate()
+
+    if make_figures:
+        plot_per_granularity()
+        plot_per_scores_distance()
+        plot_per_scores_distance_scope()
+        plot_per_vp_selection()
