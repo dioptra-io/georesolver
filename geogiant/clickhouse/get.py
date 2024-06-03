@@ -72,6 +72,28 @@ class GetSubnets(Query):
         """
 
 
+class GetAllResponsiveIP(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            DISTINCT toString(dst_addr) as dst_addr
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        WHERE min > -1
+        """
+
+
+class GetMetroIP(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            DISTINCT toString(dst_addr) as dst_addr
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        WHERE min > -1 AND min < 2
+        """
+
+
 class GetVPsSubnets(Query):
     def statement(self, table_name: str, is_anchor: bool = False) -> str:
         if is_anchor:
