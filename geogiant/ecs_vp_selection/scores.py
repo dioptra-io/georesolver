@@ -276,7 +276,7 @@ def get_vps_score_per_hostname(
 def get_sorted_score(vps_score: dict) -> dict[dict]:
     """calculate final target score based on vps score for each target"""
     score_per_metric = {}
-    max_vp = 5_00
+    max_vp = 100_000
     for metric, vps_score in vps_score.items():
         score_per_metric[metric] = sorted(
             [
