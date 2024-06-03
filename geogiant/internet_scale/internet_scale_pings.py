@@ -154,50 +154,59 @@ def get_measurement_schedule() -> dict[list]:
     return measurement_schedule
 
 
-async def ping_targets() -> None:
+async def ping_targets(wait_time: int = 60 * 20) -> None:
     """perfrom geolocation based on score similarity function"""
-    await insert_measurements()
-
-    measurement_schedule = get_measurement_schedule()
-
-    batch_size = 1_000
-    for i in range(0, len(measurement_schedule), batch_size):
-
-        batch_schedule = measurement_schedule[i : i + batch_size]
-
-        logger.debug(
-            f"Pings schedule (batch {(i + 1) // batch_size}/{len(measurement_schedule) // batch_size})"
-        )
-        await RIPEAtlasProber(
-            probing_type="ping", probing_tag="ping_internet_scale"
-        ).main(batch_schedule)
-
-        time.sleep(60 * 2)
-
+    while True:
         await insert_measurements()
+        measurement_schedule = get_measurement_schedule()
+
+        if measurement_schedule:
+
+            batch_size = 1_000
+            for i in range(0, len(measurement_schedule), batch_size):
+
+                batch_schedule = measurement_schedule[i : i + batch_size]
+
+                logger.debug(
+                    f"Pings schedule (batch {(i + 1) // batch_size}/{len(measurement_schedule) // batch_size})"
+                )
+                await RIPEAtlasProber(
+                    probing_type="ping", probing_tag="ping_internet_scale"
+                ).main(batch_schedule)
+
+                time.sleep(60 * 2)
+
+                await insert_measurements()
+
+        else:
+            logger.info(f"No measurement available, pause: {wait_time} mins")
+            time.sleep(wait_time)
 
 
 async def insert_measurements() -> None:
     cached_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(PING_TABLE)
 
     measurement_ids = []
+    config_uuids = []
     for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_internet_scale" in config_file.name:
             config = load_json(config_file)
-            measurement_ids.extend([id for id in config["ids"]])
 
-            logger.info(f"{config_file}:: {len(config['ids'])} ran")
+            if config["ids"]:
+                measurement_ids.extend(config["ids"])
+                logger.info(f"{config_file}:: {len(config['ids'])} ran")
+                config_uuids.append(config["uuid"])
 
     measurement_to_insert = list(
         set(measurement_ids).difference(set(cached_measurement_ids))
     )
 
-    config_uuid = config["uuid"]
     logger.info(f"{len(measurement_to_insert)} measurements to insert")
 
-    logger.info(
-        f"Retreiving results for {len(measurement_to_insert)} measurements for {config_uuid=}"
-    )
+    logger.info(f"Retreiving results for {len(measurement_to_insert)} measurements")
+
+    for uuid in config_uuids:
+        logger.debug(f"{uuid=}")
 
     batch_size = 100
     for i in range(0, len(measurement_to_insert), batch_size):
@@ -237,16 +246,12 @@ def evaluate() -> None:
 
 
 async def main() -> None:
-    geolocate = False
-    insert = False
+    geolocate = True
     evaluation = True
     make_figures = True
 
     if geolocate:
         await ping_targets()
-
-    if insert:
-        await insert_measurements()
 
     if evaluation:
         evaluate()

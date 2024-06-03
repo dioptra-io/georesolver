@@ -1,5 +1,5 @@
 import asyncio
-import subprocess
+import time
 
 from random import shuffle
 from tqdm import tqdm
@@ -76,13 +76,21 @@ async def ping_targets(wait_time: int = 60 * 20) -> dict[list]:
         await insert_measurements()
 
         cached_pings = get_shortest_ping_vps(PING_AGGREGATION_TABLE)
+        cached_targets = [target for target, _ in cached_pings]
         measurement_schedule = load_json(INTERNET_SCALE_RESPONSIVE_IP_ADDRS)
+
+        logger.info(f"responsive IP addresses:: {len(measurement_schedule)}")
 
         filtered_schedule = []
         for target, vp_ids in measurement_schedule:
-            if target in cached_pings:
+            if target in cached_targets:
                 continue
+
             filtered_schedule.append((target, vp_ids))
+
+            measurement_schedule = filtered_schedule
+
+        logger.info(f"Remaining targets:: {len(measurement_schedule)}")
 
         if measurement_schedule:
 
@@ -100,9 +108,9 @@ async def ping_targets(wait_time: int = 60 * 20) -> dict[list]:
 
                 await insert_measurements()
 
-            else:
-                logger.info(f"No measurement available, pause: {wait_time} mins")
-                asyncio.sleep(wait_time)
+        else:
+            logger.info(f"No measurement available, pause: {wait_time} mins")
+            time.sleep(wait_time)
 
 
 async def insert_measurements() -> None:

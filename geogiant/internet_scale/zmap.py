@@ -133,13 +133,12 @@ def zmap() -> None:
         vp_id_per_addr[vp["addr"]] = vp["id"]
 
     batch_size_zmap = 1_00
-    measurement_schedule = []
     for i in range(0, len(targets), batch_size_zmap):
         logger.info(
             f"ZMAP, batch:: {(i +batch_size_zmap) // batch_size_zmap}/{len(targets) //batch_size_zmap}"
         )
+        measurement_schedule = []
         for target, ecs_vps in targets[i : i + batch_size_zmap]:
-            measurement_schedule = []
             subnet = get_prefix_from_ip(target)
             responsive_ip_addrs = get_responsive_ip_addrs_in_subnet(subnet)
 
