@@ -193,7 +193,7 @@ def plot_cdf(
     homogenize_legend(ax1, legend_pos, legend_size=legend_size)
     plt.tight_layout()
     plt.xscale("log")
-    plt.xlim(left=x_lim)
+    # plt.xlim(left=x_lim)
     plt.ylim((0, y_lim))
     plt.savefig(
         path_settings.FIGURE_PATH / f"{output_path}.png",
@@ -310,6 +310,8 @@ def plot_ref(metric_evaluated: str) -> None:
 
     ref_cdf = (x, y, "Shortest ping, all VPs")
 
+    ref_under_40 = get_proportion_under(x, y)
+    logger.info(f"Ref:: <40km {ref_under_40}%")
     return ref_cdf
 
 
@@ -338,7 +340,7 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
             proportion_of_ip = y[i]
             break
 
-    return proportion_of_ip
+    return round(proportion_of_ip, 2)
 
 
 def plot_limit(

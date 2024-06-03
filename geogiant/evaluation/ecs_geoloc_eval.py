@@ -163,7 +163,7 @@ def ecs_dns_vp_selection_eval(
 
             # get vps, function of their subnet ecs score
             ecs_vps = get_ecs_vps(
-                target["subnet"], target_score, vps_per_subnet, last_mile_delay, 5_00
+                target["subnet"], target_score, vps_per_subnet, last_mile_delay, 10_000
             )
 
             # remove vps that have a high last mile delay
@@ -305,8 +305,8 @@ def get_shortest_ping_geo_resolver(
                             (target, vp_shortest_ping_addr, shortest_ping_rtt)
                         )
 
-                except KeyError:
-                    logger.debug(f"No ping available for target:: {target}")
+                except KeyError as e:
+                    logger.debug(f"No ping available for target:: {target}:: {e}")
                     continue
 
         geo_resolver_sp[budget] = targets_shortest_ping

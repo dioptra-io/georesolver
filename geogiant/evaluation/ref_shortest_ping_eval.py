@@ -58,6 +58,7 @@ def ref_shortest_ping_eval(
         )
 
         if not ref_shortest_ping_vp:
+            raise RuntimeError(f"wtf? {target['addr']}")
             continue
 
         results[target["addr"]] = {
