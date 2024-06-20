@@ -287,11 +287,11 @@ if __name__ == "__main__":
         rsync_files(vm, vm_config, delete_after=True)
         check_docker_running(vm, vm_config)
 
-    # insert_ecs_mapping_results(gcp_vms, output_table="vps_mapping_ecs")
-    # insert_local_results(
-    #     local_table="filtered_hostnames_ecs_mapping",
-    #     remote_table="vps_mapping_ecs",
-    #     output_table="vps_mapping_ecs",
-    # )
+    insert_ecs_mapping_results(gcp_vms, output_table="vps_mapping_ecs")
+    insert_local_results(
+        local_table="filtered_hostnames_ecs_mapping",
+        remote_table="vps_mapping_ecs",
+        output_table="vps_mapping_ecs",
+    )
 
-    # insert_name_server_results(gcp_vms, output_table="name_servers")
+    insert_name_server_results(gcp_vms, output_table="name_servers")

@@ -175,9 +175,6 @@ if __name__ == "__main__":
     name_server_resolution = True
     ecs_resolution = False
 
-    # "iris-me-central1": "34.1.33.16",
-    # "iris-asia-southeast1": "35.213.136.86",
-
     gcp_vms = {
         "iris-europe-north1": "35.217.17.6",
         "iris-us-east4": "35.212.12.175",
@@ -215,10 +212,9 @@ if __name__ == "__main__":
         logger.info(
             f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}, {len(vm_config['subnets'])}"
         )
-        # deploy_hostname_resolution(vm, vm_config)
+        deploy_hostname_resolution(vm, vm_config)
         check_docker_running(vm, vm_config)
-        # monitor_memory_space(vm, vm_config)
-        # rsync_files(vm, vm_config, delete_after=False)
-        # time.sleep(5)
+        monitor_memory_space(vm, vm_config)
+        rsync_files(vm, vm_config, delete_after=False)
 
-    # insert_ecs_mapping_results(gcp_vms, output_table="end_to_end_mapping_ecs")
+    insert_ecs_mapping_results(gcp_vms, output_table="end_to_end_mapping_ecs")
