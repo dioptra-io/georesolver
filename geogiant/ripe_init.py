@@ -23,7 +23,6 @@ from pych_client import AsyncClickHouseClient
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.clickhouse import (
     GetVPs,
-    GetSubnets,
     CreateGeolocTable,
     CreateTracerouteTable,
     InsertFromCSV,
@@ -34,7 +33,7 @@ from geogiant.clickhouse import (
 from geogiant.common.geoloc import distance, rtt_to_km
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.files_utils import load_countries_info, create_tmp_csv_file
-from common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
@@ -75,15 +74,6 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
             )
 
     return valid_vps
-
-
-def filter_vps(vps: list) -> None:
-    """filter vps based on 1) default geolocation 2) DNS resolution"""
-    # 1. filter default location VPs
-    vps = filter_default_geoloc(vps)
-
-    # 4. TODO: get resolution for all VPs on a set of hostnames
-    return vps
 
 
 def parse_traceroute(traceroute: dict) -> str:
@@ -165,9 +155,9 @@ async def download() -> None:
 
 async def insert() -> None:
     """from a decompressed traceroute file, parse them"""
+    traceroutes = []
     in_file = path_settings.DATASET / "traceroute-2024-02-06T2300"
     batch_size = 100_000
-    traceroutes = []
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreateTracerouteTable().execute(
@@ -305,12 +295,12 @@ async def main() -> None:
 
     await init_ripe_atlas_prober(output_table=vps_table)
 
-    # await download()
+    await download()
 
-    # await insert()
+    await insert()
 
-    # await probe_connectivity()
-    # await get_geoloc_from_traceroute()
+    await probe_connectivity()
+    await get_geoloc_from_traceroute()
 
 
 if __name__ == "__main__":

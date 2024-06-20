@@ -132,7 +132,7 @@ class ZDNS:
                 answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
 
                 if not answer_asn or not answer_bgp_prefix:
-                    logger.info(f"{answer}:: Could not retrieve ASN and BGP prefix")
+                    logger.debug(f"{answer}:: Could not retrieve ASN and BGP prefix")
                     continue
 
                 parsed_output.append(

@@ -2,7 +2,7 @@ import asyncio
 
 from geogiant.common.files_utils import load_csv
 from geogiant.hostname_init import resolve_vps_subnet
-from common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()

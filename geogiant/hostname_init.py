@@ -349,37 +349,35 @@ async def resolve_vps_on_selected_hostnames(
 
 async def main() -> None:
     """init main"""
-    logger.info("Starting Geolocation hostnames initialization")
+    input_file = path_settings.DATASET / "vps_subnet.json"
+    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
 
-    # await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
+    logger.info("Retrieving ECS hostnames")
+    await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
 
-    logger.info("Retrieved ECS hostnames")
-
-    logger.info("Get ECS hostnames CDN/organization")
+    logger.info("Get hostnames hosting organization")
     await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
-    # selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
-
-    # input_file = path_settings.DATASET / "vps_subnet.json"
-    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
+    logger.info(f"ECS resolution on VPs subnets")
     await resolve_vps_subnet(
         selected_hostnames=selected_hostnames,
         input_file=input_file,
         output_file=output_file,
     )
 
+    logger.info(f"Resolving name servers")
     await resolve_name_servers(
         selected_hostnames=selected_hostnames,
         output_table="name_servers_end_to_end",
     )
 
-    # await get_hostname_cdn()
-
-    # await resolve_vps_on_selected_hostnames(
-    #     selected_hostnames_file=path_settings.DATASET
-    #     / "hostname_1M_max_bgp_prefix_per_cdn.csv",
-    #     output_table="time_of_day_evaluation",
-    # )
+    logger.info(f"Final ECS resolution on VP subnets")
+    await resolve_vps_on_selected_hostnames(
+        selected_hostnames_file=path_settings.DATASET
+        / "hostname_1M_max_bgp_prefix_per_cdn.csv",
+        output_table="time_of_day_evaluation",
+    )
 
 
 if __name__ == "__main__":
