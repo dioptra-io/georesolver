@@ -13,6 +13,7 @@ class ConstantSettings(BaseSettings):
 
     SPEED_OF_LIGHT: int = 300000
     SPEED_OF_INTERNET: float = SPEED_OF_LIGHT * 2 / 3
+    PROBING_BUDGET: int = 50
 
 
 class PathSettings(BaseSettings):
@@ -94,6 +95,9 @@ class PathSettings(BaseSettings):
     VPS_RAW_DATA: Path = OLD_DATA_PATH / "vps_raw.zst"
     DNS_MAPPING_VPS_RAW_DATA: Path = OLD_DATA_PATH / "raw_dns_mapping_vps.zst"
 
+    # GeoResolver settings
+    DEFAULT_HOSTNAME_FILE: Path = DATASET / "internet_scale_hostnames.csv"
+
 
 class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
@@ -155,6 +159,9 @@ class ClickhouseSettings(BaseSettings):
                 "max_query_size": 1000000000000000,
             },
         }
+
+    # GeoResolver settings
+    ECS_TARGET_TABLE: str = "ecs_target_table"
 
 
 class RIPEAtlasSettings(PathSettings, ClickhouseSettings):

@@ -4,6 +4,7 @@ import json
 import pickle
 import bz2
 
+from tqdm import tqdm
 from ipaddress import IPv4Address, AddressValueError
 from typing import Generator
 from typing import Iterator
@@ -12,6 +13,7 @@ from loguru import logger
 from dateutil import parser
 from datetime import datetime
 from pathlib import Path
+from collections import defaultdict
 
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings
@@ -321,3 +323,34 @@ def generate_routers_targets_file(routers_path: Path) -> None:
         logger.info(f"Number of targets in routers datasets:: {len(targets)}")
 
         dump_json(targets, routers_path)
+
+
+def ip_addresses_hitlist() -> None:
+    targets_per_prefix = defaultdict(list)
+
+    total_addr = set()
+    total_subnets = set()
+    with open(path_settings.ADDRESS_FILE, "r") as f:
+        for row in tqdm(f.readlines()[1:]):
+            row = row.split("\t")
+
+            try:
+                score = row[1]
+            except IndexError:
+                continue
+
+            if int(score) < 50:
+                continue
+
+            ip_addr = row[-1].strip("\n")
+            subnet = get_prefix_from_ip(ip_addr)
+
+            targets_per_prefix[subnet].append(ip_addr)
+
+            total_addr.add(ip_addr)
+            total_subnets.add(subnet)
+
+    logger.info(f"{len(total_addr)=}")
+    logger.info(f"{len(total_subnets)=}")
+
+    dump_json(targets_per_prefix, path_settings.USER_HITLIST_FILE)
