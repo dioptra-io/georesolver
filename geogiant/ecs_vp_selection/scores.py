@@ -456,8 +456,3 @@ def get_scores(score_config: dict) -> None:
     )
 
     dump_pickle(data=score, output_file=Path(score_config["output_path"]))
-
-
-if __name__ == "__main__":
-    score_config = load_json(path_settings.DATASET / "score_config.json")
-    get_scores(score_config)
