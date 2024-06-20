@@ -95,7 +95,7 @@ def free_memory(vm: str, vm_config: dict) -> None:
     logger.info(f"Freeing memory on vm:: {vm}")
 
     c = Connection(f"{path_settings.SSH_USER}@{vm_config['ip_addr']}")
-    result = c.run("rm -rf results/internet_scale_ecs_resolution_*")
+    c.run("rm -rf results/internet_scale_ecs_resolution_*")
 
 
 def rsync_files(vm: str, vm_config: dict, delete_after: bool = False) -> None:
@@ -151,34 +151,33 @@ def deploy_hostname_resolution(vm: str, vm_config: dict) -> None:
     dump_json(vm_config["subnets"], vm_result_path / "internet_scale_subnets.json")
 
     # upload hostname file
-    result = c.put(
+    c.put(
         local=f"{selected_hostnames_file}",
         remote="datasets",
     )
 
     # upload subnets file
-    result = c.put(
+    c.put(
         local=f"{vm_subnet_file_path}",
         remote="datasets",
     )
 
     # docker login
-    result = c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
-    result = c.run(
+    c.run(f"export PAT={path_settings.GITHUB_TOKEN}")
+    c.run(
         f"docker login ghcr.io -u {path_settings.DOCKER_USERNAME} -p {path_settings.GITHUB_TOKEN}"
     )
 
     # pull docker image
-    result = c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
+    c.run("docker pull ghcr.io/dioptra-io/geogiant:main")
 
     # run docker image
     logger.info("Starting hostname init process")
-    result = c.run(docker_run_cmd())
+    c.run(docker_run_cmd())
 
 
 def distributed_ecs_mapping() -> None:
-    # "iris-me-central1": "34.1.33.16",
-    # "iris-asia-southeast1": "35.213.136.86",
+
     gcp_vms = {
         "iris-europe-north1": "35.217.17.6",
         "iris-us-east4": "35.212.12.175",
@@ -188,6 +187,8 @@ def distributed_ecs_mapping() -> None:
         "iris-asia-south1": "35.207.233.237",
         "iris-asia-east1": "35.213.132.83",
         "iris-asia-northeast1": "35.213.95.10",
+        "iris-me-central1": "34.1.33.16",
+        "iris-asia-southeast1": "35.213.136.86",
     }
 
     # load hostnames and subnets
@@ -289,7 +290,7 @@ async def local_ecs_mapping(subnet_batch_size: int = 1_000_000) -> None:
 
     batch_size = 10_000
     for i in range(0, len(internet_scale_subnets), batch_size):
-        logger.info(f"Batch:: {i+1}/{len(internet_scale_subnets) // batch_size}")        
+        logger.info(f"Batch:: {i+1}/{len(internet_scale_subnets) // batch_size}")
         batch_subnets = internet_scale_subnets[i : i + batch_size]
 
         subnet_tmp_file_path = create_tmp_json_file(batch_subnets)

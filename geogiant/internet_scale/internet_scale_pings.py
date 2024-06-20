@@ -205,9 +205,6 @@ async def insert_measurements() -> None:
 
     logger.info(f"Retreiving results for {len(measurement_to_insert)} measurements")
 
-    for uuid in config_uuids:
-        logger.debug(f"{uuid=}")
-
     batch_size = 100
     for i in range(0, len(measurement_to_insert), batch_size):
         ids = measurement_to_insert[i : i + batch_size]
