@@ -67,6 +67,8 @@ class RIPEAtlasProber:
         config_file = out_path / f"{self.table_name}.json"
         dump_json(config, config_file)
 
+        return config_file
+
     async def wait_for_batch(self, ongoing_ids: set) -> list:
         """Wait for a measurement batch to end"""
 
@@ -177,7 +179,7 @@ class RIPEAtlasProber:
             logger.debug("Measurement Ids saved")
             ids_to_insert = None
 
-    async def main(self, schedule: dict, config: dict = None) -> None:
+    async def main(self, schedule: dict, config: dict = None) -> Path:
         """run measurement schedule using RIPE Atlas API"""
 
         # check if schedule is in accordance with API's parameters
@@ -206,4 +208,8 @@ class RIPEAtlasProber:
         config["start_time"] = self.start_time
         config["end_time"] = self.end_time
 
-        self.save_config(config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
+        output_path = self.save_config(
+            config, out_path=self.api.settings.MEASUREMENTS_CONFIG
+        )
+
+        return output_path
