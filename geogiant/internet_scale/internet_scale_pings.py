@@ -64,6 +64,7 @@ def get_geo_resolver_schedule(
 
         if not target_scores:
             logger.error(f"{target_subnet} does not have score")
+
         for _, target_score in target_scores.items():
 
             # get vps, function of their subnet ecs score
