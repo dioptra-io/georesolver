@@ -162,6 +162,12 @@ class ClickhouseSettings(BaseSettings):
 
     # GeoResolver settings
     ECS_TARGET_TABLE: str = "ecs_target_table"
+    ECS_VPS_TABLE: str = "vps_mapping_ecs"
+    SCORE_TARGET_TABLE: str = "score_target_table"
+    PING_TARGET_TABLE: str = "ping_target_table"
+    GEOLOC_TARGET_TABLE: str = "geoloc_target_table"
+
+    VPS_FILTERED_TABLE: str = "filtered_vps"
 
 
 class RIPEAtlasSettings(PathSettings, ClickhouseSettings):

@@ -87,7 +87,7 @@ def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = None) -> dict:
 
         vps_subnet[subnet].append(vp_addr)
         vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
-        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_asn)
+        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_country_code, vp_asn)
 
     return vps_subnet, vps_coordinates
 
