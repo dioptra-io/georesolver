@@ -298,7 +298,10 @@ def get_hostname_score(args) -> None:
         score_config,
     ) = args
 
-    hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
+    try:
+        hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
+    except KeyError:
+        hostnames = score_config["selected_hostnames"]
 
     if "target_mapping_path" in score_config:
         targets_mapping = load_pickle(path_settings.DATASET / "targets_mapping.pickle")
@@ -363,8 +366,10 @@ def load_hostnames(hostname_per_cdn: dict) -> list[str]:
 
 
 def get_scores(score_config: dict) -> None:
-    hostname_per_cdn = score_config["hostname_per_cdn"]
-    hostnames, cdns = load_hostnames(hostname_per_cdn)
+    try:
+        hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
+    except KeyError:
+        hostnames = score_config["selected_hostnames"]
 
     if "targets_subnet_path" in score_config:
         targets_subnet_path = Path(score_config["targets_subnet_path"])
@@ -449,10 +454,12 @@ def get_scores(score_config: dict) -> None:
     score = TargetScores(
         score_config=score_config,
         hostnames=hostnames,
-        cdns=cdns,
+        cdns=None,
         score_answers=target_score_answer,
         score_answer_subnets=target_score_subnet,
         score_answer_bgp_prefixes=target_score_bgp_prefix,
     )
 
     dump_pickle(data=score, output_file=Path(score_config["output_path"]))
+
+    return score
