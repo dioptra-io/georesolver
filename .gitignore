@@ -9,6 +9,7 @@ __pycache__/
 # generated dir
 datasets/
 measurements/
+cached_measurements/
 tmp/
 results/
 debbuging/

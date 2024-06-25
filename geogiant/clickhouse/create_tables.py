@@ -94,15 +94,16 @@ class CreateGeolocTable(Query):
                 addr               IPv4,
                 subnet             IPv4,
                 bgp_prefix         String,
-                asn                Int16,
+                asn                UInt16,
                 lat                Float32, 
                 lon                Float32,
                 country_code       String,
                 vp_addr            IPv4,
                 vp_subnet          IPv4,
                 vp_bgp_prefix      String,
+                vp_asn             UInt16,
                 min_rtt            Float32,
-                measured_dst       Float32
+                msm_id             UInt32
             )
             ENGINE MergeTree
             ORDER BY ({sorting_key})
@@ -169,6 +170,23 @@ class CreateDNSMappingWithMetadataTable(Query):
                 pop_city               String,
                 pop_country            String,
                 pop_continent          String
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
+class CreateScoreTable(Query):
+    def statement(self, table_name: str) -> str:
+        sorting_key = "client_subnet, vp_subnet, metric, score"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            (
+                client_subnet          IPv4,
+                vp_subnet              IPv4,
+                metric                 String,
+                answer_granularity     String,
+                score                  Float32
             )
             ENGINE MergeTree
             ORDER BY ({sorting_key})

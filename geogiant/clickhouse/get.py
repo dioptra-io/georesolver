@@ -120,6 +120,27 @@ class GetSubnets(Query):
         """
 
 
+class GetTargetScore(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"WHERE client_subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        return f"""
+        SELECT 
+            client_subnet, 
+            arraySort(x -> -x.2, groupArray((vp_subnet, score))) AS vps_score
+            FROM 
+                {self.settings.DATABASE}.{table_name} 
+            {subnet_filter}    
+            GROUP BY 
+                client_subnet
+            
+        """
+
+
 class GetDstPrefix(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         latency_clause = ""
@@ -236,7 +257,7 @@ class GetPingsPerTarget(Query):
                 f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
             )
 
-        stat = f"""
+        return f"""
         SELECT 
             toString(dst_addr) as target,
             groupArray((toString(src_addr), min)) as pings
@@ -250,8 +271,58 @@ class GetPingsPerTarget(Query):
         GROUP BY 
             target
         """
-        print(stat)
-        return stat
+
+
+class GetCachedTargets(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        target_filter = ""
+        if filtered_targets := kwargs.get("filtered_targets"):
+            target_filter = "".join([f",toIPv4('{s}')" for s in filtered_targets])[1:]
+            target_filter = f"WHERE dst_addr IN ({target_filter})"
+
+        return f"""
+        SELECT 
+            DISTINCT toString(dst_addr) as target
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        {target_filter}
+        """
+
+
+class GetShortestPingResults(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if filtered_targets := kwargs.get("filtered_targets"):
+            target_filter = "".join([f",toIPv4('{s}')" for s in filtered_targets])[1:]
+            target_filter = f"AND dst_addr IN ({target_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        return f"""
+        SELECT
+            dst_addr,
+            arrayReduce(
+                'argMin', 
+                arrayMap(
+                    x -> (x.1, x.3), 
+                    groupUniqArray((src_addr, min, msm_id))
+                ), 
+                arrayMap(
+                    x -> (x.2), 
+                    groupUniqArray((src_addr, min, msm_id))
+                )
+            ) AS shortest_ping,
+            arrayMin(
+                x -> (x.2), 
+                groupUniqArray((src_addr, min, msm_id))
+            ) AS min_rtt
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE 
+            min > -1
+            {target_filter}
+        GROUP BY 
+            dst_addr
+        """
 
 
 class GetLastMileDelay(Query):
@@ -489,6 +560,32 @@ class GetDNSMappingHostnames(Query):
             toString(subnet) as client_subnet,
             hostname,
             source_scope,
+            groupUniqArray((answer)) as answers,
+            groupUniqArray((answer_subnet)) as answer_subnets,
+            groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
+        FROM
+            {self.settings.DATABASE}.{table_name}
+        WHERE 
+            {subnet_filter}
+            {hostname_filter}
+        GROUP BY
+            (subnet, hostname, source_scope)
+        """
+
+
+class GetScorePerSubnet(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        # TODO
+        return f"""
+        SELECT
+            toString(subnet) as client_subnet,
+            vp_subnet,
             groupUniqArray((answer)) as answers,
             groupUniqArray((answer_subnet)) as answer_subnets,
             groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
