@@ -35,7 +35,7 @@ def select_one_vp_per_as_city(
     filtered_vp_selection = []
     vps_per_as = defaultdict(list)
     for vp_addr, score in raw_vp_selection:
-        _, _, vp_asn = vp_coordinates[vp_addr]
+        _, _, vp_asn, _ = vp_coordinates[vp_addr]
         try:
             last_mile_delay_vp = last_mile_delay[vp_addr]
         except KeyError:
@@ -48,7 +48,7 @@ def select_one_vp_per_as_city(
     for asn, vps in vps_per_as.items():
         vps_per_as[asn] = sorted(vps, key=lambda x: x[1])
         for vp_i, last_mile_delay, score in vps_per_as[asn]:
-            vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
+            vp_i_lat, vp_i_lon, _, _ = vp_coordinates[vp_i]
 
             if not selected_vps_per_as[asn]:
                 selected_vps_per_as[asn].append((vp_i, score))
@@ -57,7 +57,7 @@ def select_one_vp_per_as_city(
                 already_found = False
                 for vp_j, score in selected_vps_per_as[asn]:
 
-                    vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
+                    vp_j_lat, vp_j_lon, _, _ = vp_coordinates[vp_j]
 
                     d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
 
@@ -260,6 +260,7 @@ def get_shortest_ping_geo_resolver(
     )
 
     ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
+
     for budget in probing_budgets:
         targets_shortest_ping = []
         for target in tqdm(targets):
