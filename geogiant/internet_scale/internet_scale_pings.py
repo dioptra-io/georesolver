@@ -104,6 +104,10 @@ def load_subnet_scores() -> list[str]:
             for subnet in subnet_schedule:
                 subnet_scores[subnet] = score[subnet]
 
+        if len(subnet_scores) > 10_000:
+            logger.info("Enought subnets loaded")
+            break
+
     return subnet_scores
 
 
