@@ -4,11 +4,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from loguru import logger
 from tqdm import tqdm
-from pathlib import Path
 
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.files_utils import load_pickle
-from geogiant.common.queries import get_pings_per_target, get_min_rtt_per_vp
+from geogiant.common.queries import get_pings_per_target
 from geogiant.common.geoloc import distance
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -158,7 +156,7 @@ def get_vp_info(
     """get all useful information about a selected VP"""
     vp_subnet = get_prefix_from_ip(vp_addr)
     try:
-        lat, lon, _ = vps_coordinates[vp_addr]
+        lat, lon, _, _ = vps_coordinates[vp_addr]
     except KeyError:
         logger.debug(f"{vp_addr} present into pings but not in original VPs")
         return None
@@ -227,3 +225,66 @@ def shortest_ping(selected_vps: list, pings: dict) -> tuple:
     addr, min_rtt = min(selected_pings, key=lambda x: x[-1])
 
     return addr, min_rtt
+
+
+def get_ecs_vps(
+    target_subnet: str,
+    target_score: dict,
+    vps_per_subnet: dict,
+    last_mile_delay_vp: dict,
+    probing_budget: int = 50,
+) -> list:
+    """
+    get the target score and extract best VPs function of the probing budget
+    """
+    # retrieve all vps belonging to subnets with highest mapping scores
+    ecs_vps = []
+    # target_score = sorted(target_score, key=lambda x: x[1], reverse=True)
+    for subnet, score in target_score:
+        # for fairness, do not take vps that are in the same subnet as the target
+        if subnet == target_subnet:
+            continue
+
+        vps_in_subnet = vps_per_subnet[subnet]
+
+        vps_delay_subnet = []
+        for vp in vps_in_subnet:
+            try:
+                vps_delay_subnet.append((vp, last_mile_delay_vp[vp]))
+            except KeyError:
+                continue
+
+        # for each subnet, elect the VP with the lowest last mile delay
+        if vps_delay_subnet:
+            elected_subnet_vp_addr, _ = min(vps_delay_subnet, key=lambda x: x[-1])
+            ecs_vps.append((elected_subnet_vp_addr, score))
+
+        # take only a number of subnets up to probing budget
+        if len(ecs_vps) >= probing_budget:
+            break
+
+    return ecs_vps
+
+
+def get_no_ping_vp(
+    target,
+    target_score: list,
+    vps_per_subnet: dict,
+    vps_coordinates: dict,
+    major_country: str = None,
+) -> dict:
+    """return VP with maximum score"""
+    target_subnet = get_prefix_from_ip(target["addr"])
+
+    subnet, _ = target_score[0]
+
+    for subnet, _ in target_score:
+        if subnet == target_subnet:
+            continue
+        else:
+            vp_addr = vps_per_subnet[subnet][0]
+            break
+
+    return get_vp_info(
+        target, target_score, vp_addr, vps_coordinates, major_country=major_country
+    )

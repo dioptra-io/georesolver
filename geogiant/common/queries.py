@@ -67,6 +67,9 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
 
         for row in resp:
             ping_vps_to_target[row["target"]] = row["pings"]
+
+        logger.info(f"Retrived pings for {len(ping_vps_to_target)} targets")
+
     except ClickHouseException:
         logger.warning(
             f"Something went wrong. Probably that {table_name} does not exists"
@@ -212,9 +215,10 @@ def get_subnets_mapping(
                     "answer_bgp_prefixes": answer_bgp_prefixes,
                     "source_scope": source_scope,
                 }
-        except ClickHouseException:
+
+        except ClickHouseException as e:
             logger.warning(
-                f"Something went wrong. Probably that {dns_table} does not exists"
+                f"Something went wrong. Probably that {dns_table} does not exists:: {e}"
             )
             pass
 
