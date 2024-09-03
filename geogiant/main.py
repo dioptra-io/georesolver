@@ -260,30 +260,14 @@ async def ping_targets(measurement_schedule: list, wait_time: int = 60 * 20) -> 
             output_path.unlink()
 
 
-async def insert_measurements(measurement_ids: list[int], ping_table: str) -> None:
-    logger.info(f"{len(measurement_ids)} measurements to insert")
-
-    logger.info(f"Retreiving results for {len(measurement_ids)} measurements")
-
-    batch_size = 100
-    for i in range(0, len(measurement_ids), batch_size):
-        ids = measurement_ids[i : i + batch_size]
-        await retrieve_pings(ids, ping_table)
-
-
-async def insert_geoloc_from_pings(targets: list[str]) -> None:
-    """insert all geoloc in clickhouse"""
+def parse_geoloc_data(target_geoloc: dict) -> list[str]:
+    """parse ping data to geoloc csv"""
+    csv_data = []
     asndb = pyasn(str(path_settings.RIB_TABLE))
     vps = load_vps(clickhouse_settings.VPS_FILTERED)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     _, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
-    target_geoloc = load_target_geoloc(
-        table_name=clickhouse_settings.PING_TARGET_TABLE, targets=targets
-    )
-
-    # parse
-    csv_data = []
     for target_addr, shortest_ping_data in target_geoloc.items():
         target_subnet = get_prefix_from_ip(target_addr)
         target_asn, target_bgp_prefix = route_view_bgp_prefix(target_addr, asndb)
@@ -299,7 +283,7 @@ async def insert_geoloc_from_pings(targets: list[str]) -> None:
             vp_bgp_prefix = "Unknown"
             vp_asn = -1
 
-        lat, lon, country_code, asn = vps_coordinates[vp_addr]
+        lat, lon, country_code, _ = vps_coordinates[vp_addr]
         msm_id = shortest_ping_data[1]
         min_rtt = shortest_ping_data[2]
 
@@ -319,7 +303,28 @@ async def insert_geoloc_from_pings(targets: list[str]) -> None:
             {msm_id}"
         )
 
-    # insert geoloc
+    return csv_data
+
+
+async def insert_measurements(measurement_ids: list[int], ping_table: str) -> None:
+    logger.info(f"{len(measurement_ids)} measurements to insert")
+
+    logger.info(f"Retreiving results for {len(measurement_ids)} measurements")
+
+    batch_size = 100
+    for i in range(0, len(measurement_ids), batch_size):
+        ids = measurement_ids[i : i + batch_size]
+        await retrieve_pings(ids, ping_table)
+
+
+async def insert_geoloc_from_pings(targets: list[str]) -> None:
+    """insert all geoloc in clickhouse"""
+    target_geoloc = load_target_geoloc(
+        table_name=clickhouse_settings.PING_TARGET_TABLE, targets=targets
+    )
+
+    csv_data = parse_geoloc_data(target_geoloc)
+
     await insert_geoloc(
         csv_data=csv_data,
         output_table=clickhouse_settings.GEOLOC_TARGET_TABLE,
@@ -391,13 +396,14 @@ async def geolocate(
 
         logger.info(f"Starting geolocation for {len(measurement_schedule)} targets")
 
-        # await ping_targets(measurement_schedule, clickhouse_settings.PING_TARGET_TABLE)
+        await ping_targets(measurement_schedule, clickhouse_settings.PING_TARGET_TABLE)
 
         logger.info("Geolocation done, retrieving measurements")
     else:
         logger.info("Skipping pings because they already exists")
 
     # Create geolocation table/file
+    filtered_geoloc = load_geolocation()
     await insert_geoloc_from_pings(targets)
 
 
