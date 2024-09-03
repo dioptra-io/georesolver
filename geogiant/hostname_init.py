@@ -46,19 +46,18 @@ async def resolve_hostnames(
     output_file: Path = None,
     output_table: str = None,
     end_date: datetime = "2024-01-23 00:00",
-    waiting_time: int = 60 * 60 * 2,
+    waiting_time: int = 60,
     request_timout: float = 0.1,
     request_type: str = "A",
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
-    if not output_file and not output_table:
-        raise RuntimeError("Either output_file or output_table var must be set")
-
     async def raw_dns_mapping(subnets: list) -> None:
         """perform DNS mapping with zdns on VPs subnet"""
 
         subnets = [subnet + "/24" for subnet in subnets]
+
+        logger.info(f"Starting ECS resolution, {repeat=}, {end_date=}")
 
         with hostname_file.open("r") as f:
             logger.info("raw hostname file already generated")
@@ -228,11 +227,13 @@ async def resolve_vps_subnet(
     input_table: str = None,
     output_table: str = None,
     chunk_size: int = 100,
+    waiting_time: int = 60,
+    repeat: bool = False,
+    end_date: datetime = "2024-01-01",
 ) -> None:
     """perform ECS-DNS resolution one all VPs subnet"""
     tmp_hostname_file = create_tmp_csv_file(selected_hostnames)
 
-    # load subnets from file if in file
     if input_file:
         vps_subnet = load_json(input_file)
 
@@ -247,20 +248,16 @@ async def resolve_vps_subnet(
             f"Either var input_file or input_table must be set to load vps subnets"
         )
 
-    if not output_file and not output_table:
-        raise RuntimeError(
-            f"Either var output_file or output_table must be set to dump results"
-        )
-
     # output file if out file instead of output table
     await resolve_hostnames(
         subnets=[s for s in vps_subnet],
         hostname_file=tmp_hostname_file,
         output_file=output_file,
         output_table=output_table,
-        repeat=False,
-        end_date=None,
+        repeat=repeat,
+        end_date=end_date,
         chunk_size=chunk_size,
+        waiting_time=waiting_time,
     )
 
     tmp_hostname_file.unlink()
@@ -350,34 +347,36 @@ async def resolve_vps_on_selected_hostnames(
 async def main() -> None:
     """init main"""
     input_file = path_settings.DATASET / "vps_subnet.json"
-    output_file = path_settings.RESULTS_PATH / "vps_mapping_ecs_resolution.csv"
-    selected_hostnames = load_csv(path_settings.DATASET / "hostname_ns_missing.csv")
 
-    logger.info("Retrieving ECS hostnames")
-    await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
+    # logger.info("Retrieving ECS hostnames")
+    # await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
 
-    logger.info("Get hostnames hosting organization")
-    await get_hostname_cdn(input_table="hostnames_1M_resolution")
+    # logger.info("Get hostnames hosting organization")
+    # await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
     logger.info(f"ECS resolution on VPs subnets")
+    selected_hostnames = load_csv(
+        path_settings.DATASET / "internet_scale_hostnames.csv"
+    )
+
     await resolve_vps_subnet(
         selected_hostnames=selected_hostnames,
         input_file=input_file,
-        output_file=output_file,
+        output_table="vps_mapping_ecs_latest",
     )
 
-    logger.info(f"Resolving name servers")
-    await resolve_name_servers(
-        selected_hostnames=selected_hostnames,
-        output_table="name_servers_end_to_end",
-    )
+    # logger.info(f"Resolving name servers")
+    # await resolve_name_servers(
+    #     selected_hostnames=selected_hostnames,
+    #     output_table="name_servers_end_to_end",
+    # )
 
-    logger.info(f"Final ECS resolution on VP subnets")
-    await resolve_vps_on_selected_hostnames(
-        selected_hostnames_file=path_settings.DATASET
-        / "hostname_1M_max_bgp_prefix_per_cdn.csv",
-        output_table="time_of_day_evaluation",
-    )
+    # logger.info(f"Final ECS resolution on VP subnets")
+    # await resolve_vps_on_selected_hostnames(
+    #     selected_hostnames_file=path_settings.DATASET
+    #     / "hostname_1M_max_bgp_prefix_per_cdn.csv",
+    #     output_table="time_of_day_evaluation",
+    # )
 
 
 if __name__ == "__main__":
