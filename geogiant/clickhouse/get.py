@@ -249,7 +249,7 @@ class GetMSMid(Query):
 
 
 class GetPingsPerTarget(Query):
-    def statement(self, table_name: str, filtered_vps: list = []) -> str:
+    def statement(self, table_name: str, filtered_vps: list = [], **kwargs) -> str:
         filter_vps_statement = ""
         if filtered_vps:
             in_clause = f"".join([f",toIPv4('{p}')" for p in filtered_vps])[1:]
@@ -257,9 +257,13 @@ class GetPingsPerTarget(Query):
                 f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
             )
 
+        limit_statement = ""
+        if limit := kwargs.get("limit"):
+            limit_statement = f"LIMIT {limit}"
+
         return f"""
         SELECT 
-            toString(dst_addr) as target,
+            DISTINCT toString(dst_addr) as target,
             groupArray((toString(src_addr), min)) as pings
         FROM 
             {self.settings.DATABASE}.{table_name}
@@ -270,6 +274,7 @@ class GetPingsPerTarget(Query):
             {filter_vps_statement}
         GROUP BY 
             target
+        {limit_statement}
         """
 
 
