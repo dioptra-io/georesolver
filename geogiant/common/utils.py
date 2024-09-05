@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from loguru import logger
 from tqdm import tqdm
+from numpy import mean
 
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.queries import get_pings_per_target
@@ -288,3 +289,54 @@ def get_no_ping_vp(
     return get_vp_info(
         target, target_score, vp_addr, vps_coordinates, major_country=major_country
     )
+
+
+def get_geographic_mapping(subnets: dict, vps_per_subnet: dict) -> tuple[list, list]:
+    """get vps country and continent for a given hostname bgp prefix"""
+    mapping_countries = []
+    for subnet in subnets:
+        for vp in vps_per_subnet[subnet]:
+            country_code = vp[-1]
+            mapping_countries.append(country_code)
+
+    return mapping_countries
+
+
+def get_geographic_ratio(geographic_mapping: list) -> float:
+    """return the ratio of the most represented geographic granularity (country/continent)"""
+    try:
+        return max(
+            [
+                geographic_mapping.count(region) / len(geographic_mapping)
+                for region in geographic_mapping
+            ]
+        )
+    except ValueError:
+        return 0
+
+
+def filter_on_geo_distribution(
+    bgp_prefix_country_ratio: list[float],
+    hostnames_geo_mapping: dict[list],
+    threshold_country: float = 0.7,
+) -> dict:
+    """
+    get hostnames and their major geographical region of influence.
+    Return True if the average ratio for each hostname's BGP prefix is above
+    a given threshold (80% of VPs in the same region by default)
+    """
+    valid_hostnames = []
+    invalid_hostnames = []
+    for country_ratio in hostnames_geo_mapping.items():
+        avg_ratio_country = []
+
+        for major_country_ratio in bgp_prefix_country_ratio:
+            avg_ratio_country.append(major_country_ratio)
+
+        avg_ratio_country = mean(avg_ratio_country)
+        if avg_ratio_country > threshold_country:
+            valid_hostnames.append((avg_ratio_country))
+        else:
+            invalid_hostnames.append((avg_ratio_country))
+
+    return valid_hostnames, invalid_hostnames

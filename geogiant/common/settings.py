@@ -159,6 +159,7 @@ class ClickhouseSettings(BaseSettings):
 
     # VPs related tables
     VPS_FILTERED_TABLE: str = "filtered_vps"
+    VPS_ECS_MAPPING: str = "filtered_vps"
     MESHED_PINGS_TABLE: str = "meshed_pings_table"
     MESHED_TRACEROUTES_TABLE: str = "meshed_traceroutes_table"
 
