@@ -10,7 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from geogiant.prober import RIPEAtlasAPI
-from geogiant.common.queries import insert_pings
+from geogiant.common.queries import insert_pings, insert_traceroutes
 from geogiant.common.files_utils import dump_json
 from geogiant.common.settings import ClickhouseSettings
 
@@ -126,13 +126,13 @@ class RIPEAtlasProber:
         logger.info(f"{target=}, {id=}")
         return id
 
-    async def ongoing_measurements(self) -> None:
+    async def ongoing_measurements(self, wait_time: int = 5) -> None:
         """simply check how many measurements have the status Ongoing"""
         while not self.measurement_done:
             self.nb_ongoing_measurements = await self.api.get_ongoing_measurements(
                 tags=["dioptra"]
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(wait_time)
 
     async def run(self, schedule: list[tuple]) -> list[int]:
         """run measurement schedule"""
@@ -147,10 +147,6 @@ class RIPEAtlasProber:
                     )
                 await asyncio.sleep(1)
                 i = 1
-
-            logger.info(
-                f"(Re)starting probing:: {self.nb_ongoing_measurements - self.api.settings.MAX_MEASUREMENT}"
-            )
 
             id = await self.probe(
                 target=target,
@@ -205,7 +201,20 @@ class RIPEAtlasProber:
 
         await insert_pings(csv_data, output_table)
 
-    async def insert_results(self) -> None:
+    async def retrieve_traceroutes(
+        self, ids: list[int], output_table: str
+    ) -> list[dict]:
+        """retrieve all traceroutes from a list of ids"""
+        csv_data = []
+        for id in tqdm(ids):
+            traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
+            csv_data.extend(traceroute_result)
+
+            await asyncio.sleep(0.1)
+
+        await insert_traceroutes(csv_data, output_table)
+
+    async def insert_results(self, wait_time: int = 60) -> None:
         """insert ongoing measurements"""
         inserted_measurements = set()
         current_time = datetime.timestamp(self.start_time)
@@ -217,8 +226,6 @@ class RIPEAtlasProber:
                 start_time=current_time,
             )
 
-            logger.info(f"1 = {len(stopped_measurement_ids)=}")
-
             # 2. filter already inserted measurement ids
             current_measurement_ids = self.measurement_ids
 
@@ -227,10 +234,8 @@ class RIPEAtlasProber:
                 set(current_measurement_ids)
             )
 
-            logger.info(f"2 = {len(stopped_measurement_ids)=}")
-
             if not stopped_measurement_ids:
-                await asyncio.sleep(5)
+                await asyncio.sleep(wait_time)
                 continue
 
             measurement_to_insert = set(stopped_measurement_ids).difference(
@@ -242,7 +247,15 @@ class RIPEAtlasProber:
 
             logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
 
-            await self.retrieve_pings(measurement_to_insert, self.output_table)
+            if self.probing_type == "pings":
+                await self.retrieve_pings(measurement_to_insert, self.output_table)
+            elif self.probing_type == "traceroutes":
+                await self.retrieve_traceroutes(
+                    measurement_to_insert, self.output_table
+                )
+            else:
+                raise RuntimeError(f"{self.probing_type} not supported")
+
             inserted_measurements.update(measurement_to_insert)
 
             current_time = datetime.timestamp(datetime.now())
@@ -272,7 +285,16 @@ class RIPEAtlasProber:
             logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
 
             if measurement_to_insert:
-                await self.retrieve_pings(measurement_to_insert, self.output_table)
+
+                if self.probing_type == "pings":
+                    await self.retrieve_pings(measurement_to_insert, self.output_table)
+                elif self.probing_type == "traceroutes":
+                    await self.retrieve_traceroutes(
+                        measurement_to_insert, self.output_table
+                    )
+                else:
+                    raise RuntimeError(f"{self.probing_type} not supported")
+
                 inserted_measurements.update(measurement_to_insert)
 
         logger.info("All measurements were inserted")

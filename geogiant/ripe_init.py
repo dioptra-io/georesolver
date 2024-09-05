@@ -1,42 +1,96 @@
-"""
-create database tables, 
-retrieve vantage points, 
-retrieve RIPE Atlas public traceroutes,
-evaluate probe connectivity,
-insert all data 
-"""
+"""VPs initialization functions"""
 
-import httpx
-import json
-import asyncio
-
-from pyasn import pyasn
-from ipaddress import IPv4Address
-from typing import Generator
-from pathlib import Path
-from numpy import mean
+from tqdm import tqdm
 from collections import defaultdict
 from loguru import logger
 from pych_client import AsyncClickHouseClient
+from datetime import datetime
 
-
-from geogiant.prober import RIPEAtlasAPI
-from geogiant.clickhouse import (
-    GetVPs,
-    CreateGeolocTable,
-    CreateTracerouteTable,
-    InsertFromCSV,
-    GetProbeConnectivity,
-    GetGeolocFromTraceroute,
+from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
+from geogiant.clickhouse import GetProbeConnectivity, CreateVPsTable, InsertFromCSV
+from geogiant.common.queries import (
+    load_vps,
+    load_targets,
+    get_pings_per_src_dst,
 )
-
-from geogiant.common.geoloc import distance, rtt_to_km
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.files_utils import load_countries_info, create_tmp_csv_file
+from geogiant.common.geoloc import (
+    distance,
+    haversine,
+    compute_remove_wrongly_geolocated_probes,
+)
+from geogiant.common.files_utils import (
+    load_countries_info,
+    dump_json,
+    load_json,
+    create_tmp_csv_file,
+)
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+def get_latest_measurement_config() -> list[int]:
+    """return all measurement ids from latest traceroute measurement config"""
+    timestamp = None
+    latest_config = None
+
+    for file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+        if "traceroute" in file.name:
+            logger.debug(f"found traceroute config:: {file.name}")
+
+            new_config = load_json(file)
+            new_timestamp = new_config["start_time"].split(".")[0]
+            new_timestamp = datetime.strptime(new_timestamp, "%Y-%m-%d %H:%M:%S")
+
+            if not timestamp:
+                timestamp = new_timestamp
+                latest_config = new_config
+
+            if new_timestamp >= timestamp:
+                latest_config = new_config
+                timestamp = new_timestamp
+
+    if latest_config:
+        return latest_config
+
+
+def get_all_measurement_ids() -> list[int]:
+    """retrive all traceroute measurement ids from config file"""
+    ids = set()
+    for file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+        if "traceroute" in file.name:
+            logger.info(f"Found traceroute measurement config:: {file.name}")
+            config = load_json(file)
+            ids.update(config["ids"])
+
+    return ids
+
+
+def get_vp_distance_matrix(vp_coordinates: dict, target_addr_list: list[str]) -> dict:
+    vp_distance_matrix = defaultdict(dict)
+    vp_coordinates = sorted(vp_coordinates.items(), key=lambda x: x[0])
+
+    logger.info(
+        f"Calculating VP distance matrix for {len(vp_coordinates)}x{len(vp_coordinates)}"
+    )
+
+    for i in tqdm(range(len(vp_coordinates))):
+        vp_i, vp_i_coordinates = vp_coordinates[i]
+
+        if vp_i not in target_addr_list:
+            continue
+
+        for j in range(len(vp_coordinates)):
+            vp_j, vp_j_coordinates = vp_coordinates[j]
+            if vp_i == vp_j:
+                continue
+
+            distance = haversine(vp_i_coordinates, vp_j_coordinates)
+            vp_distance_matrix[vp_i][vp_j] = distance
+            vp_distance_matrix[vp_j][vp_i] = distance
+
+    return vp_distance_matrix
 
 
 async def init_ripe_atlas_prober(output_table: str) -> None:
@@ -76,232 +130,245 @@ def filter_default_geoloc(vps: list, min_dist_to_default: int = 10) -> dict:
     return valid_vps
 
 
-def parse_traceroute(traceroute: dict) -> str:
-    """retrieve all measurement, parse data and return for clickhouse insert"""
-    traceroute_results = []
-    for ttl_results in traceroute["result"]:
-        ttl = ttl_results["hop"]
+async def meshed_pings_schedule() -> dict:
+    """for each target and subnet target get measurement vps
 
-        # hop 255, junk data
-        if ttl == 255:
-            continue
-
-        # retrieve rtt from response
-        rcvd = 0
-        sent = len(ttl_results["result"])
-        responses = defaultdict(list)
-        for resp in ttl_results["result"]:
-            if "rtt" in resp:
-                responses[resp["from"]].append(resp["rtt"])
-                rcvd += 1
-
-        # no response for current TTL
-        if not responses:
-            continue
-
-        for ip_addr, rtts in responses.items():
-            # remove private ip addresses
-            if IPv4Address(ip_addr).is_private:
-                continue
-
-            min_rtt = min(rtts)
-            max_rtt = max(rtts)
-            avg_rtt = mean(rtts)
-
-            traceroute_results.append(
-                f"{traceroute['timestamp']},\
-                    {traceroute['from']},\
-                    {get_prefix_from_ip(traceroute['from'])},\
-                    {24},\
-                    {traceroute['prb_id']},\
-                    {traceroute['msm_id']},\
-                    {traceroute['dst_addr']},\
-                    {get_prefix_from_ip(traceroute['dst_addr'])},\
-                    {traceroute['proto']},\
-                    {ip_addr},\
-                    {get_prefix_from_ip(ip_addr)},\
-                    {ttl},\
-                    {rcvd},\
-                    {sent},\
-                    {min_rtt},\
-                    {max_rtt},\
-                    {avg_rtt},\
-                    \"{rtts}\""
-            )
-
-    return traceroute_results
-
-
-def load_iter(in_file: Path) -> Generator:
-    """load iter large file"""
-    for row in in_file.open("r"):
-        yield json.loads(row)
-
-
-async def download() -> None:
-    """download public measurement from RIPE Atlas FTP, output results into clickhouse"""
-    base_url = "https://data-store.ripe.net/datasets/atlas-daily-dumps/"
-    dump_url = "2024-02-06/"
-    file_url = base_url + dump_url + "traceroute-2024-02-06T2300.bz2"
-    output_file = path_settings.DATASET / "traceroute-2024-02-06T2300.bz2"
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(file_url)
-        print(file_url)
-
-    with output_file.open("wb") as f:
-        f.write(resp.content)
-
-
-async def insert() -> None:
-    """from a decompressed traceroute file, parse them"""
-    traceroutes = []
-    in_file = path_settings.DATASET / "traceroute-2024-02-06T2300"
-    batch_size = 100_000
-
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        await CreateTracerouteTable().execute(
-            client, clickhouse_settings.RIPE_ATLAS_TRACEROUTES
-        )
-
-    for traceroute in load_iter(in_file):
-
-        # remove IPv6 and corrupted traceroutes
-        if (
-            traceroute["af"] != 4
-            or not traceroute["from"]
-            or not traceroute["destination_ip_responded"]
-        ):
-            continue
-
-        traceroute = parse_traceroute(traceroute)
-        traceroutes.extend(traceroute)
-
-        if len(traceroutes) > batch_size:
-            logger.info(f"inserting batch of traceroute: limit = {batch_size}")
-
-            tmp_file_path = create_tmp_csv_file(traceroutes)
-
-            await InsertFromCSV().execute(
-                table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
-                in_file=tmp_file_path,
-            )
-
-            tmp_file_path.unlink()
-            traceroutes = []
-
-
-async def probe_connectivity() -> None:
-    """get VPs connectivity based on avg first reply rtt from RIPE Atlas public traceroutes"""
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        i = 0
-        resp = await GetProbeConnectivity().execute_iter(
-            client=client,
-            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
-        )
-
-        async for row in resp:
-            vp = row["src_addr"]
-            connectivity = row["connectivity"]
-            logger.info(f"vp = {vp}, connectivity = {connectivity}")
-
-            i += 1
-            if i > 10:
-                break
-
-    # TODO: get entire VPs table, add connectivity
-
-
-async def get_geoloc_from_traceroute() -> None:
+    Returns:
+        dict: vps per target to make a measurement
     """
-    retrieve all IPs with latency below a given threshold
-    (default = 2ms) from RIPE Atlas public traceroutes
-    """
-    asndb = pyasn(str(path_settings.RIB_TABLE))
+    vps = await load_vps()
+    targets = await load_targets()
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps = {}
-        resp = await GetVPs().execute_iter(
-            client=client,
-            table_name=clickhouse_settings.VPS_RAW,
-        )
-        async for row in resp:
-            vps[row["vp_addr"]] = row
-
-        geoloc_ip_addrs = []
-        resp = await GetGeolocFromTraceroute().execute_iter(
-            client=client,
-            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTES,
-        )
-
-        async for row in resp:
-
-            addr = row["reply_addr"]
-            subnet = get_prefix_from_ip(addr)
-            asn, bgp_prefix = route_view_bgp_prefix(addr, asndb)
-
-            # filter anycast IP addrs
-
-            # TODO: Get all VPs present in measurement
-            vp_addr = row["src_addr"]
-            try:
-                vp_info = vps[vp_addr]
-            except KeyError:
-                logger.info(f"VP::{vp_addr} not in VPs table")
-                continue
-
-            # TODO: get asn and bgp prefix from RIPE if not found?
-            if not asn:
-                asn = -1
-            if not bgp_prefix:
-                bgp_prefix = "Unknown"
-
-            min_rtt = row["min_rtt"]
-            measured_dst = rtt_to_km(min_rtt)
-
-            geoloc_ip_addrs.append(
-                f"{row['reply_addr']},\
-                {subnet},\
-                {bgp_prefix},\
-                {asn},\
-                {vp_info['lat']},\
-                {vp_info['lon']},\
-                {vp_info['country_code']},\
-                {vp_addr},\
-                {vp_info['vp_subnet']},\
-                {vp_info['vp_bgp_prefix']},\
-                {min_rtt},\
-                {measured_dst}"
-            )
-
-        await CreateGeolocTable().execute(
-            client=client,
-            table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTE_GEOLOC,
-        )
-
-    tmp_file = create_tmp_csv_file(geoloc_ip_addrs)
-    await InsertFromCSV().execute(
-        table_name=clickhouse_settings.RIPE_ATLAS_TRACEROUTE_GEOLOC,
-        in_file=tmp_file,
+    logger.info(
+        f"Ping Schedule for:: {len(targets)} targets, {len(vps)} VPs per target"
     )
 
-    tmp_file.unlink()
+    batch_size = RIPEAtlasAPI().settings.MAX_VP
+    measurement_schedule = []
+    for target in targets:
+        for i in range(0, len(vps), 1):
+            batch_vps = vps[i * batch_size : (i + 1) * batch_size]
+
+            if not batch_vps:
+                break
+
+            measurement_schedule.append(
+                (
+                    target["addr"],
+                    [vp["id"] for vp in batch_vps if vp["id"] != target["id"]],
+                )
+            )
+
+    return measurement_schedule
 
 
-async def main() -> None:
-    """init main"""
+def meshed_traceroutes_schedule(max_nb_traceroutes: int = 50) -> dict:
+    """for each target and subnet target get measurement vps
+
+    Returns:
+        dict: vps per target to make a measurement
+    """
+    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE)
+
+    # get vp id per addr
+    vp_addr_to_id = {}
+    for vp in vps:
+        vp_addr_to_id[vp["addr"]] = vp["id"]
+
+    # parse distance matrix
+    ordered_distance_matrix = {}
+    for vp in vps:
+        distances = vps_distance_matrix[vp["addr"]]
+        distances = sorted(distances.items(), key=lambda x: x[-1])
+        ordered_distance_matrix[vp["addr"]] = distances[:max_nb_traceroutes]
+
+    traceroute_targets_per_vp = {}
+    for vp in vps:
+        closest_vps = ordered_distance_matrix[vp["addr"]][:max_nb_traceroutes]
+
+        closest_vp_ids = []
+        for vp_addr, _ in closest_vps:
+            try:
+                closest_vp_ids.append((vp_addr, vp_addr_to_id[vp_addr]))
+            except KeyError:
+                continue
+
+        traceroute_targets_per_vp[vp["id"]] = closest_vp_ids
+
+    # group VPs that must trace the same target to maximize parallel measurements
+    traceroute_schedule = defaultdict(set)
+    for vp_id, closest_vp_ids in traceroute_targets_per_vp.items():
+        for addr, _ in closest_vp_ids:
+            traceroute_schedule[addr].add(vp_id)
+
+    logger.info(
+        f"Traceroute Schedule for:: {len(traceroute_schedule.values())} targets"
+    )
+
+    batch_size = RIPEAtlasAPI().settings.MAX_VP
+    measurement_schedule = []
+    for target, vps in traceroute_schedule.items():
+        vps = list(vps)
+        for i in range(0, len(vps), 1):
+            batch_vps = vps[i * batch_size : (i + 1) * batch_size]
+
+            if not batch_vps:
+                break
+
+            measurement_schedule.append(
+                (
+                    target,
+                    [id for id in batch_vps],
+                )
+            )
+
+    return measurement_schedule
+
+
+def country_filtering(vps: list, countries: dict) -> list:
+    filtered_vps = []
+    for vp in vps:
+
+        try:
+            country_geo = countries[vp["country_code"]]
+        except KeyError:
+            print(f"error country code {vp['country_code']} is unknown")
+            continue
+
+        country_lat = float(country_geo["default_lat"])
+        country_lon = float(country_geo["default_lon"])
+
+        dist = distance(country_lat, vp["lat"], country_lon, vp["lon"])
+
+        if dist < 5:
+            filtered_vps.append(vp["addr"])
+
+    logger.info(f"{len(filtered_vps)} VPs removed due to default geoloc")
+
+    return filtered_vps
+
+
+def filter_default_country_geolocation(vps: list[dict]) -> None:
+    """filter VPs if there geolocation correspond to their country's default geoloc"""
+    if not (path_settings.DATASET / "country_filtered_vps.json").exists():
+        countries = load_countries_info()
+        country_filtered_vps = country_filtering(vps, countries)
+        dump_json(
+            country_filtered_vps, path_settings.DATASET / "country_filtered_vps.json"
+        )
+
+
+def filter_wrongful_geolocation(
+    targets: list[dict], vps: list[dict], meshed_pings_table: str
+) -> None:
+    """remove VPs based on SOI violation condition"""
+    target_addr_list = [target["addr"] for target in targets]
+
+    vp_coordinates = {}
+    for vp in vps:
+        vp_coordinates[vp["addr"]] = vp["lat"], vp["lon"]
+
+    if not path_settings.VPS_PAIRWISE_DISTANCE.exists():
+        vp_distance_matrix = get_vp_distance_matrix(vp_coordinates, target_addr_list)
+        dump_json(vp_distance_matrix, path_settings.VPS_PAIRWISE_DISTANCE)
+
+    if not (path_settings.DATASET / "wrongly_geolocated_probes.json").exists():
+        vp_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE)
+
+        rtt_per_src_dst = get_pings_per_src_dst(meshed_pings_table, threshold=300)
+
+        removed_probes = compute_remove_wrongly_geolocated_probes(
+            rtt_per_src_dst,
+            vp_coordinates,
+            vp_distance_matrix,
+        )
+
+        dump_json(
+            removed_probes, path_settings.DATASET / "wrongly_geolocated_probes.json"
+        )
+
+        logger.info(f"Removing {len(removed_probes)} probes")
+
+
+async def filter_vps() -> None:
+    """filter VPs based on default geoloc and SOI violatio"""
+    targets = load_targets(clickhouse_settings.VPS_RAW)
+    vps = load_vps(clickhouse_settings.VPS_RAW)
+    all_vps = vps.extend(targets)
+
+    filter_default_country_geolocation(all_vps)
+    filter_wrongful_geolocation(targets, vps, clickhouse_settings.MESHED_PINGS_TABLE)
+
+    if not (path_settings.DATASET / "removed_vps.json").exists():
+        wrongfuly_geolocated_vps = load_json(
+            path_settings.DATASET / "wrongly_geolocated_probes.json"
+        )
+        default_geoloc_vps = load_json(
+            path_settings.DATASET / "country_filtered_vps.json"
+        )
+
+        removed_vps = list(set(wrongfuly_geolocated_vps).union(default_geoloc_vps))
+
+        dump_json(removed_vps, path_settings.DATASET / "removed_vps.json")
+
+    removed_vps = load_json(path_settings.DATASET / "removed_vps.json")
+    logger.info(f"{len(removed_vps)} VPs removed")
+
+    vps = load_vps(clickhouse_settings.VPS_RAW)
+
+    # create filtered table
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        await CreateVPsTable().aio_execute(
+            client=client,
+            table_name="filtered_vps",
+        )
+
+    csv_data = []
+    for vp in vps:
+        if vp["address_v4"] in removed_vps:
+            continue
+
+        row = []
+        for val in vp.values():
+            row.append(f"{val}")
+
+        row = ",".join(row)
+        csv_data.append(row)
+
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    await InsertFromCSV().execute(table_name="filtered_vps", in_file=tmp_file_path)
+
+    tmp_file_path.unlink()
+
+
+async def vps_initialization() -> None:
+    # 1. dowload all VPs
     logger.info("Starting RIPE Atlas prober initialization")
     vps_table = clickhouse_settings.VPS_RAW
 
     await init_ripe_atlas_prober(output_table=vps_table)
 
-    await download()
+    # 2. perform meshed pings
+    pings_schedule = await meshed_pings_schedule(dry_run=False)
+    await RIPEAtlasProber(
+        probing_type="ping",
+        probing_tag="meshed_pings",
+        output_table=clickhouse_settings.MESHED_PINGS_TABLE,
+    ).main(pings_schedule)
 
-    await insert()
+    # 3. filter VPs with default geoloc and SOI violoation
+    filter_vps()
 
-    await probe_connectivity()
-    await get_geoloc_from_traceroute()
+    # 4. perform meshed traceroutes
+    traceroutes_schedule = await meshed_traceroutes_schedule(dry_run=False)
+    await RIPEAtlasProber(
+        probing_type="traceroutes",
+        probing_tag="meshed_traceroutes",
+        output_table=clickhouse_settings.MESHED_TRACEROUTES_TABLE,
+    ).main(traceroutes_schedule)
 
+    # 5. output probe connectivity
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    # 6. perform VPs ECS mapping on set of hostnames

@@ -32,6 +32,7 @@ from geogiant.common.queries import (
     load_cached_targets,
     insert_geoloc,
 )
+from geogiant.ripe_init import vps_initialization
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import PathSettings, ClickhouseSettings, ConstantSettings
 
