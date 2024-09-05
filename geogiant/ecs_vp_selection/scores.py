@@ -459,7 +459,8 @@ def get_scores(score_config: dict) -> None:
         score_answer_subnets=target_score_subnet,
         score_answer_bgp_prefixes=target_score_bgp_prefix,
     )
-
-    dump_pickle(data=score, output_file=Path(score_config["output_path"]))
+    
+    if "output_path" in score_config:
+        dump_pickle(data=score, output_file=Path(score_config["output_path"]))
 
     return score
