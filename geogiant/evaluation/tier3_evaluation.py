@@ -4,7 +4,7 @@ from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
 
-from geogiant.ecs_vp_selection.hostname_selection import (
+from geogiant.hostname_selection import (
     select_hostname_per_org_per_ns,
     get_all_name_servers,
     parse_name_servers,
@@ -22,7 +22,7 @@ from geogiant.common.utils import (
     TargetScores,
 )
 from geogiant.evaluation.ecs_geoloc_eval import ecs_dns_vp_selection_eval
-from geogiant.ecs_vp_selection.scores import get_scores
+from geogiant.scores import get_scores
 from geogiant.evaluation.plot import (
     plot_ref,
     get_proportion_under,

@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from geogiant.prober.ripe_api import RIPEAtlasAPI
-from geogiant.ecs_vp_selection.scores import get_scores
+from geogiant.scores import get_scores
 from geogiant.evaluation.plot import plot_ripe_ip_map
 from geogiant.evaluation.ecs_geoloc_eval import get_shortest_ping_geo_resolver
 from geogiant.common.geoloc import rtt_to_km

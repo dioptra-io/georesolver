@@ -14,7 +14,7 @@ from geogiant.clickhouse import CreateDNSMappingTable, GetDstPrefix, InsertFromC
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
 from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.evaluation.plot import plot_router_2ms
-from geogiant.ecs_vp_selection.scores import get_scores
+from geogiant.scores import get_scores
 from geogiant.evaluation.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
