@@ -16,6 +16,7 @@ from geogiant.clickhouse import (
     CreatePingTable,
     CreateScoreTable,
     CreateGeolocTable,
+    CreateTracerouteTable,
     GetSubnets,
     GetDstPrefix,
     GetIds,
@@ -339,6 +340,21 @@ async def insert_pings(csv_data: list[str], output_table: str) -> None:
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreatePingTable().aio_execute(client=client, table_name=output_table)
+        await InsertFromCSV().execute(
+            table_name=output_table,
+            in_file=tmp_file_path,
+        )
+
+    tmp_file_path.unlink()
+
+
+async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        await CreateTracerouteTable().aio_execute(
+            client=client, table_name=output_table
+        )
         await InsertFromCSV().execute(
             table_name=output_table,
             in_file=tmp_file_path,

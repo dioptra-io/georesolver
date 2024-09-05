@@ -138,16 +138,6 @@ class ClickhouseSettings(BaseSettings):
     TARGET_GEOLOCATION: str = "target_geolocation"
     POP_GEOLOCATION: str = "pop_geolocation"
 
-    # Public RIPE Atlas data
-    RIPE_ATLAS_TRACEROUTES: str = "ripe_atlas_traceroute"
-    RIPE_ATLAS_TRACEROUTE_GEOLOC: str = "ripe_atlas_traceroute_geoloc"
-
-    # ECS-DNS old tables
-    OLD_DNS_MAPPING: str = "old_dns_mapping"
-    OLD_DNS_MAPPING_WITH_METADATA: str = "old_dns_mapping_with_metadata"
-    OLD_PING_VPS_TO_TARGET: str = "old_ping_vps_to_target"
-    OLD_PING_VPS_TO_SUBNET: str = "old_ping_vps_to_subnet"
-
     @property
     def clickhouse(self):
         return {
@@ -167,7 +157,10 @@ class ClickhouseSettings(BaseSettings):
     PING_TARGET_TABLE: str = "ping_target_table"
     GEOLOC_TARGET_TABLE: str = "geoloc_target_table"
 
+    # VPs related tables
     VPS_FILTERED_TABLE: str = "filtered_vps"
+    MESHED_PINGS_TABLE: str = "meshed_pings_table"
+    MESHED_TRACEROUTES_TABLE: str = "meshed_traceroutes_table"
 
 
 class RIPEAtlasSettings(PathSettings, ClickhouseSettings):

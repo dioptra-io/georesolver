@@ -4,7 +4,12 @@ import itertools
 import numpy as np
 
 from math import asin, cos, log, radians, sin, sqrt, pi
+from collections import defaultdict
+from loguru import logger
 
+from geogiant.common.settings import ConstantSettings
+
+constant_settings = ConstantSettings()
 
 def internet_speed(rtt, speed_threshold):
     if speed_threshold is not None:
@@ -411,3 +416,51 @@ def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
 def get_continent(country_code, country_info: dict) -> str:
     """return the corresponding continent for a given country"""
     return country_info[country_code]["continent"]
+
+
+def compute_remove_wrongly_geolocated_probes(
+    rtts_per_srcs_dst: dict,
+    vp_coordinates: dict,
+    vp_distance_matrix: dict[dict],
+) -> set:
+    speed_of_internet_violations_per_ip = defaultdict(set)
+
+    for dst, rtts_per_src in rtts_per_srcs_dst.items():
+        if dst not in vp_coordinates:
+            continue
+
+        if dst not in vp_distance_matrix:
+            continue
+
+        for probe, min_rtt in rtts_per_src.items():
+            if probe not in vp_distance_matrix[dst]:
+                continue
+            max_theoretical_distance = (
+                constant_settings.SPEED_OF_INTERNET * min_rtt / 1000
+            ) / 2
+            if vp_distance_matrix[dst][probe] > max_theoretical_distance:
+                # Impossible distance
+                speed_of_internet_violations_per_ip[dst].add(probe)
+                speed_of_internet_violations_per_ip[probe].add(dst)
+
+    # Greedily remove the IP address with the more SOI violations
+    n_violations = sum([len(x) for x in speed_of_internet_violations_per_ip.values()])
+    removed_probes = set()
+    while n_violations > 0:
+        logger.info("Violations:", n_violations)
+        # Remove the IP address with the highest number of SOI violations
+        worse_ip, speed_of_internet_violations = max(
+            speed_of_internet_violations_per_ip.items(), key=lambda x: len(x[1])
+        )
+        for (
+            ip,
+            speed_of_internet_violations,
+        ) in speed_of_internet_violations_per_ip.items():
+            speed_of_internet_violations.discard(worse_ip)
+        del speed_of_internet_violations_per_ip[worse_ip]
+        removed_probes.add(worse_ip)
+        n_violations = sum(
+            [len(x) for x in speed_of_internet_violations_per_ip.values()]
+        )
+
+    return list(removed_probes)
