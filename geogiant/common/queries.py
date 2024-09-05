@@ -1,6 +1,3 @@
-import time
-
-from tqdm import tqdm
 from loguru import logger
 from collections import defaultdict
 from pych_client import ClickHouseClient, AsyncClickHouseClient
@@ -27,7 +24,6 @@ from geogiant.clickhouse import (
     GetShortestPingResults,
     GetCachedTargets,
 )
-from geogiant.prober.ripe_api import RIPEAtlasAPI
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.settings import ClickhouseSettings
 
@@ -377,9 +373,9 @@ async def insert_geoloc(csv_data: list[str], output_table: str) -> None:
     tmp_file_path.unlink()
 
 
-async def get_ping_measurement_ids(self, table_name: str) -> list[int]:
+async def get_ping_measurement_ids(table_name: str) -> list[int]:
     """return all measurement ids that were already inserted within clickhouse"""
-    async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreatePingTable().aio_execute(client, table_name)
         resp = await GetMeasurementIds().aio_execute(client, table_name)
 
@@ -388,22 +384,3 @@ async def get_ping_measurement_ids(self, table_name: str) -> list[int]:
             measurement_ids.append(row["msm_id"])
 
         return measurement_ids
-
-
-async def retrieve_pings(ids: list[int], output_table: str) -> None:
-    """retrieve all ping measurements from a list of measurement ids"""
-    csv_data = []
-    for id in tqdm(ids):
-        ping_results = RIPEAtlasAPI().get_ping_results(id)
-        csv_data.extend(ping_results)
-
-        time.sleep(0.1)
-
-    await insert_pings(csv_data, output_table)
-
-
-async def retrieve_pings_from_tag(tag, output_table: str) -> None:
-    """retrieve all results for a specific tag and insert data"""
-    csv_data = await RIPEAtlasAPI().get_measurements_from_tag(tag)
-
-    await insert_pings(csv_data, output_table)
