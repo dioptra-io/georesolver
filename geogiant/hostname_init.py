@@ -95,10 +95,10 @@ async def resolve_hostnames(
     await raw_dns_mapping(subnets)
 
     if repeat:
-        time.sleep(waiting_time)  # wait two hours
+        await asyncio.sleep(waiting_time)  # wait two hours
         while datetime.today() < end_date:
             await raw_dns_mapping(subnets)
-            time.sleep(waiting_time)
+            await asyncio.sleep(waiting_time)
 
 
 def get_geographic_mapping(subnets: dict, vps_per_subnet: dict) -> tuple[list, list]:

@@ -78,7 +78,7 @@ async def retrieve_pings(ids: list[int]) -> list[dict]:
         ping_results = await RIPEAtlasAPI().get_ping_results(id)
         csv_data.extend(ping_results)
 
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
     tmp_file_path = create_tmp_csv_file(csv_data)
 

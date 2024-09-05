@@ -179,13 +179,13 @@ async def ping_targets(wait_time: int = 60 * 20) -> None:
                     probing_type="ping", probing_tag="ping_internet_scale"
                 ).main(batch_schedule)
 
-                time.sleep(60 * 2)
+                await asyncio.sleep(60 * 2)
 
                 await insert_measurements()
 
         else:
             logger.info(f"No measurement available, pause: {wait_time} mins")
-            time.sleep(wait_time)
+            await asyncio.sleep(wait_time)
 
 
 async def insert_measurements() -> None:

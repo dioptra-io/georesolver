@@ -110,7 +110,7 @@ async def ping_targets(wait_time: int = 60 * 20) -> dict[list]:
 
         else:
             logger.info(f"No measurement available, pause: {wait_time} mins")
-            time.sleep(wait_time)
+            await asyncio.sleep(wait_time)
 
 
 async def insert_measurements() -> None:

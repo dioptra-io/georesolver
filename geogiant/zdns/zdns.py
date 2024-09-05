@@ -240,7 +240,7 @@ class ZDNS:
             zdns_data.extend(parsed_data)
 
             if not self.iterative:
-                time.sleep(self.timeout)
+                await asyncio.sleep(self.timeout)
 
         return zdns_data
 

@@ -39,7 +39,6 @@ class RIPEAtlasAPI:
         self.api_url = "https://atlas.ripe.net/api/v2"
         self.measurement_url = f"{self.api_url}/measurements/"
 
-    # TODO: decorator
     def check_schedule_validity(self, schedule: list[tuple]) -> None:
         """for any target, check if not too many VPs are scheduled"""
         for target, vp_ids in schedule:
@@ -68,7 +67,7 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            # "bill_to": self.settings.RIPE_ATLAS_USERNAME,
+            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def get_traceroute_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
@@ -101,6 +100,55 @@ class RIPEAtlasAPI:
             if tag["slug"] == "system-geoloc-disputed":
                 return True
         return False
+
+    async def get_ongoing_measurements(self, tags: list[str]) -> int:
+        """return the number of measurements which have the status Ongoing"""
+        async with httpx.AsyncClient() as client:
+            params = {
+                "sort": ["start_time"],
+                "status__in": "Specified,Scheduled,Ongoing",
+                "tags": tags,
+                "mine": True,
+                "key": self.settings.RIPE_ATLAS_SECRET_KEY,
+            }
+            resp = await client.get(self.measurement_url, params=params)
+            resp = resp.json()
+
+        try:
+            ongoing_measurements = resp["count"]
+        except KeyError:
+            raise RuntimeError("Count key should be present in response")
+
+        return ongoing_measurements
+
+    async def get_stopped_measurement_ids(
+        self, start_time: str, tags: list[str]
+    ) -> list[int]:
+        """return all measurements with a status stopped"""
+
+        params = {
+            "sort": ["start_time"],
+            "status__in": "Stopped,Forced to stop,No suitable probes,Failed",
+            "stop_time__gte": start_time,
+            "tags": tags,
+            "mine": True,
+            "key": self.settings.RIPE_ATLAS_SECRET_KEY,
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(self.measurement_url, params=params)
+            resp = resp.json()
+
+        stopped_measurements = [m["id"] for m in resp["results"]]
+
+        while resp["next"]:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(resp["next"], params=params)
+                resp = resp.json()
+
+            stopped_measurements.extend([m["id"] for m in resp["results"]])
+
+        return stopped_measurements
 
     async def get_raw_vps(self, url: str = "https://atlas.ripe.net/api/v2/probes/"):
         """get request url atlas endpoint"""
@@ -304,7 +352,7 @@ class RIPEAtlasAPI:
 
                     ping_results.extend(ping_result)
 
-                    time.sleep(0.5)
+                    await asyncio.sleep(0.5)
 
                     if len(ping_results) > 100:
                         await self.insert_pings(ping_results, table_name=ping_table)
@@ -315,12 +363,11 @@ class RIPEAtlasAPI:
                 measurements = resp.json()
                 count += 1
 
-                time.sleep(1)
+                await asyncio.sleep(1)
 
             return measurement_ids
 
     async def get_measurements_from_tag(self, tag: str):
-        # Define API endpoint and parameters
         url = self.api_url + f"/measurements/tags/{tag}/results/"
 
         params = {"tags": tag, "format": "json"}
@@ -340,18 +387,18 @@ class RIPEAtlasAPI:
 
         return self.parse_ping(ping_results)
 
-    def get_ping_results(self, id: int) -> dict:
+    async def get_ping_results(self, id: int) -> dict:
         """get results from ping measurement id"""
         url = (
             f"{self.measurement_url}/{id}/results/"
             + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
         )
-        with httpx.Client() as client:
-            resp = client.get(url, timeout=30)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=30)
             resp = resp.json()
 
-            time.sleep(0.1)
-        ping_results = self.parse_ping(resp)
+            ping_results = self.parse_ping(resp)
+            await asyncio.sleep(0.1)
 
         return ping_results
 

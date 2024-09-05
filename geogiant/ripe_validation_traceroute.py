@@ -172,7 +172,7 @@ async def retrieve_all_traceroutes(ids: int) -> list[dict]:
         traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
         traceroute_results.extend(traceroute_result)
 
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
     return traceroute_results
 
@@ -208,7 +208,7 @@ async def main() -> None:
                         "Traceroute does not exists in original schedule"
                     )
 
-                time.sleep(0.1)
+                await asyncio.sleep(0.1)
 
             logger.info(
                 f"Nb targets:: original schedule:: {len(latest_schedule)}, updated schedule:: {len(schedule)}"

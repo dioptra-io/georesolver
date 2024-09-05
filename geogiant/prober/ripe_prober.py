@@ -7,9 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from copy import copy
 from loguru import logger
+from tqdm import tqdm
 
 from geogiant.prober import RIPEAtlasAPI
-
+from geogiant.common.queries import insert_pings
 from geogiant.common.files_utils import dump_json
 from geogiant.common.settings import ClickhouseSettings
 
@@ -21,6 +22,7 @@ class RIPEAtlasProber:
         self,
         probing_type: str,
         probing_tag: str,
+        output_table: str,
         uuid: str = None,
         dry_run: bool = False,
     ) -> None:
@@ -29,13 +31,15 @@ class RIPEAtlasProber:
         self.api = RIPEAtlasAPI()
         self.settings = ClickhouseSettings()
 
+        self.output_table = output_table
         self.uuid = uuid4() if not uuid else uuid
         self.probing_type = probing_type
         self.table_name = probing_tag + "__" + str(self.uuid)
-        self.start_time = time.time()
+        self.start_time = datetime.now()
         self.end_time = None
 
-        self.measurement_done = False
+        self.nb_ongoing_measurements: int = 0
+        self.measurement_done: bool = False
         self.config: dict = None
         self.measurement_ids = set()
 
@@ -122,10 +126,32 @@ class RIPEAtlasProber:
         logger.info(f"{target=}, {id=}")
         return id
 
+    async def ongoing_measurements(self) -> None:
+        """simply check how many measurements have the status Ongoing"""
+        while not self.measurement_done:
+            self.nb_ongoing_measurements = await self.api.get_ongoing_measurements(
+                tags=["dioptra"]
+            )
+            await asyncio.sleep(2)
+
     async def run(self, schedule: list[tuple]) -> list[int]:
         """run measurement schedule"""
-        ongoing_ids = set()
         for target, vp_ids in schedule:
+
+            # check if a new measurement can be started or not
+            i = 0
+            while self.nb_ongoing_measurements >= self.api.settings.MAX_MEASUREMENT:
+                if i == 0:
+                    logger.info(
+                        f"API limit reached, waiting for measurements to finish. {self.nb_ongoing_measurements=}"
+                    )
+                await asyncio.sleep(1)
+                i = 1
+
+            logger.info(
+                f"(Re)starting probing:: {self.nb_ongoing_measurements - self.api.settings.MAX_MEASUREMENT}"
+            )
+
             id = await self.probe(
                 target=target,
                 vp_ids=vp_ids,
@@ -133,51 +159,123 @@ class RIPEAtlasProber:
             )
 
             self.measurement_ids.add(id)
-            ongoing_ids.add(id)
 
-            # wait for a batch of measurement to finish
-            if len(ongoing_ids) >= self.api.settings.MAX_MEASUREMENT:
-                ongoing_ids = await self.wait_for_batch(ongoing_ids)
-
-            # wait some time between the beginning of each measurements
-            time.sleep(0.1)
+            # so we do not have to wait for actualization
+            self.nb_ongoing_measurements += 1
+            await asyncio.sleep(0.1)
 
         self.measurement_done = True
-        self.end_time = time.time()
+        self.end_time = datetime.now()
 
         logger.info(f"{self.uuid}::Measurement finished")
 
-    async def insert(self, config: dict) -> None:
-        """fetch periodically new measurements"""
+    async def insert_ids(self) -> None:
+        """fetch periodically new measurements ids and put them into the config"""
         logger.info(f"{self.uuid} Saving all ping ids")
 
         # wait for the measurement to finish
-        inserted_ids = set()
-        ids_to_insert = None
-        while not self.measurement_done and not ids_to_insert:
-            # get measurement that were not already inserted
-            ids_to_insert = inserted_ids.symmetric_difference(self.measurement_ids)
+        while not self.measurement_done:
 
-            if ids_to_insert:
-                # dump measurement ids into config file
-                config["ids"] = list(self.measurement_ids)
-                self.save_config(config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
-                inserted_ids.update(ids_to_insert)
-                logger.debug("Measurement Ids saved")
-                ids_to_insert = None
-
-            await asyncio.sleep(60 * 5)
-
-        # get measurement that were not already inserted
-        ids_to_insert = inserted_ids.symmetric_difference(self.measurement_ids)
-
-        if ids_to_insert:
             # dump measurement ids into config file
-            config["ids"] = list(self.measurement_ids)
-            self.save_config(config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
-            inserted_ids.update(ids_to_insert)
-            logger.debug("Measurement Ids saved")
-            ids_to_insert = None
+            self.config["ids"] = list(self.measurement_ids)
+            self.save_config(
+                self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG
+            )
+
+            await asyncio.sleep(5)
+
+        # dump measurement ids into config file
+        self.config["ids"] = list(self.measurement_ids)
+        self.save_config(self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
+
+    async def retrieve_pings_from_tag(self, tag, output_table: str) -> None:
+        """retrieve all results for a specific tag and insert data"""
+        csv_data = await RIPEAtlasAPI().get_measurements_from_tag(tag)
+
+        await insert_pings(csv_data, output_table)
+
+    async def retrieve_pings(self, ids: list[int], output_table: str) -> None:
+        """retrieve all ping measurements from a list of measurement ids"""
+        csv_data = []
+        for id in tqdm(ids):
+            ping_results = await RIPEAtlasAPI().get_ping_results(id)
+            csv_data.extend(ping_results)
+
+            await asyncio.sleep(0.1)
+
+        await insert_pings(csv_data, output_table)
+
+    async def insert_results(self) -> None:
+        """insert ongoing measurements"""
+        inserted_measurements = set()
+        current_time = datetime.timestamp(self.start_time)
+        while not self.measurement_done:
+
+            # 1. get all stopped measurements
+            stopped_measurement_ids = await self.api.get_stopped_measurement_ids(
+                tags=["dioptra"],
+                start_time=current_time,
+            )
+
+            logger.info(f"1 = {len(stopped_measurement_ids)=}")
+
+            # 2. filter already inserted measurement ids
+            current_measurement_ids = self.measurement_ids
+
+            # 3. only keep ids related with this measurement
+            stopped_measurement_ids = set(stopped_measurement_ids).intersection(
+                set(current_measurement_ids)
+            )
+
+            logger.info(f"2 = {len(stopped_measurement_ids)=}")
+
+            if not stopped_measurement_ids:
+                await asyncio.sleep(5)
+                continue
+
+            measurement_to_insert = set(stopped_measurement_ids).difference(
+                set(inserted_measurements)
+            )
+
+            if not measurement_to_insert:
+                continue
+
+            logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
+
+            await self.retrieve_pings(measurement_to_insert, self.output_table)
+            inserted_measurements.update(measurement_to_insert)
+
+            current_time = datetime.timestamp(datetime.now())
+
+            await asyncio.sleep(5)
+
+        # check if there are still some measurement to insert
+        current_measurement_ids = self.config["ids"]
+        stopped_measurement_ids = await self.api.get_stopped_measurement_ids(
+            tags=["dioptra"],
+            start_time=current_time,
+        )
+
+        # 2. filter already inserted measurement ids
+        current_measurement_ids = self.config["ids"]
+
+        # 3. only keep ids related with this measurement
+        stopped_measurement_ids = set(stopped_measurement_ids).difference(
+            set(current_measurement_ids)
+        )
+
+        if stopped_measurement_ids:
+            measurement_to_insert = set(stopped_measurement_ids).difference(
+                set(inserted_measurements)
+            )
+
+            logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
+
+            if measurement_to_insert:
+                await self.retrieve_pings(measurement_to_insert, self.output_table)
+                inserted_measurements.update(measurement_to_insert)
+
+        logger.info("All measurements were inserted")
 
     async def main(self, schedule: dict, config: dict = None) -> Path:
         """run measurement schedule using RIPE Atlas API"""
@@ -193,23 +291,32 @@ class RIPEAtlasProber:
         )
 
         if not config:
-            config = self.get_config(schedule)
-            self.save_config(config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
+            self.config = self.get_config(schedule)
+            self.save_config(
+                self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG
+            )
+        else:
+            self.config = config
 
         logger.info(
             f"{self.uuid}::Starting measurement for {len({t[0] for t in schedule})} targets"
         )
 
-        await asyncio.gather(self.run(schedule), self.insert(config))
+        await asyncio.gather(
+            self.run(schedule),
+            self.insert_ids(),
+            self.ongoing_measurements(),
+            self.insert_results(),
+        )
 
         # condition to stop Insert results function
-        self.measurement_done = True
-        config["ids"] = list(self.measurement_ids)
-        config["start_time"] = self.start_time
-        config["end_time"] = self.end_time
+        self.config["start_time"] = self.start_time
+        self.config["end_time"] = self.end_time
 
         output_path = self.save_config(
-            config, out_path=self.api.settings.MEASUREMENTS_CONFIG
+            self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG
         )
+
+        logger.info(f"Measurement done, output path:: {output_path}")
 
         return output_path

@@ -1,13 +1,12 @@
 import sys
 import typer
-import time
 import asyncio
 
-from uuid import uuid4
 from tqdm import tqdm
 from pyasn import pyasn
 from loguru import logger
 from pathlib import Path
+from multiprocessing import Process
 
 from geogiant.evaluation.ecs_geoloc_eval import (
     get_ecs_vps,
@@ -22,7 +21,6 @@ from geogiant.common.files_utils import (
     create_tmp_json_file,
     load_csv,
     load_json,
-    load_pickle,
 )
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
@@ -30,7 +28,6 @@ from geogiant.common.queries import (
     get_subnets_mapping,
     insert_scores,
     load_target_scores,
-    retrieve_pings,
     load_target_geoloc,
     load_cached_targets,
     insert_geoloc,
@@ -41,6 +38,8 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings, ConstantS
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 constant_settings = ConstantSettings()
+
+BATCH_SIZE = 10
 
 
 def parsed_score(score_per_granularity: dict, answer_granularity: str) -> list[str]:
@@ -65,10 +64,7 @@ async def calculate_scores(target_subnets: list[str], hostnames: list[str]) -> N
 
     batch_size = 1_000  # score calculation for batch of 1000 subnets
     for i in range(0, len(target_subnets), batch_size):
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"internet_scale_evaluation/score__geoResolver_5468f310-c23e-45f2-b19b-c86b796a043e.pickle"
-        )
+
         subnets = target_subnets[i : i + batch_size]
         subnet_tmp_path = create_tmp_json_file(subnets)
 
@@ -81,11 +77,9 @@ async def calculate_scores(target_subnets: list[str], hostnames: list[str]) -> N
             "hostname_selection": "max_bgp_prefix",
             "score_metric": ["jaccard"],
             "answer_granularities": ["answer_subnets"],
-            "output_path": output_path,
         }
 
         scores: TargetScores = get_scores(score_config)
-        # scores: TargetScores = load_pickle(output_path)
         target_score_subnet = scores.score_answer_subnets
 
         score_data = parsed_score(target_score_subnet, "answer_subnets")
@@ -229,35 +223,16 @@ def filter_targets(targets: list[str]) -> list[str]:
     return list(filtered_targets)
 
 
-async def ping_targets(measurement_schedule: list, wait_time: int = 60 * 20) -> None:
+async def ping_targets(measurement_schedule: list, output_table: str) -> None:
     """perform ping geolocation"""
     if measurement_schedule:
+        logger.debug(f"Pings schedule {len(measurement_schedule)})")
 
-        batch_size = 1_000
-        for i in range(0, len(measurement_schedule), batch_size):
-
-            batch_schedule = measurement_schedule[i : i + batch_size]
-
-            logger.debug(
-                f"Pings schedule (batch {(i + 1) // batch_size}/{len(measurement_schedule) // batch_size})"
-            )
-
-            output_path = await RIPEAtlasProber(
-                probing_type="ping", probing_tag="ping_targets"
-            ).main(batch_schedule)
-
-            measurement_config = load_json(output_path)
-            measurement_ids = measurement_config["ids"]
-
-            # TODO: wait for batch of measurement to be done instead of wait time
-            time.sleep(60 * 5)
-
-            await insert_measurements(
-                measurement_ids=measurement_ids,
-                ping_table=clickhouse_settings.PING_TARGET_TABLE,
-            )
-
-            output_path.unlink()
+        await RIPEAtlasProber(
+            probing_type="ping",
+            probing_tag="ping_targets",
+            output_table=output_table,
+        ).main(measurement_schedule)
 
 
 def parse_geoloc_data(target_geoloc: dict) -> list[str]:
@@ -306,17 +281,6 @@ def parse_geoloc_data(target_geoloc: dict) -> list[str]:
     return csv_data
 
 
-async def insert_measurements(measurement_ids: list[int], ping_table: str) -> None:
-    logger.info(f"{len(measurement_ids)} measurements to insert")
-
-    logger.info(f"Retreiving results for {len(measurement_ids)} measurements")
-
-    batch_size = 100
-    for i in range(0, len(measurement_ids), batch_size):
-        ids = measurement_ids[i : i + batch_size]
-        await retrieve_pings(ids, ping_table)
-
-
 async def insert_geoloc_from_pings(targets: list[str]) -> None:
     """insert all geoloc in clickhouse"""
     target_geoloc = load_target_geoloc(
@@ -333,15 +297,126 @@ async def insert_geoloc_from_pings(targets: list[str]) -> None:
     return csv_data
 
 
-async def geolocate(
-    target_file: Path,
-    hostname_file: Path = None,
-    verbose: bool = False,
-    output_file: Path = None,
-) -> list[tuple]:
-    "main function of GeoResolver, get IP addresses and perform geolocation"
-    targets = load_csv(target_file)
-    subnets = [get_prefix_from_ip(ip) for ip in targets]
+async def ecs_mapping_task(subnets: list[str], hostnames: list[str]) -> None:
+    """run ecs mapping on batches of target subnets"""
+    # Check ECS mapping exists
+    filtered_subnets = await filter_ecs_subnets(subnets)
+    logger.info(f"Original number of subnets:: {len(subnets)}")
+    logger.info(f"Remaining subnets to geolocate:: {len(filtered_subnets)}")
+
+    # ECS mapping
+    if filtered_subnets:
+        for i in range(0, len(filtered_subnets), BATCH_SIZE):
+            input_subnets = filtered_subnets[i, i + BATCH_SIZE]
+            logger.info(
+                f"ECS mapping:: {(i+1) // BATCH_SIZE}/{(i+BATCH_SIZE) // BATCH_SIZE}/"
+            )
+
+            await ecs_mapping(
+                subnets=input_subnets,
+                hostnames=hostnames,
+                ecs_table=clickhouse_settings.ECS_TARGET_TABLE,
+            )
+    else:
+        logger.info("Skipping ECS resolution because all subnet mapping is done")
+
+
+async def score_task(subnets: list[str], hostnames: list[str]) -> None:
+    """run ecs mapping on batches of target subnets"""
+    i = 0
+    while True:
+
+        # Check if ECS mapping exists for part of the subnets
+        ecs_mapping_subnets = get_subnets_mapping(
+            dns_table=clickhouse_settings.ECS_TARGET_TABLE, subnets=subnets
+        )
+
+        if ecs_mapping_subnets:
+            i = 0
+
+            # Check if some score were already calculated
+            filtered_subnet_score = await filter_score_subnets(subnets)
+            logger.info(f"Original number of subnets:: {len(subnets)}")
+            logger.info(f"Score calculation for {len(filtered_subnet_score)} subnets")
+
+            # ECS mapping
+            if filtered_subnet_score:
+                for i in range(0, len(filtered_subnet_score), BATCH_SIZE):
+                    input_subnets = filtered_subnet_score[i, i + BATCH_SIZE]
+                    logger.info(
+                        f"Score:: {(i+1) // BATCH_SIZE}/{(i+BATCH_SIZE) // BATCH_SIZE}/"
+                    )
+
+                    await calculate_scores(input_subnets, hostnames)
+
+                    logger.info("Score calculation complete")
+                    break
+            else:
+                logger.info("Score calculation complete")
+                break
+
+        else:
+            # do not polute logging
+            if i == 0:
+                logger.info("Waiting for ECS mapping to complete")
+
+            i = 1
+            await asyncio.sleep(5)
+
+
+async def geolocation_task(targets: list[str], subnets: list[str]) -> None:
+    """run ecs mapping on batches of target subnets"""
+    i = 0
+    while True:
+
+        # Check if scores exists for part of the subnets
+        score_subnets = get_subnets_mapping(
+            dns_table=clickhouse_settings.ECS_TARGET_TABLE, subnets=subnets
+        )
+
+        if score_subnets:
+            i = 0
+
+            # Check if some target were already geolocated
+            filtered_targets = filter_targets(targets)
+
+            logger.info(f"Original number of targets:: {len(targets)}")
+            logger.info(f"Geolocation for {len(filtered_targets)} targets")
+
+            if filtered_targets:
+
+                measurement_schedule = get_measurement_schedule(
+                    filtered_targets, subnets
+                )
+
+                logger.info(
+                    f"Starting geolocation for {len(measurement_schedule)} targets"
+                )
+
+                await ping_targets(
+                    measurement_schedule, clickhouse_settings.PING_TARGET_TABLE
+                )
+
+                logger.info("Geolocation complete")
+                break
+            else:
+                # do not polute logging
+                if i == 0:
+                    logger.info("Geolocation complete")
+                    break
+
+                i = 1
+                await asyncio.sleep(5)
+
+
+def main_processes(task, task_args) -> None:
+    """run asynchronous task within new event loop"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(task(**task_args))
+
+
+def main(target_file: Path, hostname_file: Path, verbose: bool = False) -> None:
 
     if verbose:
         logger.remove()
@@ -350,65 +425,42 @@ async def geolocate(
         logger.remove()
         logger.add(sys.stdout, level="INFO")
 
-    if not hostname_file:
-        hostnames = load_csv(path_settings.DEFAULT_HOSTNAME_FILE)
-    else:
-        hostnames = load_csv(hostname_file)
+    targets = load_csv(target_file)
+    subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
+    hostnames = load_csv(hostname_file)
 
-    # 1. checking phase: 1) geoloc, 2) ECS mapping, 3) score check
+    ecs_mapping_process = Process(
+        target=main_processes,
+        args=(ecs_mapping_task, {"subnets": subnets, "hostnames": hostnames}),
+    )
+    score_process = Process(
+        target=main_processes,
+        args=(score_task, {"subnets": subnets, "hostnames": hostnames}),
+    )
+
+    geolocation_process = Process(
+        target=main_processes,
+        args=(geolocation_task, {"targets": targets, "subnets": subnets}),
+    )
+
+    logger.info("Starting ECS mapping process")
+    ecs_mapping_process.start()
+
+    logger.info("Starting Score process")
+    score_process.start()
+
+    logger.info("Starting Geolocation process")
+    geolocation_process.start()
+
+    ecs_mapping_process.join()
+    score_process.join()
+    geolocation_process.join()
+
     # TODO geolocation exists check
 
-    # Check ECS mapping exists
-    filtered_subnets = await filter_ecs_subnets(subnets)
-    logger.info(f"Original number of subnets:: {len(subnets)}")
-    logger.info(f"Remaining subnets to geolocate:: {len(filtered_subnets)}")
-
-    # ECS mapping
-    if filtered_subnets:
-        await ecs_mapping(
-            subnets=filtered_subnets,
-            hostnames=hostnames,
-            ecs_table=clickhouse_settings.ECS_TARGET_TABLE,
-        )
-    else:
-        logger.info("Skipping ECS resolution because all subnet mapping is done")
-
-    # Check score
-    filtered_subnet_score = await filter_score_subnets(subnets)
-    logger.info(f"Original number of subnets:: {len(subnets)}")
-    logger.info(f"Score calculation for {len(filtered_subnet_score)} subnets")
-
-    # Calculate scores
-    if filtered_subnet_score:
-        await calculate_scores(filtered_subnet_score, hostnames)
-    else:
-        logger.info(f"Skipping score calculation bacause all score subnet is available")
-
-    # Check pings
-    filtered_targets = filter_targets(targets)
-
-    logger.info(f"Original number of targets:: {len(targets)}")
-    logger.info(f"Pings for {len(filtered_targets)} targets")
-
-    if filtered_targets:
-        # Pings
-        measurement_schedule = get_measurement_schedule(filtered_targets, subnets)
-
-        logger.info(f"Starting geolocation for {len(measurement_schedule)} targets")
-
-        await ping_targets(measurement_schedule, clickhouse_settings.PING_TARGET_TABLE)
-
-        logger.info("Geolocation done, retrieving measurements")
-    else:
-        logger.info("Skipping pings because they already exists")
-
     # Create geolocation table/file
-    filtered_geoloc = load_geolocation()
-    await insert_geoloc_from_pings(targets)
-
-
-def main(target_file: Path, hostname_file: Path = None):
-    asyncio.run(geolocate(target_file, hostname_file))
+    # filtered_geoloc = load_geolocation()
+    # await insert_geoloc_from_pings(targets)
 
 
 if __name__ == "__main__":
