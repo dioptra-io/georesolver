@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from geogiant.common.files_utils import load_csv, load_json
-from geogiant.hostname_init import resolve_vps_subnet
+from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()

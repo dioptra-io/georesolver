@@ -12,7 +12,7 @@ from ipaddress import IPv4Address, AddressValueError
 
 from geogiant.clickhouse import CreateDNSMappingTable, GetDstPrefix, InsertFromCSV
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.hostname_init import resolve_vps_subnet
+from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.evaluation.plot import plot_router_2ms
 from geogiant.ecs_vp_selection.scores import get_scores
 from geogiant.evaluation.ecs_geoloc_eval import (
@@ -22,11 +22,7 @@ from geogiant.evaluation.ecs_geoloc_eval import (
 )
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.queries import (
-    get_min_rtt_per_vp,
     load_vps,
-    retrieve_pings,
-    retrieve_pings_from_tag,
-    insert_pings,
     get_pings_per_target,
     get_subnets,
 )
@@ -35,7 +31,6 @@ from geogiant.common.files_utils import (
     dump_csv,
     load_json,
     dump_json,
-    load_pickle,
     load_json_iter,
     load_anycatch_data,
 )

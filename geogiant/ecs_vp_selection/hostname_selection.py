@@ -8,7 +8,7 @@ from collections import defaultdict, OrderedDict
 from loguru import logger
 from pych_client import ClickHouseClient
 
-from geogiant.hostname_init import resolve_hostnames
+from geogiant.ecs_mapping_init import resolve_hostnames
 from geogiant.clickhouse import GetAllNameServers
 from geogiant.common.files_utils import (
     load_csv,

@@ -18,7 +18,7 @@ from geogiant.common.files_utils import (
     create_tmp_json_file,
 )
 from geogiant.common.queries import get_subnets
-from geogiant.hostname_init import resolve_vps_subnet
+from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()

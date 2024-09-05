@@ -13,7 +13,7 @@ from geogiant.evaluation.ecs_geoloc_eval import (
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
 )
-from geogiant.hostname_init import resolve_vps_subnet
+from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.ecs_vp_selection.scores import get_scores, TargetScores
 from geogiant.prober import RIPEAtlasProber
 from geogiant.common.utils import get_parsed_vps
@@ -25,6 +25,7 @@ from geogiant.common.files_utils import (
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
     load_vps,
+    load_vp_subnets,
     get_subnets_mapping,
     insert_scores,
     load_target_scores,
@@ -32,7 +33,8 @@ from geogiant.common.queries import (
     load_cached_targets,
     insert_geoloc,
 )
-from geogiant.ripe_init import vps_initialization
+from geogiant.ripe_init import vps_init
+from geogiant.ecs_mapping_init import resolve_hostnames
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import PathSettings, ClickhouseSettings, ConstantSettings
 
@@ -417,7 +419,13 @@ def main_processes(task, task_args) -> None:
     loop.run_until_complete(task(**task_args))
 
 
-def main(target_file: Path, hostname_file: Path, verbose: bool = False) -> None:
+def main(
+    target_file: Path,
+    hostname_file: Path,
+    init_vps: bool = False,
+    init_ecs_mapping: bool = False,
+    verbose: bool = False,
+) -> None:
 
     if verbose:
         logger.remove()
@@ -425,6 +433,24 @@ def main(target_file: Path, hostname_file: Path, verbose: bool = False) -> None:
     else:
         logger.remove()
         logger.add(sys.stdout, level="INFO")
+
+    if init_vps:
+        logger.info(f"Starting VPs init, output table")
+        asyncio.run(vps_init())
+
+    if init_ecs_mapping:
+        logger.info(
+            f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING}"
+        )
+
+        vps_subnets = load_vp_subnets(clickhouse_settings.VPS_RAW)
+        asyncio.run(
+            resolve_hostnames(
+                subnets=vps_subnets,
+                hostname_file=hostname_file,
+                output_table=clickhouse_settings.VPS_ECS_MAPPING,
+            )
+        )
 
     targets = load_csv(target_file)
     subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))

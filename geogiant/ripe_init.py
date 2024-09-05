@@ -1,13 +1,13 @@
 """VPs initialization functions"""
 
 from tqdm import tqdm
-from collections import defaultdict
 from loguru import logger
-from pych_client import AsyncClickHouseClient
 from datetime import datetime
+from collections import defaultdict
+from pych_client import AsyncClickHouseClient
 
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.clickhouse import GetProbeConnectivity, CreateVPsTable, InsertFromCSV
+from geogiant.clickhouse import CreateVPsTable, InsertFromCSV
 from geogiant.common.queries import (
     load_vps,
     load_targets,
@@ -343,12 +343,9 @@ async def filter_vps() -> None:
     tmp_file_path.unlink()
 
 
-async def vps_initialization() -> None:
+async def vps_init() -> None:
     # 1. dowload all VPs
-    logger.info("Starting RIPE Atlas prober initialization")
-    vps_table = clickhouse_settings.VPS_RAW
-
-    await init_ripe_atlas_prober(output_table=vps_table)
+    await init_ripe_atlas_prober(output_table=clickhouse_settings.VPS_RAW)
 
     # 2. perform meshed pings
     pings_schedule = await meshed_pings_schedule(dry_run=False)
@@ -368,7 +365,3 @@ async def vps_initialization() -> None:
         probing_tag="meshed_traceroutes",
         output_table=clickhouse_settings.MESHED_TRACEROUTES_TABLE,
     ).main(traceroutes_schedule)
-
-    # 5. output probe connectivity
-
-    # 6. perform VPs ECS mapping on set of hostnames
