@@ -4,7 +4,7 @@ from uuid import uuid4
 from collections import defaultdict
 from loguru import logger
 
-from geogiant.ecs_vp_selection.scores import get_scores
+from geogiant.scores import get_scores
 from geogiant.common.queries import get_subnets
 from geogiant.common.utils import TargetScores
 from geogiant.common.files_utils import (

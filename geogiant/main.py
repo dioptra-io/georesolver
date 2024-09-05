@@ -14,7 +14,7 @@ from geogiant.evaluation.ecs_geoloc_eval import (
     select_one_vp_per_as_city,
 )
 from geogiant.ecs_mapping_init import resolve_vps_subnet
-from geogiant.ecs_vp_selection.scores import get_scores, TargetScores
+from geogiant.scores import get_scores, TargetScores
 from geogiant.prober import RIPEAtlasProber
 from geogiant.common.utils import get_parsed_vps
 from geogiant.common.files_utils import (

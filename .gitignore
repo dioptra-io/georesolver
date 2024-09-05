@@ -13,6 +13,7 @@ cached_measurements/
 tmp/
 results/
 debbuging/
+logs/
 
 # clickhouse exec file
 .vscode/
