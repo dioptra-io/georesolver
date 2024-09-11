@@ -35,8 +35,6 @@ class PathSettings(BaseSettings):
     TMP_PATH: Path = DEFAULT / "../tmp/"
     LOG_PATH: Path = DEFAULT / "../logs"
     CONFIG_PATH: Path = DEFAULT / "../config"
-    RIPE_ATLAS_PUBLIC_MEASUREMENTS: Path = DATASET / "ripe_atlas_public_measurements"
-    RIPE_ATLAS_PUBLIC_PINGS: Path = DATASET / "ripe_atlas_public_pings"
 
     # internet scale file
     ADDRESS_FILE: Path = (
@@ -44,7 +42,10 @@ class PathSettings(BaseSettings):
         / "internet_address_hitlist_it106w-20231222/internet_address_hitlist_it106w-20231222.fsdb"
     )
 
-    USER_HITLIST_FILE: Path = DATASET / "ipv4_hitlist.json"
+    # Static files from other organization
+    STATIC_FILES: Path = DATASET / "static_files/"
+    USER_HITLIST_FILE: Path = STATIC_FILES / "ipv4_hitlist.json"
+    RIB_TABLE: Path = STATIC_FILES / "rib_table.dat"
 
     # evaluation specific datasets
     END_TO_END_DATASET: Path = DATASET / "end_to_end_evaluation"
@@ -55,9 +56,6 @@ class PathSettings(BaseSettings):
     HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
     HOSTNAMES_CDN: Path = DATASET / "hostnames_cdn.csv"
     HOSTNAMES_ECS: Path = DATASET / "hostnames_ecs.csv"
-
-    # bgp route views data
-    RIB_TABLE: Path = DATASET / "rib_table.dat"
 
     # anycatch database
     ANYCATCH_DATA: Path = DATASET / "anycatch-v4-prefixes.csv"

@@ -431,25 +431,6 @@ def get_ecs_pings(
     return vp_selection
 
 
-def get_parsed_vps(vps: list, asndb: pyasn) -> dict:
-    """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
-    vps_coordinates = {}
-    vps_subnet = defaultdict(list)
-    vps_bgp_prefix = defaultdict(list)
-
-    for vp in vps:
-        vp_addr = vp["addr"]
-        subnet = get_prefix_from_ip(vp_addr)
-        vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
-        vp_lat, vp_lon = vp["lat"], vp["lon"]
-
-        vps_subnet[subnet].append(vp_addr)
-        vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
-        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_asn)
-
-    return vps_subnet, vps_coordinates
-
-
 def get_vp_weight(
     vp_i: str, vps_assigned: list[str], vps_coordinate: dict[tuple]
 ) -> float:

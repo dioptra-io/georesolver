@@ -308,7 +308,6 @@ def generate_routers_targets_file(routers_path: Path) -> None:
         targets = {}
         for row in rows:
             addr = row["ip"]
-            # remove IPv6 and private IP addresses
             try:
                 if not IPv4Address(addr).is_private:
                     subnet = get_prefix_from_ip(addr)
