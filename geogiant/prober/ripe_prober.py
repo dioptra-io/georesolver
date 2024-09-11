@@ -73,59 +73,6 @@ class RIPEAtlasProber:
 
         return config_file
 
-    async def wait_for_batch(self, ongoing_ids: set) -> list:
-        """Wait for a measurement batch to end"""
-
-        logger.info(f"Concurrent Number of measurement limit reached")
-        logger.info(f"Nb concurrent measurement: {len(ongoing_ids)}")
-        logger.info(
-            f"Waiting for measurement batch to end before starting a new one..."
-        )
-
-        # allows that some measurement might be stuck
-        finished_counter = 0
-        while finished_counter < self.api.settings.MAX_MEASUREMENT:
-            tmp_ids = copy(ongoing_ids)
-
-            for id in tmp_ids:
-                finished = await self.api.get_status(id)
-                if finished:
-                    logger.debug(f"removing id:: {id} from ongoing measurements")
-                    ongoing_ids.remove(id)
-                    finished_counter += 1
-
-                await asyncio.sleep(0.1)
-            await asyncio.sleep(60)
-
-        return ongoing_ids
-
-    async def probe(self, target: str, vp_ids: list, uuid: str) -> dict:
-        """Ping one target IP address from a list of vp ids"""
-        logger.info(
-            f"{self.uuid}::starting measurement for {target} from {len(vp_ids)} vps"
-        )
-
-        match (self.probing_type):
-            case "ping":
-                id = await self.api.ping(
-                    target=target,
-                    vp_ids=[vp_id for vp_id in vp_ids],
-                    uuid=str(uuid),
-                )
-            case "traceroute":
-                id = await self.api.traceroute(
-                    target=target,
-                    vp_ids=[vp_id for vp_id in vp_ids],
-                    uuid=str(uuid),
-                )
-            case _:
-                raise RuntimeError(
-                    f"Measurement type:: {self.probing_type} not supported"
-                )
-
-        logger.info(f"{target=}, {id=}")
-        return id
-
     async def ongoing_measurements(self, wait_time: int = 5) -> None:
         """simply check how many measurements have the status Ongoing"""
         while not self.measurement_done:
@@ -134,75 +81,30 @@ class RIPEAtlasProber:
             )
             await asyncio.sleep(wait_time)
 
-    async def run(self, schedule: list[tuple]) -> list[int]:
-        """run measurement schedule"""
-        for target, vp_ids in schedule:
-
-            # check if a new measurement can be started or not
-            i = 0
-            while self.nb_ongoing_measurements >= self.api.settings.MAX_MEASUREMENT:
-                if i == 0:
-                    logger.info(
-                        f"API limit reached, waiting for measurements to finish. {self.nb_ongoing_measurements=}"
-                    )
-                await asyncio.sleep(1)
-                i = 1
-
-            id = await self.probe(
-                target=target,
-                vp_ids=vp_ids,
-                uuid=self.uuid,
-            )
-
-            self.measurement_ids.add(id)
-
-            # so we do not have to wait for actualization
-            self.nb_ongoing_measurements += 1
-            await asyncio.sleep(0.1)
-
-        self.measurement_done = True
-        self.end_time = datetime.now()
-
-        logger.info(f"{self.uuid}::Measurement finished")
-
-    async def insert_ids(self) -> None:
-        """fetch periodically new measurements ids and put them into the config"""
-        logger.info(f"{self.uuid} Saving all ping ids")
-
-        # wait for the measurement to finish
-        while not self.measurement_done:
-
-            # dump measurement ids into config file
-            self.config["ids"] = list(self.measurement_ids)
-            self.save_config(
-                self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG
-            )
-
-            await asyncio.sleep(5)
-
-        # dump measurement ids into config file
-        self.config["ids"] = list(self.measurement_ids)
-        self.save_config(self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
-
     async def retrieve_pings_from_tag(self, tag, output_table: str) -> None:
         """retrieve all results for a specific tag and insert data"""
         csv_data = await RIPEAtlasAPI().get_measurements_from_tag(tag)
 
         await insert_pings(csv_data, output_table)
 
-    async def retrieve_pings(self, ids: list[int], output_table: str) -> None:
+    async def retrieve_pings(
+        self, ids: list[int], output_table: str, wait_time: int = 0.1
+    ) -> None:
         """retrieve all ping measurements from a list of measurement ids"""
         csv_data = []
         for id in tqdm(ids):
             ping_results = await RIPEAtlasAPI().get_ping_results(id)
             csv_data.extend(ping_results)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(wait_time)
 
         await insert_pings(csv_data, output_table)
 
     async def retrieve_traceroutes(
-        self, ids: list[int], output_table: str
+        self,
+        ids: list[int],
+        output_table: str,
+        wait_time: float = 0.1,
     ) -> list[dict]:
         """retrieve all traceroutes from a list of ids"""
         csv_data = []
@@ -210,11 +112,11 @@ class RIPEAtlasProber:
             traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
             csv_data.extend(traceroute_result)
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(wait_time)
 
         await insert_traceroutes(csv_data, output_table)
 
-    async def insert_results(self, wait_time: int = 60) -> None:
+    async def insert_results(self, wait_time: int = 5) -> None:
         """insert ongoing measurements"""
         inserted_measurements = set()
         current_time = datetime.timestamp(self.start_time)
@@ -247,11 +149,13 @@ class RIPEAtlasProber:
 
             logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
 
-            if self.probing_type == "pings":
-                await self.retrieve_pings(measurement_to_insert, self.output_table)
-            elif self.probing_type == "traceroutes":
+            if self.probing_type == "ping":
+                await self.retrieve_pings(
+                    measurement_to_insert, self.output_table, wait_time=1
+                )
+            elif self.probing_type == "traceroute":
                 await self.retrieve_traceroutes(
-                    measurement_to_insert, self.output_table
+                    measurement_to_insert, self.output_table, wait_time=1
                 )
             else:
                 raise RuntimeError(f"{self.probing_type} not supported")
@@ -260,7 +164,7 @@ class RIPEAtlasProber:
 
             current_time = datetime.timestamp(datetime.now())
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(wait_time)
 
         # check if there are still some measurement to insert
         current_measurement_ids = self.config["ids"]
@@ -298,6 +202,88 @@ class RIPEAtlasProber:
                 inserted_measurements.update(measurement_to_insert)
 
         logger.info("All measurements were inserted")
+
+    async def insert_ids(self) -> None:
+        """fetch periodically new measurements ids and put them into the config"""
+        logger.info(f"{self.uuid} Saving all ping ids")
+
+        # wait for the measurement to finish
+        while not self.measurement_done:
+
+            # dump measurement ids into config file
+            self.config["ids"] = list(self.measurement_ids)
+            self.save_config(
+                self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG
+            )
+
+            await asyncio.sleep(5)
+
+        # dump measurement ids into config file
+        self.config["ids"] = list(self.measurement_ids)
+        self.save_config(self.config, out_path=self.api.settings.MEASUREMENTS_CONFIG)
+
+    async def probe(self, target: str, vp_ids: list, uuid: str) -> dict:
+        """Ping one target IP address from a list of vp ids"""
+        logger.info(
+            f"{self.uuid}::starting measurement for {target} from {len(vp_ids)} vps"
+        )
+
+        match (self.probing_type):
+            case "ping":
+                id = await self.api.ping(
+                    target=target,
+                    vp_ids=[vp_id for vp_id in vp_ids],
+                    uuid=str(uuid),
+                )
+            case "traceroute":
+                id = await self.api.traceroute(
+                    target=target,
+                    vp_ids=[vp_id for vp_id in vp_ids],
+                    uuid=str(uuid),
+                )
+            case _:
+                raise RuntimeError(
+                    f"Measurement type:: {self.probing_type} not supported"
+                )
+
+        logger.info(f"{target=}, {id=}")
+        return id
+
+    async def run(self, schedule: list[tuple], wait_time: int = 0.1) -> list[int]:
+        """run measurement schedule"""
+        for target, vp_ids in schedule:
+
+            # check if a new measurement can be started or not
+            print_debug = True
+            while self.nb_ongoing_measurements >= self.api.settings.MAX_MEASUREMENT:
+                if print_debug:
+                    logger.info(
+                        f"API limit reached, waiting for measurements to finish. {self.nb_ongoing_measurements=}"
+                    )
+                await asyncio.sleep(1)
+                print_debug = False
+
+            print_debug = True
+            logger.debug(
+                f"Restarting measurements, slots available:: {self.api.settings.MAX_MEASUREMENT - self.nb_ongoing_measurements}"
+            )
+
+            id = await self.probe(
+                target=target,
+                vp_ids=vp_ids,
+                uuid=self.uuid,
+            )
+
+            self.measurement_ids.add(id)
+
+            # so we do not have to wait for actualization
+            self.nb_ongoing_measurements += 1
+            await asyncio.sleep(wait_time)
+
+        self.measurement_done = True
+        self.end_time = datetime.now()
+
+        logger.info(f"{self.uuid}::Measurement finished")
 
     async def main(self, schedule: dict, config: dict = None) -> Path:
         """run measurement schedule using RIPE Atlas API"""

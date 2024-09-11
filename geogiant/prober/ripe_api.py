@@ -90,7 +90,7 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
+            # "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def is_geoloc_disputed(self, probe: dict) -> bool:
@@ -543,43 +543,6 @@ class RIPEAtlasAPI:
 
         return traceroute_results
 
-    async def insert_traceroutes(
-        self, batch_size: int = 10_000, drop_table: bool = False
-    ) -> None:
-        """retrieve traceroutes from RIPE Atlas and insert results in clickhouse"""
-        traceroutes = []
-
-        if drop_table:
-            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                await Drop().execute(client, self.settings.TRACEROUTE_VPS_TO_TARGET)
-
-        # drop table for testing
-        async for traceroute in self.get_raw_traceroutes():
-            parsed_traceroute = self.parse_traceroute(traceroute)
-
-            if parsed_traceroute:
-                traceroutes.extend(parsed_traceroute)
-
-            # insert every buffer size to avoid losing data
-            if len(traceroutes) > batch_size:
-                logger.info(f"inserting batch of traceroute: limit = {batch_size}")
-
-                # create table + insert
-                tmp_file_path = create_tmp_csv_file(traceroutes)
-
-                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-                    await CreateTracerouteTable().execute(
-                        client, self.settings.TRACEROUTE_VPS_TO_TARGET
-                    )
-                    await Insert().execute(
-                        client=client,
-                        table_name=self.settings.TRACEROUTE_VPS_TO_TARGET,
-                        data=tmp_file_path.read_bytes(),
-                    )
-
-                tmp_file_path.unlink()
-                traceroutes = []
-
     async def get_status(self, measurement_id: str) -> bool:
         """check if measurement status is ongoing, if"""
 
@@ -645,6 +608,8 @@ class RIPEAtlasAPI:
         vp_ids: list[str],
         uuid: str,
         max_retry: int = 3,
+        timeout: int = 60 * 5,
+        wait_time: int = 60,
     ) -> int:
         """start ping measurement towards target from vps, return Atlas measurement id"""
 
@@ -656,16 +621,20 @@ class RIPEAtlasAPI:
                         self.measurement_url
                         + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
                         json=self.get_ping_config(target, vp_ids, uuid),
-                        timeout=60,
+                        timeout=timeout,
                     )
                     resp = resp.json()
-                except httpx.ReadTimeout:
+                except httpx.ReadTimeout as e:
                     logger.error(
                         "Read timeout for post request, retrying, max retry = 3"
                     )
-                    raise Exception(
-                        f"{uuid}:: Cannot perform measurement for target: {target}"
-                    )
+                    logger.error(f"{e}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                except json.decoder.JSONDecodeError as e:
+                    logger.info(f"Cannot parse response:: {e}, {resp}")
+                    await asyncio.sleep(wait_time)
+                    continue
 
                 try:
                     id = resp["measurements"][0]
@@ -673,7 +642,7 @@ class RIPEAtlasAPI:
                 except KeyError as e:
                     logger.error(f"{uuid}::STOPPED::Too many measurements!! {e}")
                     logger.error(f"{resp=}")
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(wait_time)
                     break
             else:
                 raise Exception(
@@ -685,7 +654,7 @@ class RIPEAtlasAPI:
         self, target: str, vp_ids: list[str], uuid: str, max_retry: int = 3
     ) -> int:
         id = None
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             for _ in range(max_retry):
                 resp = await client.post(
                     self.measurement_url
