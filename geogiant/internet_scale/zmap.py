@@ -1,32 +1,18 @@
-import asyncio
 import subprocess
 
 from random import shuffle
 from tqdm import tqdm
-from pyasn import pyasn
 from loguru import logger
 from tqdm import tqdm
 from pathlib import Path
 
-from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.evaluation.ecs_geoloc_eval import (
-    get_ecs_vps,
-    filter_vps_last_mile_delay,
-    select_one_vp_per_as_city,
-)
-from geogiant.evaluation.plot import plot_internet_scale
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.utils import TargetScores, get_parsed_vps
 from geogiant.common.queries import (
-    get_min_rtt_per_vp,
     load_vps,
-    retrieve_pings,
     get_pings_per_target,
-    get_dst_prefix,
 )
 from geogiant.common.files_utils import (
     load_csv,
-    dump_csv,
     load_json,
     dump_json,
     create_tmp_csv_file,
@@ -36,13 +22,9 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
-
+PROBING_BUDGET = 50
 PING_GEORESOLVER_TABLE = "pings_internet_scale"
 PING_AGGREGATION_TABLE = "pings_internet_scale_aggregation"
-
-PROBING_BUDGET = 50
-
-
 INTERNET_SCALE_SUBNETS_PATH = (
     path_settings.INTERNET_SCALE_DATASET / "all_internet_scale_subnets.json"
 )
