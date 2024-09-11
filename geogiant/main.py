@@ -8,15 +8,15 @@ from loguru import logger
 from pathlib import Path
 from multiprocessing import Process
 
+from geogiant.scores import get_scores, TargetScores
+from geogiant.prober import RIPEAtlasProber
+from geogiant.ripe_init import vps_init
+from geogiant.ecs_mapping_init import resolve_hostnames
 from geogiant.evaluation.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
 )
-from geogiant.ecs_mapping_init import resolve_vps_subnet
-from geogiant.scores import get_scores, TargetScores
-from geogiant.prober import RIPEAtlasProber
-from geogiant.common.utils import get_parsed_vps
 from geogiant.common.files_utils import (
     create_tmp_json_file,
     load_csv,
@@ -33,8 +33,7 @@ from geogiant.common.queries import (
     load_cached_targets,
     insert_geoloc,
 )
-from geogiant.ripe_init import vps_init
-from geogiant.ecs_mapping_init import resolve_hostnames
+from geogiant.common.utils import get_parsed_vps
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import PathSettings, ClickhouseSettings, ConstantSettings
 
@@ -226,18 +225,6 @@ def filter_targets(targets: list[str]) -> list[str]:
     return list(filtered_targets)
 
 
-async def ping_targets(measurement_schedule: list, output_table: str) -> None:
-    """perform ping geolocation"""
-    if measurement_schedule:
-        logger.debug(f"Pings schedule {len(measurement_schedule)})")
-
-        await RIPEAtlasProber(
-            probing_type="ping",
-            probing_tag="ping_targets",
-            output_table=output_table,
-        ).main(measurement_schedule)
-
-
 def parse_geoloc_data(target_geoloc: dict) -> list[str]:
     """parse ping data to geoloc csv"""
     csv_data = []
@@ -396,9 +383,11 @@ async def geolocation_task(targets: list[str], subnets: list[str]) -> None:
                     f"Starting geolocation for {len(measurement_schedule)} targets"
                 )
 
-                await ping_targets(
-                    measurement_schedule, clickhouse_settings.PING_TARGET_TABLE
-                )
+                await RIPEAtlasProber(
+                    probing_type="ping",
+                    probing_tag="ping_targets",
+                    output_table=clickhouse_settings.PING_TARGET_TABLE,
+                ).main(measurement_schedule)
 
                 logger.info("Geolocation complete")
                 break
