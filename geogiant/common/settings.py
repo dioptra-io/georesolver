@@ -2,10 +2,10 @@
 
 from pathlib import Path
 from dotenv import load_dotenv
-from typing import Optional
-
 
 from pydantic_settings import BaseSettings
+
+load_dotenv(override=True)
 
 
 class ConstantSettings(BaseSettings):
@@ -36,105 +36,73 @@ class PathSettings(BaseSettings):
     LOG_PATH: Path = DEFAULT / "../logs"
     CONFIG_PATH: Path = DEFAULT / "../config"
 
-    # internet scale file
-    ADDRESS_FILE: Path = (
-        DATASET
-        / "internet_address_hitlist_it106w-20231222/internet_address_hitlist_it106w-20231222.fsdb"
-    )
-
     # Static files from other organization
     STATIC_FILES: Path = DATASET / "static_files/"
     USER_HITLIST_FILE: Path = STATIC_FILES / "ipv4_hitlist.json"
     RIB_TABLE: Path = STATIC_FILES / "rib_table.dat"
+    ANYCATCH_DATA: Path = STATIC_FILES / "anycatch-v4-prefixes.csv"
+    VERPOELOFTER: Path = STATIC_FILES / "responsive_addresses_per_subnet.fsdb"
+    ADDRESS_FILE: Path = STATIC_FILES / "internet_address_hitlist_it106w-20231222.fsdb"
+
+    # hostnames default input files
+    HOSTNAME_SELECTIION_FILES: Path = DATASET / "hostname_selection/"
+    HOSTNAMES_MILLIONS: Path = HOSTNAME_SELECTIION_FILES / "hostnames_1M.csv"
+    HOSTNAMES_CDN: Path = HOSTNAME_SELECTIION_FILES / "hostnames_cdn.csv"
+    HOSTNAMES_ECS: Path = HOSTNAME_SELECTIION_FILES / "hostnames_ecs.csv"
+    HOSTNAMES_GEORESOLVER: Path = (
+        HOSTNAME_SELECTIION_FILES / "georesolver_hostnames.csv"
+    )
+
+    # default location countries
+    COUNTRY_FILES: Path = DATASET / "country_files/"
+    COUNTRIES_INFO: Path = COUNTRY_FILES / "countries_info.csv"
+    COUNTRIES_DEFAULT_GEO: Path = COUNTRY_FILES / "country_codes.csv"
+    COUNTRIES_CONTINENT: Path = COUNTRY_FILES / "countries_continent.csv"
+    COUNTRIES_GOOGLE_POP_GEO: Path = COUNTRY_FILES / "Google_GGC_02-08-2023.geojson"
 
     # evaluation specific datasets
     END_TO_END_DATASET: Path = DATASET / "end_to_end_evaluation"
     INTERNET_SCALE_DATASET: Path = DATASET / "internet_scale_evaluation"
     INTERNET_SCALE_RESULTS: Path = RESULTS_PATH / "internet_scale_evaluation"
 
-    # hostnames default input files
-    HOSTNAMES_MILLIONS: Path = DATASET / "hostnames_1M.csv"
-    HOSTNAMES_CDN: Path = DATASET / "hostnames_cdn.csv"
-    HOSTNAMES_ECS: Path = DATASET / "hostnames_ecs.csv"
-
-    # anycatch database
-    ANYCATCH_DATA: Path = DATASET / "anycatch-v4-prefixes.csv"
-
-    # CDNs datasets
-    GOOGLE_POP_GEO_DATA: Path = DATASET / "Google_GGC_02-08-2023.geojson"
-
-    # default location countries
-    COUNTRIES_INFO: Path = DATASET / "countries_info.csv"
-    COUNTRIES_DEFAULT_GEO: Path = DATASET / "country_codes.csv"
-    COUNTRIES_CONTINENT: Path = DATASET / "countries_continent.csv"
-
-    # Verpoelofter
-    VERPOELOFTER: Path = DATASET / "responsive_addresses_per_subnet.fsdb"
+    # measurement logging
+    MEASUREMENTS_CONFIG: Path = DEFAULT / "../measurements/config"
+    MEASUREMENTS_SCHEDULE: Path = DEFAULT / "../measurements/schedule"
 
     # IP INFO
-    IP_INFO_CLUSTERING: Path = DATASET / "ips.jsonl"
+    IP_INFO_FILES: Path = DATASET / "ip_info/"
+    IP_INFO_CLUSTERING: Path = IP_INFO_FILES / "ips.jsonl"
 
-    # Others
-    VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
+    # Generated files
     GREEDY_VPS: Path = DATASET / "greedy_vps.json"
     REMOVED_VPS: Path = DATASET / "removed_vps.json"
-
-    # ECS-DNS old data
-    OLD_TARGETS: Path = DATASET / "old/ripe/targets.json"
-    OLD_VPS: Path = DATASET / "old/ripe/vps.json"
-    OLD_VPS_PAIRWISE_DISTANCE: Path = (
-        DATASET / "old/ripe/old_vps_pairwise_distance.json"
-    )
-    OLD_DATA_PATH: Path = Path("/storage/hugo/ecs-dns-data-old/")
-    OLD_DNS_MAPPING_DATA: Path = OLD_DATA_PATH / "dns_mapping.zst"
-    OLD_PING_VPS_TO_TARGET_DATA: Path = OLD_DATA_PATH / "ping_vps_to_targets.zst"
-    OLD_PING_VPS_TO_SUBNET_DATA: Path = OLD_DATA_PATH / "ping_vps_to_subnet.zst"
-
-    VPS_RAW_DATA: Path = OLD_DATA_PATH / "vps_raw.zst"
-    DNS_MAPPING_VPS_RAW_DATA: Path = OLD_DATA_PATH / "raw_dns_mapping_vps.zst"
-
-    # GeoResolver settings
-    DEFAULT_HOSTNAME_FILE: Path = DATASET / "internet_scale_hostnames.csv"
+    VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
 
 
 class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
 
-    # workaround to override LD_LIBRARY_PATH. Otherwise cannot insert into clickhouse
-    load_dotenv(override=True)
-
     # Clickhouse driver parameters
     BASE_URL: str = "http://localhost:8123"
-    DATABASE_OLD: str = "geogiant"
-    DATABASE: str = "geogiant"
-    DATABASE: str = "imc2024"
+    DATABASE: str = "GeoResolver"
 
     USERNAME: str = "default"
     PASSWORD: str = ""
 
-    # ZDNS tables
-    DNS_MAPPING_TARGETS: str = "raw_dns_mapping_targets"
-    DNS_MAPPING_VPS: str = "vps_mapping_ecs_selection"
-    DNS_MAPPING_VPS_RAW: str = "raw_dns_mapping_vps"
-    DNS_MAPPING_ECS: str = "ecs_dns_mapping"
-    DNS_MAPPING_METADATA_TARGETS: str = "dns_mapping_metadata_targets"
-    DNS_MAPPING_METADATA_VPS: str = "dns_mapping_metadata_vps"
+    # VPs related tables
+    VPS_RAW_TABLE: str = "vps_raw"
+    VPS_FILTERED_TABLE: str = "vps_filtered"
+    VPS_MESHED_PINGS_TABLE: str = "vps_meshed_pings"
+    VPS_MESHED_TRACEROUTE_TABLE: str = "vps_meshed_traceroutes"
+    VPS_ECS_MAPPING_TABLE: str = "vps_ecs_mapping"
 
-    # RIPE Atlas tables
-    TARGETS_TABLE_RAW: str = "targets_raw"
-    TARGETS_TABLE: str = "targets"
-    VPS_RAW: str = "vps_raw"
-    VPS_FILTERED: str = "filtered_vps"
-    VPS: str = "vps"
-    PING_VPS_TO_TARGET: str = "ping_vps_to_targets"
-    PING_VPS_TO_FRONTEND: str = "ping_vps_to_frontend"
+    # Target related tables
+    TARGET_ECS_MAPPING_TABLE: str = "target_ecs_mapping"
+    SCORE_SCORE_TABLE: str = "target_score"
+    TARGET_PING_TABLE: str = "target_ping"
+    TARGET_GEOLOC_TABLE: str = "target_geoloc"
 
-    # Traceroute validation
-    TRACEROUTES_LAST_MILE_DELAY: str = "traceroutes_last_mile_delay"
-
-    # Geoloc tables
-    TARGET_GEOLOCATION: str = "target_geolocation"
-    POP_GEOLOCATION: str = "pop_geolocation"
+    # TODO: hostname related tables
 
     @property
     def clickhouse(self):
@@ -148,44 +116,23 @@ class ClickhouseSettings(BaseSettings):
             },
         }
 
-    # GeoResolver settings
-    ECS_TARGET_TABLE: str = "ecs_target_table"
-    ECS_VPS_TABLE: str = "vps_mapping_ecs"
-    SCORE_TARGET_TABLE: str = "score_target_table"
-    PING_TARGET_TABLE: str = "ping_target_table"
-    GEOLOC_TARGET_TABLE: str = "geoloc_target_table"
-
-    # VPs related tables
-    VPS_FILTERED_TABLE: str = "filtered_vps"
-    VPS_ECS_MAPPING: str = "filtered_vps"
-    MESHED_PINGS_TABLE: str = "meshed_pings_table"
-    MESHED_TRACEROUTES_TABLE: str = "meshed_traceroutes_table"
-
 
 class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
     """RIPE Atlas module settings"""
-
-    # Default path
-    DEFAULT: Path = Path(__file__).resolve().parent
 
     # credentials
     RIPE_ATLAS_USERNAME: str = ""
     RIPE_ATLAS_SECRET_KEY: str = ""
     IP_VERSION: int = 4
 
-    # default ripe atlas parameters
+    # RIPE Atlas parameters
     MAX_VP: int = 1_000
     MAX_MEASUREMENT: int = 100
     PING_NB_PACKETS: int = 3
     PROTOCOL: str = "ICMP"
 
-    # debugging
-    MEASUREMENTS_CONFIG: Path = DEFAULT / "../measurements/config"
-    MEASUREMENTS_SCHEDULE: Path = DEFAULT / "../measurements/schedule"
-
     API_URL: str = "https://atlas.ripe.net/api/v2"
     KEY_URL: str = f"?key={RIPE_ATLAS_SECRET_KEY}"
-
     MEASUREMENT_URL: str = f"{API_URL}/measurements/{KEY_URL}"
 
 
