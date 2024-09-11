@@ -133,7 +133,8 @@ class ZDNS:
 
                 if not answer_asn or not answer_bgp_prefix:
                     logger.debug(f"{answer}:: Could not retrieve ASN and BGP prefix")
-                    continue
+                    answer_asn = -1
+                    answer_bgp_prefix = "None"
 
                 parsed_output.append(
                     f"{int(timestamp)},\
