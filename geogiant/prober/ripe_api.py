@@ -13,13 +13,16 @@ from uuid import uuid4
 from loguru import logger
 from enum import Enum
 from pych_client import AsyncClickHouseClient
+from pych_client.exceptions import ClickHouseException
 
 from geogiant.clickhouse import (
     CreateVPsTable,
     CreatePingTable,
+    DropTable,
     InsertCSV,
     GetMeasurementIds,
 )
+from geogiant.common.queries import load_vps
 from geogiant.common.files_utils import create_tmp_csv_file, dump_pickle
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings
@@ -187,7 +190,7 @@ class RIPEAtlasAPI:
             {vp['id']},\
             {vp['is_anchor']}"""
 
-    async def insert_vps(self, vps: list[dict], table_name: str) -> None:
+    async def insert_vps(self, vps: list[dict], output_table: str) -> None:
         """insert vps within clickhouse db"""
         asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
@@ -196,13 +199,25 @@ class RIPEAtlasAPI:
             parsed_vp = self.parse_vp(vp, asndb)
             csv_data.append(parsed_vp)
 
+        # check if vps already exists
+        try:
+            vps = load_vps(output_table)
+        except ClickHouseException:
+            logger.debug("VPs table does not exists, proceeding with normal setup")
+
         tmp_file_path = create_tmp_csv_file(csv_data)
 
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreateVPsTable().execute(client, self.settings.VPS_RAW)
-            await InsertCSV().execute(
+            if vps:
+                logger.warning(
+                    f"VPs table:: {output_table} already exists, dropping it"
+                )
+                await DropTable().aio_execute(client, output_table)
+
+            await CreateVPsTable().aio_execute(client, output_table)
+            await InsertCSV().aio_execute(
                 client=client,
-                table_name=table_name,
+                table_name=output_table,
                 data=tmp_file_path.read_bytes(),
             )
 

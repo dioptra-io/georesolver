@@ -35,7 +35,7 @@ class RIPEAtlasProber:
         self.uuid = uuid4() if not uuid else uuid
         self.probing_type = probing_type
         self.table_name = probing_tag + "__" + str(self.uuid)
-        self.start_time = datetime.now()
+        self.start_time = datetime.timestamp(datetime.now())
         self.end_time = None
 
         self.nb_ongoing_measurements: int = 0
@@ -46,7 +46,7 @@ class RIPEAtlasProber:
     async def init_prober(self) -> None:
         """get connected vps from measurement platform, insert in clickhouse"""
         vps = await self.api.get_vps()
-        await self.api.insert_vps(vps, self.api.settings.VPS_RAW)
+        await self.api.insert_vps(vps, self.api.settings.VPS_RAW_TABLE)
 
     def get_config(self, schedule: dict) -> dict:
         """create a dictionary config for the new measurement"""
@@ -54,7 +54,7 @@ class RIPEAtlasProber:
             "probing_type": self.probing_type,
             "uuid": str(self.uuid),
             "status": "ongoing",
-            "start_time": str(datetime.now()),
+            "start_time": str(datetime.timestamp(datetime.now())),
             "end_time": None,
             "is_dry_run": self.dry_run,
             "nb_targets": len(schedule),
@@ -119,7 +119,7 @@ class RIPEAtlasProber:
     async def insert_results(self, wait_time: int = 5) -> None:
         """insert ongoing measurements"""
         inserted_measurements = set()
-        current_time = datetime.timestamp(self.start_time)
+        current_time = self.start_time
         while not self.measurement_done:
 
             # 1. get all stopped measurements
@@ -281,7 +281,7 @@ class RIPEAtlasProber:
             await asyncio.sleep(wait_time)
 
         self.measurement_done = True
-        self.end_time = datetime.now()
+        self.end_time = str(datetime.now())
 
         logger.info(f"{self.uuid}::Measurement finished")
 
