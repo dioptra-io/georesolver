@@ -1,4 +1,11 @@
-from .query import InsertCSV, InsertFromInFile, InsertFromCSV, Query, NativeQuery, Drop
+from .query import (
+    InsertCSV,
+    InsertFromInFile,
+    InsertFromCSV,
+    Query,
+    NativeQuery,
+    DropTable,
+)
 from .create_tables import (
     CreateVPsTable,
     CreatePingTable,
@@ -54,7 +61,7 @@ __all__ = (
     "InsertFromInFile",
     "Query",
     "NativeQuery",
-    "Drop",
+    "DropTable",
     "InsertCSV",
     "InsertFromCSV",
     "CreateVPsTable",

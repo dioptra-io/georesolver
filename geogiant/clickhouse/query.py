@@ -203,7 +203,7 @@ class InsertCSV(Query):
 
 
 @dataclass(frozen=True)
-class Drop(Query):
+class DropTable(Query):
     def statement(self, table_name: str) -> str:
         return f"DROP TABLE {self.settings.DATABASE}.{table_name}"
 
@@ -245,14 +245,18 @@ class InsertFromCSV:
         cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
 
         ps = await asyncio.subprocess.create_subprocess_shell(
-            cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+            cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await ps.communicate()
 
         if stderr:
-            raise RuntimeError(
-                f"Could not insert data::{cmd}, failed with error: {stderr}"
-            )
+            stderr = stderr.decode().splitlines()
+            for row in stderr:
+                logger.error(row.strip())
+            raise RuntimeError(f"Could not insert data::{cmd}")
         else:
             logger.info(f"{cmd}::Successfully executed")
 
@@ -266,8 +270,8 @@ class InsertFromCSV:
         logger.debug(f"Insert from CSV:: {in_file=}, {ps.stdout=}, {ps.stderr=}")
 
         if ps.stderr:
-            raise RuntimeError(
-                f"Could not insert data::{cmd}, failed with error: {ps.stderr}"
-            )
+            stderr = stderr.decode()
+            logger.error(f"{stderr=}")
+            raise RuntimeError(f"Could not insert data::{cmd}, failed with error")
         else:
             logger.info(f"{cmd}::Successfully executed")

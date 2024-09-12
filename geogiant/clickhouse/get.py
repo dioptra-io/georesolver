@@ -157,19 +157,6 @@ class GetDstPrefix(Query):
             {latency_clause}
         """
 
-
-class GetIds(Query):
-    def statement(self, table_name: str) -> str:
-        return f"""
-        SELECT 
-            DISTINCT msm_id as msm_id
-        FROM 
-            {self.settings.DATABASE}.{table_name}
-        WHERE
-            min > -1
-        """
-
-
 class GetVPSInfo(Query):
     def statement(self, table_name: str) -> str:
         return f"""
@@ -243,6 +230,16 @@ class GetMSMid(Query):
         return f"""
         SELECT 
             distinct(msm_id) as msm_id
+        FROM 
+            {self.settings.DATABASE}.{table_name}
+        """
+
+
+class GetVPsID(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            DISTINCT prb_id,
         FROM 
             {self.settings.DATABASE}.{table_name}
         """

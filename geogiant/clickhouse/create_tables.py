@@ -124,7 +124,7 @@ class CreateDNSMappingTable(Query):
             answer                 IPv4,
             answer_subnet          IPv4,
             answer_bgp_prefix      String,
-            answer_asn             UInt32,
+            answer_asn             Int32,
             source_scope           UInt8
         )
         ENGINE MergeTree
