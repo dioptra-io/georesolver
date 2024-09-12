@@ -74,8 +74,8 @@ async def calculate_scores(target_subnets: list[str], hostnames: list[str]) -> N
             "targets_subnet_path": subnet_tmp_path,
             "vps_table": clickhouse_settings.VPS_FILTERED_TABLE,
             "selected_hostnames": hostnames,
-            "targets_ecs_table": clickhouse_settings.ECS_TARGET_TABLE,
-            "vps_ecs_table": clickhouse_settings.ECS_VPS_TABLE,
+            "targets_ecs_table": clickhouse_settings.TARGET_ECS_MAPPING_TABLE,
+            "vps_ecs_table": clickhouse_settings.VPS_ECS_MAPPING_TABLE,
             "hostname_selection": "max_bgp_prefix",
             "score_metric": ["jaccard"],
             "answer_granularities": ["answer_subnets"],
@@ -88,7 +88,7 @@ async def calculate_scores(target_subnets: list[str], hostnames: list[str]) -> N
 
         await insert_scores(
             csv_data=score_data,
-            output_table=clickhouse_settings.SCORE_TARGET_TABLE,
+            output_table=clickhouse_settings.TARGET_SCORE_TABLE,
         )
 
         subnet_tmp_path.unlink()
@@ -141,15 +141,15 @@ def load_targets_from_score(
 def get_measurement_schedule(targets: list[str], subnets: list[str]) -> dict[list]:
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
 
     subnet_scores = load_target_scores(
-        score_table=clickhouse_settings.SCORE_TARGET_TABLE, subnets=subnets
+        score_table=clickhouse_settings.TARGET_SCORE_TABLE, subnets=subnets
     )
 
     logger.info(f"Targets in schedule:: {len(targets)}")
@@ -175,29 +175,11 @@ def get_measurement_schedule(targets: list[str], subnets: list[str]) -> dict[lis
     return measurement_schedule
 
 
-async def ecs_mapping(subnets: list[str], hostnames: list[str], ecs_table: str) -> None:
-    batch_size = 10_000
-    for i in range(0, len(subnets), batch_size):
-        logger.info(f"Batch:: {i+1}/{len(subnets) // batch_size}")
-        batch_subnets = subnets[i : i + batch_size]
-
-        subnet_tmp_file_path = create_tmp_json_file(batch_subnets)
-
-        await resolve_vps_subnet(
-            selected_hostnames=hostnames,
-            input_file=subnet_tmp_file_path,
-            output_table=ecs_table,
-            chunk_size=500,
-        )
-
-        subnet_tmp_file_path.unlink()
-
-
 async def filter_ecs_subnets(subnets: list[str]) -> list[str]:
     """retrieve all subnets for which ECS resolution was done"""
     subnet_mapping = []
     subnet_mapping = get_subnets_mapping(
-        dns_table=clickhouse_settings.ECS_TARGET_TABLE, subnets=subnets
+        dns_table=clickhouse_settings.TARGET_ECS_MAPPING_TABLE, subnets=subnets
     )
 
     cached_subnets = [subnet for subnet in subnet_mapping]
@@ -209,7 +191,7 @@ async def filter_ecs_subnets(subnets: list[str]) -> list[str]:
 async def filter_score_subnets(subnets: list[str]) -> list[str]:
     """filter and return subnets for which score calculation is yet to be done"""
     subnet_score = load_target_scores(
-        score_table=clickhouse_settings.SCORE_TARGET_TABLE, subnets=subnets
+        score_table=clickhouse_settings.TARGET_SCORE_TABLE, subnets=subnets
     )
     cached_subnets = [subnet for subnet in subnet_score]
     filtered_subnets = set(subnets).difference(set(cached_subnets))
@@ -219,7 +201,7 @@ async def filter_score_subnets(subnets: list[str]) -> list[str]:
 
 def filter_targets(targets: list[str]) -> list[str]:
     """return targets for which pings were not made"""
-    cached_targets = load_cached_targets(clickhouse_settings.PING_TARGET_TABLE)
+    cached_targets = load_cached_targets(clickhouse_settings.TARGET_PING_TABLE)
     filtered_targets = set(targets).difference(set(cached_targets))
 
     return list(filtered_targets)
@@ -229,7 +211,7 @@ def parse_geoloc_data(target_geoloc: dict) -> list[str]:
     """parse ping data to geoloc csv"""
     csv_data = []
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     _, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
@@ -274,20 +256,20 @@ def parse_geoloc_data(target_geoloc: dict) -> list[str]:
 async def insert_geoloc_from_pings(targets: list[str]) -> None:
     """insert all geoloc in clickhouse"""
     target_geoloc = load_target_geoloc(
-        table_name=clickhouse_settings.PING_TARGET_TABLE, targets=targets
+        table_name=clickhouse_settings.TARGET_PING_TABLE, targets=targets
     )
 
     csv_data = parse_geoloc_data(target_geoloc)
 
     await insert_geoloc(
         csv_data=csv_data,
-        output_table=clickhouse_settings.GEOLOC_TARGET_TABLE,
+        output_table=clickhouse_settings.TARGET_GEOLOC_TABLE,
     )
 
     return csv_data
 
 
-async def ecs_mapping_task(subnets: list[str], hostnames: list[str]) -> None:
+async def ecs_mapping_task(subnets: list[str], hostname_file: list[str]) -> None:
     """run ecs mapping on batches of target subnets"""
     # Check ECS mapping exists
     filtered_subnets = await filter_ecs_subnets(subnets)
@@ -297,15 +279,15 @@ async def ecs_mapping_task(subnets: list[str], hostnames: list[str]) -> None:
     # ECS mapping
     if filtered_subnets:
         for i in range(0, len(filtered_subnets), BATCH_SIZE):
-            input_subnets = filtered_subnets[i, i + BATCH_SIZE]
+            input_subnets = filtered_subnets[i : i + BATCH_SIZE]
             logger.info(
-                f"ECS mapping:: {(i+1) // BATCH_SIZE}/{(i+BATCH_SIZE) // BATCH_SIZE}/"
+                f"ECS mapping:: batch={(i+1) // BATCH_SIZE}/{(len(filtered_subnets) // BATCH_SIZE)}"
             )
 
-            await ecs_mapping(
+            await resolve_hostnames(
                 subnets=input_subnets,
-                hostnames=hostnames,
-                ecs_table=clickhouse_settings.ECS_TARGET_TABLE,
+                hostname_file=hostname_file,
+                output_table=clickhouse_settings.TARGET_ECS_MAPPING_TABLE,
             )
     else:
         logger.info("Skipping ECS resolution because all subnet mapping is done")
@@ -318,29 +300,27 @@ async def score_task(subnets: list[str], hostnames: list[str]) -> None:
 
         # Check if ECS mapping exists for part of the subnets
         ecs_mapping_subnets = get_subnets_mapping(
-            dns_table=clickhouse_settings.ECS_TARGET_TABLE, subnets=subnets
+            dns_table=clickhouse_settings.TARGET_ECS_MAPPING_TABLE, subnets=subnets
         )
 
         if ecs_mapping_subnets:
             i = 0
 
             # Check if some score were already calculated
-            filtered_subnet_score = await filter_score_subnets(subnets)
+            filtered_subnets = await filter_score_subnets(subnets)
             logger.info(f"Original number of subnets:: {len(subnets)}")
-            logger.info(f"Score calculation for {len(filtered_subnet_score)} subnets")
+            logger.info(f"Score calculation for {len(filtered_subnets)} subnets")
 
             # ECS mapping
-            if filtered_subnet_score:
-                for i in range(0, len(filtered_subnet_score), BATCH_SIZE):
-                    input_subnets = filtered_subnet_score[i, i + BATCH_SIZE]
+            if filtered_subnets:
+                for i in range(0, len(filtered_subnets), BATCH_SIZE):
+                    input_subnets = filtered_subnets[i : i + BATCH_SIZE]
                     logger.info(
-                        f"Score:: {(i+1) // BATCH_SIZE}/{(i+BATCH_SIZE) // BATCH_SIZE}/"
+                        f"Score:: batch={(i+1) // BATCH_SIZE}{(len(filtered_subnets) // BATCH_SIZE)}"
                     )
 
                     await calculate_scores(input_subnets, hostnames)
 
-                    logger.info("Score calculation complete")
-                    break
             else:
                 logger.info("Score calculation complete")
                 break
@@ -361,7 +341,7 @@ async def geolocation_task(targets: list[str], subnets: list[str]) -> None:
 
         # Check if scores exists for part of the subnets
         score_subnets = get_subnets_mapping(
-            dns_table=clickhouse_settings.ECS_TARGET_TABLE, subnets=subnets
+            dns_table=clickhouse_settings.TARGET_ECS_MAPPING_TABLE, subnets=subnets
         )
 
         if score_subnets:
@@ -386,7 +366,7 @@ async def geolocation_task(targets: list[str], subnets: list[str]) -> None:
                 await RIPEAtlasProber(
                     probing_type="ping",
                     probing_tag="ping_targets",
-                    output_table=clickhouse_settings.PING_TARGET_TABLE,
+                    output_table=clickhouse_settings.TARGET_PING_TABLE,
                 ).main(measurement_schedule)
 
                 logger.info("Geolocation complete")
@@ -429,15 +409,15 @@ def main(
 
     if init_ecs_mapping:
         logger.info(
-            f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING}"
+            f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING_TABLE}"
         )
 
-        vps_subnets = load_vp_subnets(clickhouse_settings.VPS_RAW)
+        vps_subnets = load_vp_subnets(clickhouse_settings.VPS_RAW_TABLE)
         asyncio.run(
             resolve_hostnames(
                 subnets=vps_subnets,
                 hostname_file=hostname_file,
-                output_table=clickhouse_settings.VPS_ECS_MAPPING,
+                output_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
             )
         )
 
@@ -447,7 +427,7 @@ def main(
 
     ecs_mapping_process = Process(
         target=main_processes,
-        args=(ecs_mapping_task, {"subnets": subnets, "hostnames": hostnames}),
+        args=(ecs_mapping_task, {"subnets": subnets, "hostname_file": hostname_file}),
     )
     score_process = Process(
         target=main_processes,
@@ -459,18 +439,18 @@ def main(
         args=(geolocation_task, {"targets": targets, "subnets": subnets}),
     )
 
-    logger.info("Starting ECS mapping process")
-    ecs_mapping_process.start()
+    # logger.info("Starting ECS mapping process")
+    # ecs_mapping_process.start()
 
-    logger.info("Starting Score process")
-    score_process.start()
+    # logger.info("Starting Score process")
+    # score_process.start()
 
-    logger.info("Starting Geolocation process")
-    geolocation_process.start()
+    # logger.info("Starting Geolocation process")
+    # geolocation_process.start()
 
-    ecs_mapping_process.join()
-    score_process.join()
-    geolocation_process.join()
+    # ecs_mapping_process.join()
+    # score_process.join()
+    # geolocation_process.join()
 
     # TODO geolocation exists check
 
