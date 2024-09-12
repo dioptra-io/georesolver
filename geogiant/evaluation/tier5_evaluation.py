@@ -30,8 +30,8 @@ clickhouse_settings = ClickhouseSettings()
 
 def compute_score() -> None:
     """calculate score for each organization/ns pair"""
-    targets_table = clickhouse_settings.VPS_FILTERED
-    vps_table = clickhouse_settings.VPS_FILTERED
+    targets_table = clickhouse_settings.VPS_FILTERED_TABLE
+    vps_table = clickhouse_settings.VPS_FILTERED_TABLE
 
     targets_ecs_table = "vps_mapping_ecs"
     vps_ecs_table = "vps_mapping_ecs"
@@ -130,17 +130,17 @@ def get_diff_error_per_budget() -> tuple[dict, dict]:
 def get_first_vp_under_40() -> list:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    ast_mile_delay = get_min_rtt_per_vp(clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY)
+    ast_mile_delay = get_min_rtt_per_vp(clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
+        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
     )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     target_coordinates = {}
     for target in targets:
         target_coordinates[target["addr"]] = (target["lat"], target["lon"])
 
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
@@ -215,14 +215,14 @@ def evaluate() -> None:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
+        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
     )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     vps_country = get_vps_country(vps)

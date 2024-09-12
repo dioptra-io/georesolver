@@ -74,11 +74,11 @@ def main() -> None:
 
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.PING_VPS_TO_TARGET, removed_vps
+        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
     )
 
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
 
     _, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps=removed_vps)
 

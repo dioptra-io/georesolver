@@ -19,7 +19,7 @@ clickhouse_settings = ClickhouseSettings()
 # CLICKHOUSE TABLE
 PING_TABLE = "pings_end_to_end"
 ECS_TABLE = "end_to_end_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 
 # FILE PATHS
 ROUTERS_TARGET_PATH = (
@@ -79,7 +79,7 @@ def get_routers_score() -> None:
                 "hostname_per_cdn": selected_hostnames_per_cdn,
                 "selected_hostnames": selected_hostnames,
                 "targets_ecs_table": ECS_TABLE,
-                "vps_ecs_table": VPS_ECS_TABLE,
+                "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
                 "hostname_selection": "max_bgp_prefix",
                 "score_metric": ["jaccard"],
                 "answer_granularities": ["answer_subnets"],
@@ -93,7 +93,7 @@ def evaluate() -> None:
     """calculate distance error and latency for each score"""
 
     targets = load_json(ROUTERS_TARGET_PATH)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
     score_files = [
@@ -125,7 +125,7 @@ def evaluate_no_users() -> None:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     targets = load_json(ROUTERS_TARGET_PATH)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
     if not (path_settings.DATASET / "parsed_aspop.json").exists():

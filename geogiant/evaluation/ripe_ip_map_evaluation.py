@@ -33,7 +33,7 @@ PING_RIPE_IP_MAP_TABLE = "pings_ripe_ip_map"
 
 # OUTPUT TABLES
 ECS_TABLE = "end_to_end_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 PING_END_TO_END_TABLE = "pings_end_to_end"
 
 # FILE PATHS
@@ -122,7 +122,7 @@ def get_ripe_ip_map_score() -> None:
                 "hostname_per_cdn": selected_hostnames_per_cdn,
                 "selected_hostnames": selected_hostnames,
                 "targets_ecs_table": ECS_TABLE,
-                "vps_ecs_table": VPS_ECS_TABLE,
+                "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
                 "hostname_selection": "max_bgp_prefix",
                 "score_metric": ["jaccard"],
                 "answer_granularities": ["answer_subnets"],
@@ -214,7 +214,7 @@ def evaluate() -> None:
     """calculate distance error and latency for each score"""
 
     targets = load_json(RIPE_IP_MAP_TARGETS_PATH)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
     score_files = [

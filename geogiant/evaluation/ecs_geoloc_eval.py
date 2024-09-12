@@ -256,7 +256,7 @@ def get_shortest_ping_geo_resolver(
     scores = scores.score_answer_subnets
 
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
 
     ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)

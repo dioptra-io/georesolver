@@ -23,7 +23,7 @@ def ecs_sp_per_continent(results: dict, metric_evaluated: str) -> None:
     geoloc_error_per_continent = defaultdict(list)
     continent_per_country = load_countries_continent()
 
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     parsed_targets = {}
     for target in targets:
         parsed_targets[target["addr"]] = target

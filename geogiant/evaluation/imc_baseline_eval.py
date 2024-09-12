@@ -201,7 +201,7 @@ def main(
         greedy_vp_selection(vp_distance_matrix)
 
     greedy_probes = load_json(path_settings.GREEDY_VPS)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
     rtt_per_srcs_dst = get_pings_per_src_dst(
@@ -258,9 +258,9 @@ def measurement_overhead(input_path: Path) -> int:
 
 if __name__ == "__main__":
     # 1. measurement overhead for anchors
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     targets = [target["addr"] for target in targets]
-    ping_table = clickhouse_settings.PING_VPS_TO_TARGET
+    ping_table = clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE
     output_path = path_settings.RESULTS_PATH / "imc_baseline_anchors_dataset.json"
 
     if not output_path.exists():

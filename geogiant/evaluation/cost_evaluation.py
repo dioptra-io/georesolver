@@ -13,8 +13,8 @@ clickhouse_settings = ClickhouseSettings()
 # RIPE IP map -> get from table?
 
 if __name__ == "__main__":
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
 
     imc_baseline_results = load_json(
         path_settings.RESULTS_PATH / "round_based_algo_file.json"

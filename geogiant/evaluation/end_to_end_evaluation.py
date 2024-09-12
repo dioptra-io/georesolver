@@ -45,7 +45,7 @@ PING_RIPE_IP_MAP_TABLE = "pings_ripe_ip_map"
 # OUTPUT TABLES
 PING_END_TO_END_TABLE = "pings_end_to_end"
 ECS_TABLE = "end_to_end_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 
 # FILE PATHS
 RIPE_IP_MAP_SUBNETS = path_settings.END_TO_END_DATASET / "ripe_ip_map_subnets.json"
@@ -267,7 +267,7 @@ def get_end_to_end_score() -> None:
                 "hostname_per_cdn": selected_hostnames_per_cdn,
                 "selected_hostnames": selected_hostnames,
                 "targets_ecs_table": ECS_TABLE,
-                "vps_ecs_table": VPS_ECS_TABLE,
+                "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
                 "hostname_selection": "max_bgp_prefix",
                 "score_metric": ["jaccard"],
                 "answer_granularities": ["answer_subnets"],
@@ -341,7 +341,7 @@ def get_measurement_schedule() -> dict[list]:
     """calculate distance error and latency for each score"""
     anycatch_db = load_anycatch_data()
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     ripe_ip_map_subnets = load_json(RIPE_IP_MAP_SUBNETS)
     ping_vps_to_target = get_pings_per_target(PING_RIPE_IP_MAP_TABLE)
 
@@ -451,7 +451,7 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
         ping_vps_to_target = get_pings_per_target(PING_END_TO_END_TABLE)
 
         logger.info(f"Number of pings:: {len(ping_vps_to_target)}")
-        vps = load_vps(clickhouse_settings.VPS_FILTERED)
+        vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
         vps_id_per_addr = {}
         for vp in vps:
             vps_id_per_addr[vp["addr"]] = vp["id"]
@@ -509,7 +509,7 @@ async def insert_measurements() -> None:
     )
 
     measurement_ids = []
-    for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+    for config_file in path_settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_end_to_end" in config_file.name:
             config = load_json(config_file)
             measurement_ids.extend([id for id in config["ids"]])
