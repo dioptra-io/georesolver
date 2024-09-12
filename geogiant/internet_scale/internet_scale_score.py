@@ -20,7 +20,7 @@ clickhouse_settings = ClickhouseSettings()
 # CLICKHOUSE TABLE
 PING_INTERNET_SCALE = "pings_routers"
 ECS_TABLE = "internet_scale_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 
 ALL_INTERNET_SCALE_SUBNETS_PATH = (
     path_settings.INTERNET_SCALE_DATASET / "all_internet_scale_subnets.json"
@@ -96,7 +96,7 @@ async def main() -> None:
             "hostname_per_cdn": selected_hostnames_per_cdn,
             "selected_hostnames": selected_hostnames,
             "targets_ecs_table": ECS_TABLE,
-            "vps_ecs_table": VPS_ECS_TABLE,
+            "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
             "hostname_selection": "max_bgp_prefix",
             "score_metric": ["jaccard"],
             "answer_granularities": ["answer_subnets"],

@@ -35,7 +35,7 @@ clickhouse_settings = ClickhouseSettings()
 
 PING_TABLE = "pings_internet_scale"
 ECS_TABLE = "internet_scale_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 
 PROBING_BUDGET = 50
 
@@ -125,11 +125,11 @@ def load_targets_from_score(
 def get_measurement_schedule() -> dict[list]:
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
 
     internet_scale_dataset = load_json(path_settings.USER_HITLIST_FILE)
@@ -193,7 +193,7 @@ async def insert_measurements() -> None:
 
     measurement_ids = []
     config_uuids = []
-    for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+    for config_file in path_settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_internet_scale" in config_file.name:
             config = load_json(config_file)
 

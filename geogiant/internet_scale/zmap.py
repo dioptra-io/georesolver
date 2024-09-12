@@ -89,7 +89,7 @@ def get_responsive_ip_addrs_in_subnet(subnet: str) -> Path:
 
 def zmap() -> None:
     # load targets, vps and cached measurements
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     targets = get_shortest_ping_vps(PING_GEORESOLVER_TABLE)
     cached_pings = get_shortest_ping_vps(PING_AGGREGATION_TABLE)
     cached_subnets = [get_prefix_from_ip(target) for target, _ in cached_pings]

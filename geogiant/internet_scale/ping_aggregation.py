@@ -119,7 +119,7 @@ async def insert_measurements() -> None:
     )
 
     measurement_ids = []
-    for config_file in RIPEAtlasAPI().settings.MEASUREMENTS_CONFIG.iterdir():
+    for config_file in path_settings.MEASUREMENTS_CONFIG.iterdir():
         if "ping_per_subnets" in config_file.name:
             config = load_json(config_file)
             if config["ids"]:
