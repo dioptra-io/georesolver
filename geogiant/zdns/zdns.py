@@ -114,9 +114,7 @@ class ZDNS:
             resp_body = resp["data"]
             hostname = resp["name"]
             answers = resp_body["answers"]
-
             timestamp = self.parse_timestamp(resp)
-
             source_scope = resp_body["additionals"][0]["csubnet"]["source_scope"]
             if source_scope == 0:
                 return None
@@ -255,27 +253,20 @@ class ZDNS:
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
         if self.output_table:
-            if self.request_type == "A":
-                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+            async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                if self.request_type == "A":
                     await CreateDNSMappingTable().aio_execute(
                         client=client, table_name=self.output_table
                     )
-
-                    await InsertFromCSV().execute(
-                        table_name=self.output_table,
-                        in_file=tmp_file_path,
-                    )
-
-            elif self.request_type == "NS":
-                async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
+                elif self.request_type == "NS":
                     await CreateNameServerTable().aio_execute(
                         client=client, table_name=self.output_table
                     )
 
-                    await InsertFromCSV().execute(
-                        table_name=self.output_table,
-                        in_file=tmp_file_path,
-                    )
+                await InsertFromCSV().execute(
+                    table_name=self.output_table,
+                    in_file=tmp_file_path,
+                )
 
         if self.output_file:
             output_file = (
