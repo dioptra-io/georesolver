@@ -19,7 +19,6 @@ from geogiant.clickhouse import (
     CreateTracerouteTable,
     GetSubnets,
     GetDstPrefix,
-    GetIds,
     GetTargetScore,
     GetMeasurementIds,
     GetShortestPingResults,
@@ -270,22 +269,6 @@ def get_dst_prefix(ping_table: str) -> list[str]:
         subnets.append(row["dst_prefix"])
 
     return subnets
-
-
-def get_measurement_ids(ping_table: str) -> list[str]:
-    """retrieve subnets from ping table"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        CreatePingTable().execute(client, ping_table)
-        rows = GetIds().execute(
-            client=client,
-            table_name=ping_table,
-        )
-
-    ids = []
-    for row in rows:
-        ids.append(row["msm_id"])
-
-    return ids
 
 
 def load_target_subnets(dns_table: str) -> dict:

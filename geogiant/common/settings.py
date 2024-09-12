@@ -45,13 +45,11 @@ class PathSettings(BaseSettings):
     ADDRESS_FILE: Path = STATIC_FILES / "internet_address_hitlist_it106w-20231222.fsdb"
 
     # hostnames default input files
-    HOSTNAME_SELECTIION_FILES: Path = DATASET / "hostname_selection/"
-    HOSTNAMES_MILLIONS: Path = HOSTNAME_SELECTIION_FILES / "hostnames_1M.csv"
-    HOSTNAMES_CDN: Path = HOSTNAME_SELECTIION_FILES / "hostnames_cdn.csv"
-    HOSTNAMES_ECS: Path = HOSTNAME_SELECTIION_FILES / "hostnames_ecs.csv"
-    HOSTNAMES_GEORESOLVER: Path = (
-        HOSTNAME_SELECTIION_FILES / "georesolver_hostnames.csv"
-    )
+    HOSTNAME_FILES: Path = DATASET / "hostname_files/"
+    HOSTNAMES_MILLIONS: Path = HOSTNAME_FILES / "hostnames_1M.csv"
+    HOSTNAMES_CDN: Path = HOSTNAME_FILES / "hostnames_cdn.csv"
+    HOSTNAMES_ECS: Path = HOSTNAME_FILES / "hostnames_ecs.csv"
+    HOSTNAMES_GEORESOLVER: Path = HOSTNAME_FILES / "hostnames_georesolver.csv"
 
     # default location countries
     COUNTRY_FILES: Path = DATASET / "country_files/"
@@ -98,7 +96,7 @@ class ClickhouseSettings(BaseSettings):
 
     # Target related tables
     TARGET_ECS_MAPPING_TABLE: str = "target_ecs_mapping"
-    SCORE_SCORE_TABLE: str = "target_score"
+    TARGET_SCORE_TABLE: str = "target_score"
     TARGET_PING_TABLE: str = "target_ping"
     TARGET_GEOLOC_TABLE: str = "target_geoloc"
 
