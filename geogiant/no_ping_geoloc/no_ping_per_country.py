@@ -119,8 +119,8 @@ def ripe_atlas_dataset_eval() -> None:
     thresholds_results = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
 
     # 1. load targets and VPs
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
@@ -177,7 +177,7 @@ def geoLite_dataset_eval() -> None:
             set([(get_prefix_from_ip(vp_addr), ping) for vp_addr, ping in ping_vps])
         )
 
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 

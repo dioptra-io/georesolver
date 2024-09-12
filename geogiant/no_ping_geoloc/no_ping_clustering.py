@@ -445,9 +445,11 @@ async def main() -> None:
 
     pairwise_distance = load_json(path_settings.VPS_PAIRWISE_DISTANCE)
 
-    ping_vps_to_target = get_pings_per_target(clickhouse_settings.PING_VPS_TO_TARGET)
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    ping_vps_to_target = get_pings_per_target(
+        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE
+    )
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
 

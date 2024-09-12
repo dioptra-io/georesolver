@@ -33,7 +33,7 @@ clickhouse_settings = ClickhouseSettings()
 
 PING_TABLE = "pings_internet_scale"
 ECS_TABLE = "internet_scale_mapping_ecs"
-VPS_ECS_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
 VPS_SUBNET_PATH = path_settings.DATASET / "vps_subnets_filtered.json"
 SCORE_PATH = path_settings.RESULTS_PATH / "extended_evaluation/score.pickle"
 
@@ -129,11 +129,11 @@ def load_geo_resolver_vps(targets: list[str]) -> dict:
     target_scores = target_scores.score_answer_subnets
 
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
 
     logger.info(f"Targets in schedule:: {len(targets)}")
@@ -253,18 +253,18 @@ if __name__ == "__main__":
 
     # load targets / vps / pings / landmarks
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    targets = load_targets(clickhouse_settings.VPS_FILTERED)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     # targets = targets[:1]
     target_coordinates = {}
     for target in targets:
         target_coordinates[target["addr"]] = (target["lat"], target["lon"])
-    vps = load_vps(clickhouse_settings.VPS_FILTERED)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     vp_filter = [vp["addr"] for vp in vps]
     landmarks_per_vp = get_landmarks_addr(PING_TABLE, vp_filter)
     geo_resoler_vps = load_geo_resolver_vps(targets)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.TRACEROUTES_LAST_MILE_DELAY
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
 
     if calculate_scores:
