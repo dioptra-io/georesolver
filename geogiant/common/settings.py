@@ -125,7 +125,7 @@ class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
 
     # RIPE Atlas parameters
     MAX_VP: int = 1_000
-    MAX_MEASUREMENT: int = 100
+    MAX_MEASUREMENT: int = 1500
     PING_NB_PACKETS: int = 3
     PROTOCOL: str = "ICMP"
 

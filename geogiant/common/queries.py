@@ -5,9 +5,9 @@ from pych_client.exceptions import ClickHouseException
 
 from geogiant.clickhouse import (
     GetVPs,
+    GetVPsIds,
     GetPingsPerTarget,
     GetPingsPerSrcDst,
-    GetCompleVPs,
     GetDNSMappingHostnames,
     GetDNSMappingPerHostnames,
     GetVPsSubnets,
@@ -133,14 +133,6 @@ def load_subnets_from_ecs_mapping() -> list:
     return end_to_end_subnets
 
 
-def load_all_vps(input_table: str) -> list:
-    """retrieve all VPs from clickhouse"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        vps = GetCompleVPs().execute(client=client, table_name=input_table)
-
-    return vps
-
-
 def load_vps(input_table: str) -> list:
     """retrieve all VPs from clickhouse"""
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
@@ -179,6 +171,19 @@ def load_cached_targets(table_name: str, filtered_targets: list[str] = []) -> li
         pass
 
     return cached_targets
+
+
+def get_vps_ids(ping_table: str) -> set:
+    """retrieve all VPs that participated to a measurement in the past"""
+    vp_ids_per_target = {}
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetVPsIds().execute(client, ping_table)
+
+        for row in resp:
+
+            vp_ids_per_target[row["dst_addr"]] = row["vp_ids"]
+
+    return vp_ids_per_target
 
 
 def get_subnets_mapping(

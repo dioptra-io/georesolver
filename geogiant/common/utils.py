@@ -1,3 +1,5 @@
+import asyncio
+
 from random import sample
 from pyasn import pyasn
 from collections import defaultdict
@@ -6,8 +8,9 @@ from loguru import logger
 from tqdm import tqdm
 from numpy import mean
 
+from geogiant.prober import RIPEAtlasAPI
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.queries import get_pings_per_target
+from geogiant.common.queries import get_pings_per_target, insert_pings
 from geogiant.common.geoloc import distance
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -477,3 +480,17 @@ def weighted_ecs_target_geoloc(
         return weighted_centroid(points)
 
     return None, None
+
+
+async def retrieve_pings(
+    ids: list[int], output_table: str, wait_time: int = 0.1
+) -> None:
+    """retrieve all ping measurements from a list of measurement ids"""
+    csv_data = []
+    for id in tqdm(ids):
+        ping_results = await RIPEAtlasAPI().get_ping_results(id)
+        csv_data.extend(ping_results)
+
+        await asyncio.sleep(wait_time)
+
+    await insert_pings(csv_data, output_table)
