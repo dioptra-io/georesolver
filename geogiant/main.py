@@ -392,6 +392,8 @@ def main(
     target_file: Path,
     hostname_file: Path,
     init_vps: bool = False,
+    update_meshed_pings: bool = True,
+    update_meshed_traceroutes: bool = True,
     init_ecs_mapping: bool = False,
     verbose: bool = False,
 ) -> None:
@@ -404,8 +406,8 @@ def main(
         logger.add(sys.stdout, level="INFO")
 
     if init_vps:
-        logger.info(f"Starting VPs init, output table")
-        asyncio.run(vps_init())
+        logger.info(f"Starting VPs init (this step might take several days)")
+        asyncio.run(vps_init(update_meshed_pings, update_meshed_traceroutes))
 
     if init_ecs_mapping:
         logger.info(
