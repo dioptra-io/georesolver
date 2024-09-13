@@ -157,6 +157,7 @@ class GetDstPrefix(Query):
             {latency_clause}
         """
 
+
 class GetVPSInfo(Query):
     def statement(self, table_name: str) -> str:
         return f"""
@@ -225,23 +226,16 @@ class GetSubnetPerHostname(Query):
         """
 
 
-class GetMSMid(Query):
+class GetVPsIds(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
-            distinct(msm_id) as msm_id
+            DISTINCT dst_addr,
+            groupUniqArray(prb_id) as vp_ids
         FROM 
             {self.settings.DATABASE}.{table_name}
-        """
-
-
-class GetVPsID(Query):
-    def statement(self, table_name: str) -> str:
-        return f"""
-        SELECT 
-            DISTINCT prb_id,
-        FROM 
-            {self.settings.DATABASE}.{table_name}
+        GROUP BY
+            dst_addr
         """
 
 
