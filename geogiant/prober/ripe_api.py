@@ -41,6 +41,7 @@ class RIPEAtlasAPI:
         self.settings = RIPEAtlasSettings()
         self.api_url = "https://atlas.ripe.net/api/v2"
         self.measurement_url = f"{self.api_url}/measurements/"
+        self.request_timeout = 60
 
     def check_schedule_validity(self, schedule: list[tuple]) -> None:
         """for any target, check if not too many VPs are scheduled"""
@@ -114,9 +115,14 @@ class RIPEAtlasAPI:
                 "mine": True,
                 "key": self.settings.RIPE_ATLAS_SECRET_KEY,
             }
-            resp = await client.get(self.measurement_url, params=params)
-            resp = resp.json()
-
+            
+            try:
+                resp = await client.get(
+                    self.measurement_url, params=params, timeout=self.request_timeout
+                )
+                resp = resp.json()
+            except httpx.ReadTimeout:
+                return None
         try:
             ongoing_measurements = resp["count"]
         except KeyError:
@@ -200,15 +206,16 @@ class RIPEAtlasAPI:
             csv_data.append(parsed_vp)
 
         # check if vps already exists
+        prev_vps = None
         try:
-            vps = load_vps(output_table)
+            prev_vps = load_vps(output_table)
         except ClickHouseException:
             logger.debug("VPs table does not exists, proceeding with normal setup")
 
         tmp_file_path = create_tmp_csv_file(csv_data)
 
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            if vps:
+            if prev_vps:
                 logger.warning(
                     f"VPs table:: {output_table} already exists, dropping it"
                 )

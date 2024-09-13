@@ -79,6 +79,8 @@ class RIPEAtlasProber:
             self.nb_ongoing_measurements = await self.api.get_ongoing_measurements(
                 tags=["dioptra"]
             )
+            if self.nb_ongoing_measurements is None:
+                self.nb_ongoing_measurements = self.api.settings.MAX_MEASUREMENT
             await asyncio.sleep(wait_time)
 
     async def retrieve_pings_from_tag(self, tag, output_table: str) -> None:
@@ -264,7 +266,7 @@ class RIPEAtlasProber:
                 print_debug = False
 
             print_debug = True
-            logger.debug(
+            logger.info(
                 f"Restarting measurements, slots available:: {self.api.settings.MAX_MEASUREMENT - self.nb_ongoing_measurements}"
             )
 
