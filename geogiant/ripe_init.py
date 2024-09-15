@@ -406,7 +406,7 @@ async def vps_init(
     ).main(pings_schedule)
 
     # # 3. filter VPs with default geoloc and SOI violoation
-    # filter_vps()
+    filter_vps()
 
     # # 4. perform meshed traceroutes
     # traceroutes_schedule = await meshed_traceroutes_schedule(update_meshed_traceroutes)
