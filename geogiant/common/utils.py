@@ -10,7 +10,11 @@ from numpy import mean
 
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.queries import get_pings_per_target, insert_pings
+from geogiant.common.queries import (
+    get_pings_per_target,
+    insert_pings,
+    insert_traceroutes,
+)
 from geogiant.common.geoloc import distance
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -494,3 +498,17 @@ async def retrieve_pings(
         await asyncio.sleep(wait_time)
 
     await insert_pings(csv_data, output_table)
+
+
+async def retrieve_traceroutes(
+    ids: list[int], output_table: str, wait_time: float = 0.1
+) -> list[dict]:
+    """retrieve all traceroutes from a list of ids"""
+    csv_data = []
+    for id in tqdm(ids):
+        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
+        csv_data.extend(traceroute_result)
+
+        await asyncio.sleep(wait_time)
+
+    await insert_traceroutes(csv_data, output_table)
