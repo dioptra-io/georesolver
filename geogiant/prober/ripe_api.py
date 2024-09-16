@@ -82,7 +82,7 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "protocol": self.settings.PROTOCOL,
-                    "tags": [uuid],
+                    "tags": ["dioptra"],
                     "description": f"Dioptra Traceroute of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
@@ -109,13 +109,13 @@ class RIPEAtlasAPI:
         """return the number of measurements which have the status Ongoing"""
         async with httpx.AsyncClient() as client:
             params = {
-                "sort": ["start_time"],
+                "sort": ["-start_time"],
                 "status__in": "Specified,Scheduled,Ongoing",
                 "tags": tags,
                 "mine": True,
                 "key": self.settings.RIPE_ATLAS_SECRET_KEY,
             }
-            
+
             try:
                 resp = await client.get(
                     self.measurement_url, params=params, timeout=self.request_timeout
