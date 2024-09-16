@@ -21,11 +21,13 @@ class GetVPs(Query):
         SELECT
             toString(address_v4) as addr,
             toString(subnet_v4) as subnet,
-            id,
-            country_code,
             asn_v4,
+            toString(bgp_prefix) as bgp_prefix,
+            country_code,
             lat,
-            lon
+            lon,
+            id,
+            is_anchor
         FROM
             {self.settings.DATABASE}.{table_name}
         {anchor_statement}
