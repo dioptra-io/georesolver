@@ -27,6 +27,7 @@ from geogiant.common.files_utils import (
     load_json,
     create_tmp_csv_file,
 )
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -183,13 +184,13 @@ async def meshed_pings_schedule(update_meshed_pings: bool = True) -> dict:
     return measurement_schedule
 
 
-def meshed_traceroutes_schedule(max_nb_traceroutes: int = 50) -> dict:
+def meshed_traceroutes_schedule(max_nb_traceroutes: int = 100) -> dict:
     """for each target and subnet target get measurement vps
 
     Returns:
         dict: vps per target to make a measurement
     """
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_RAW_TABLE)
     vps_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE)
 
     # get vp id per addr
@@ -201,26 +202,27 @@ def meshed_traceroutes_schedule(max_nb_traceroutes: int = 50) -> dict:
     ordered_distance_matrix = {}
     for vp in vps:
         distances = vps_distance_matrix[vp["addr"]]
-        distances = sorted(distances.items(), key=lambda x: x[-1])
-        ordered_distance_matrix[vp["addr"]] = distances[:max_nb_traceroutes]
+        ordered_distance_matrix[vp["addr"]] = sorted(
+            distances.items(), key=lambda x: x[-1]
+        )
 
-    traceroute_targets_per_vp = {}
+    traceroute_targets_per_vp = defaultdict(list)
     for vp in vps:
-        closest_vps = ordered_distance_matrix[vp["addr"]][:max_nb_traceroutes]
+        closest_vp_addrs = ordered_distance_matrix[vp["addr"]]
+        # only take targets outside of VPs subnet for mesehd traceroutes
+        i = 0
+        for addr, _ in closest_vp_addrs:
+            if get_prefix_from_ip(addr) != vp["subnet"]:
+                traceroute_targets_per_vp[vp["id"]].append(addr)
+                i += 1
 
-        closest_vp_ids = []
-        for vp_addr, _ in closest_vps:
-            try:
-                closest_vp_ids.append((vp_addr, vp_addr_to_id[vp_addr]))
-            except KeyError:
-                continue
-
-        traceroute_targets_per_vp[vp["id"]] = closest_vp_ids
+            if i > max_nb_traceroutes:
+                break
 
     # group VPs that must trace the same target to maximize parallel measurements
     traceroute_schedule = defaultdict(set)
-    for vp_id, closest_vp_ids in traceroute_targets_per_vp.items():
-        for addr, _ in closest_vp_ids:
+    for vp_id, closest_vp_addrs in traceroute_targets_per_vp.items():
+        for addr in closest_vp_addrs:
             traceroute_schedule[addr].add(vp_id)
 
     logger.info(
@@ -231,8 +233,8 @@ def meshed_traceroutes_schedule(max_nb_traceroutes: int = 50) -> dict:
     measurement_schedule = []
     for target, vps in traceroute_schedule.items():
         vps = list(vps)
-        for i in range(0, len(vps), 1):
-            batch_vps = vps[i * batch_size : (i + 1) * batch_size]
+        for i in range(0, len(vps), batch_size):
+            batch_vps = vps[i : (i + batch_size)]
 
             if not batch_vps:
                 break
@@ -316,9 +318,9 @@ async def filter_vps() -> None:
     """filter VPs based on default geoloc and SOI violatio"""
     targets = load_targets(clickhouse_settings.VPS_RAW_TABLE)
     vps = load_vps(clickhouse_settings.VPS_RAW_TABLE)
-    all_vps = vps.extend(targets)
+    vps.extend(targets)
 
-    filter_default_country_geolocation(all_vps)
+    filter_default_country_geolocation(vps)
     filter_wrongful_geolocation(
         targets, vps, clickhouse_settings.VPS_MESHED_PINGS_TABLE
     )
@@ -344,12 +346,12 @@ async def filter_vps() -> None:
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreateVPsTable().aio_execute(
             client=client,
-            table_name="filtered_vps",
+            table_name=clickhouse_settings.VPS_FILTERED_TABLE,
         )
 
     csv_data = []
     for vp in vps:
-        if vp["address_v4"] in removed_vps:
+        if vp["addr"] in removed_vps:
             continue
 
         row = []
@@ -361,7 +363,9 @@ async def filter_vps() -> None:
 
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    await InsertFromCSV().execute(table_name="filtered_vps", in_file=tmp_file_path)
+    await InsertFromCSV().execute(
+        table_name=clickhouse_settings.VPS_FILTERED_TABLE, in_file=tmp_file_path
+    )
 
     tmp_file_path.unlink()
 
@@ -398,20 +402,25 @@ async def vps_init(
     # await api.insert_vps(vps, clickhouse_settings.VPS_RAW_TABLE)
 
     # 2. perform meshed pings
-    pings_schedule = await meshed_pings_schedule(update_meshed_pings)
-    await RIPEAtlasProber(
-        probing_type="ping",
-        probing_tag="meshed_pings",
-        output_table=clickhouse_settings.VPS_MESHED_PINGS_TABLE,
-    ).main(pings_schedule)
+    # pings_schedule = await meshed_pings_schedule(update_meshed_pings)
+    # await RIPEAtlasProber(
+    #     probing_type="ping",
+    #     probing_tag="meshed_pings",
+    #     output_table=clickhouse_settings.VPS_MESHED_PINGS_TABLE,
+    # ).main(pings_schedule)
 
     # # 3. filter VPs with default geoloc and SOI violoation
-    filter_vps()
+    # await filter_vps()
 
     # # 4. perform meshed traceroutes
-    # traceroutes_schedule = await meshed_traceroutes_schedule(update_meshed_traceroutes)
-    # await RIPEAtlasProber(
-    #     probing_type="traceroutes",
-    #     probing_tag="meshed_traceroutes",
-    #     output_table=clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE,
-    # ).main(traceroutes_schedule)
+    traceroutes_schedule = meshed_traceroutes_schedule()
+    await RIPEAtlasProber(
+        probing_type="traceroute",
+        probing_tag="meshed_traceroutes",
+        output_table=clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE,
+    ).main(traceroutes_schedule)
+
+
+# debugging, testing
+if __name__ == "__main__":
+    traceroutes_schedule = meshed_traceroutes_schedule()
