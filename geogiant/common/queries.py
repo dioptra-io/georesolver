@@ -23,6 +23,7 @@ from geogiant.clickhouse import (
     GetMeasurementIds,
     GetShortestPingResults,
     GetCachedTargets,
+    GetMeasurementIds,
 )
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.settings import ClickhouseSettings
@@ -171,6 +172,18 @@ def load_cached_targets(table_name: str, filtered_targets: list[str] = []) -> li
         pass
 
     return cached_targets
+
+
+def get_measurement_ids(measurement_table: str) -> set:
+    """return all the measurement ids that were saved"""
+    measurement_ids = set()
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetMeasurementIds().execute(client, measurement_table)
+
+        for row in resp:
+            measurement_ids.add(row["vp_ids"])
+
+    return measurement_ids
 
 
 def get_vps_ids(ping_table: str) -> set:
