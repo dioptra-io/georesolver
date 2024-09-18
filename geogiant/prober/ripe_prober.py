@@ -1,11 +1,9 @@
-import time
 import asyncio
 
 from random import shuffle
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from copy import copy
 from loguru import logger
 from tqdm import tqdm
 
@@ -77,7 +75,7 @@ class RIPEAtlasProber:
         """simply check how many measurements have the status Ongoing"""
         while not self.measurement_done:
             self.nb_ongoing_measurements = await self.api.get_ongoing_measurements(
-                tags=["dioptra"]
+                tags=["dioptra", self.uuid]
             )
             if self.nb_ongoing_measurements is None:
                 self.nb_ongoing_measurements = self.api.settings.MAX_MEASUREMENT
@@ -119,11 +117,12 @@ class RIPEAtlasProber:
 
         await insert_traceroutes(csv_data, output_table)
 
-    async def insert_results(self, wait_time: int = 5) -> None:
+    async def insert_results(self, wait_time: int = 60) -> None:
         """insert ongoing measurements"""
         inserted_measurements = set()
         current_time = self.start_time
-        while not self.measurement_done:
+        insert_done = False
+        while insert_done:
 
             # 1. get all stopped measurements
             stopped_measurement_ids = await self.api.get_stopped_measurement_ids(
@@ -131,17 +130,17 @@ class RIPEAtlasProber:
                 start_time=current_time,
             )
 
-            # 2. filter already inserted measurement ids
-            current_measurement_ids = self.measurement_ids
+            if not stopped_measurement_ids:
+                logger.info("No measurement to insert")
+                await asyncio.sleep(wait_time)
+                continue
 
             # 3. only keep ids related with this measurement
             stopped_measurement_ids = set(stopped_measurement_ids).intersection(
-                set(current_measurement_ids)
+                set(self.measurement_ids)
             )
 
-            if not stopped_measurement_ids:
-                await asyncio.sleep(wait_time)
-                continue
+            logger.info(f"Measurements stopped:: {len(stopped_measurement_ids)}")
 
             measurement_to_insert = set(stopped_measurement_ids).difference(
                 set(inserted_measurements)
@@ -163,48 +162,22 @@ class RIPEAtlasProber:
             else:
                 raise RuntimeError(f"{self.probing_type} not supported")
 
+            current_time = datetime.timestamp(datetime.now()) - timedelta(
+                seconds=wait_time + 60
+            )
+
             inserted_measurements.update(measurement_to_insert)
 
-            current_time = datetime.timestamp(datetime.now())
+            # stopping point for the insertion
+            if (
+                self.measurement_done
+                and len(inserted_measurements) == self.measurement_ids
+            ):
+                insert_done = True
 
             await asyncio.sleep(wait_time)
 
-        # check if there are still some measurement to insert
-        current_measurement_ids = self.config["ids"]
-        stopped_measurement_ids = await self.api.get_stopped_measurement_ids(
-            tags=["dioptra"],
-            start_time=current_time,
-        )
-
-        # 2. filter already inserted measurement ids
-        current_measurement_ids = self.config["ids"]
-
-        # 3. only keep ids related with this measurement
-        stopped_measurement_ids = set(stopped_measurement_ids).difference(
-            set(current_measurement_ids)
-        )
-
-        if stopped_measurement_ids:
-            measurement_to_insert = set(stopped_measurement_ids).difference(
-                set(inserted_measurements)
-            )
-
-            logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
-
-            if measurement_to_insert:
-
-                if self.probing_type == "pings":
-                    await self.retrieve_pings(measurement_to_insert, self.output_table)
-                elif self.probing_type == "traceroutes":
-                    await self.retrieve_traceroutes(
-                        measurement_to_insert, self.output_table
-                    )
-                else:
-                    raise RuntimeError(f"{self.probing_type} not supported")
-
-                inserted_measurements.update(measurement_to_insert)
-
-        logger.info("All measurements were inserted")
+        logger.info("All measurements inserted")
 
     async def insert_ids(self) -> None:
         """fetch periodically new measurements ids and put them into the config"""

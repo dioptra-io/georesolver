@@ -59,7 +59,7 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "size": 48,
-                    "tags": ["dioptra"],
+                    "tags": ["dioptra", str(uuid)],
                     "description": f"Active Geolocation of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
@@ -82,7 +82,7 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "protocol": self.settings.PROTOCOL,
-                    "tags": ["dioptra"],
+                    "tags": ["dioptra", str(uuid)],
                     "description": f"Dioptra Traceroute of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
@@ -111,7 +111,7 @@ class RIPEAtlasAPI:
             params = {
                 "sort": ["-start_time"],
                 "status__in": "Specified,Scheduled,Ongoing",
-                "tags": tags,
+                "tags": [str(tag) for tag in tags],
                 "mine": True,
                 "key": self.settings.RIPE_ATLAS_SECRET_KEY,
             }
@@ -139,7 +139,7 @@ class RIPEAtlasAPI:
             "sort": ["start_time"],
             "status__in": "Stopped,Forced to stop,No suitable probes,Failed",
             "stop_time__gte": start_time,
-            "tags": tags,
+            "tags": [str(tag) for tag in tags],
             "mine": True,
             "key": self.settings.RIPE_ATLAS_SECRET_KEY,
         }

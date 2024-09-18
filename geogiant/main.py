@@ -441,21 +441,20 @@ def main(
         args=(geolocation_task, {"targets": targets, "subnets": subnets}),
     )
 
-    # logger.info("Starting ECS mapping process")
-    # ecs_mapping_process.start()
+    logger.info("Starting ECS mapping process")
+    ecs_mapping_process.start()
 
-    # logger.info("Starting Score process")
-    # score_process.start()
+    logger.info("Starting Score process")
+    score_process.start()
 
-    # logger.info("Starting Geolocation process")
-    # geolocation_process.start()
+    logger.info("Starting Geolocation process")
+    geolocation_process.start()
 
-    # ecs_mapping_process.join()
-    # score_process.join()
-    # geolocation_process.join()
+    ecs_mapping_process.join()
+    score_process.join()
+    geolocation_process.join()
 
     # TODO geolocation exists check
-
     # Create geolocation table/file
     # filtered_geoloc = load_geolocation()
     # await insert_geoloc_from_pings(targets)
