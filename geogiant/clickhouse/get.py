@@ -65,12 +65,20 @@ class GetTargets(Query):
 
 
 class GetSubnets(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(self, table_name: str, **kwargs) -> str:
+
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",'{s}'" for s in subnet_filter])[1:]
+            subnet_filter = f"WHERE subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
         return f"""
         SELECT 
             DISTINCT toString(subnet) as subnet
         FROM 
             {self.settings.DATABASE}.{table_name}
+        {subnet_filter}
         """
 
 
@@ -112,33 +120,23 @@ class GetVPsSubnets(Query):
         """
 
 
-class GetSubnets(Query):
-    def statement(self, table_name: str) -> str:
-        return f"""
-        SELECT 
-            DISTINCT toString(subnet) as subnet
-        FROM 
-            {self.settings.DATABASE}.{table_name}
-        """
-
-
 class GetTargetScore(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if subnet_filter := kwargs.get("subnet_filter"):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
-            subnet_filter = f"WHERE client_subnet IN ({subnet_filter})"
+            subnet_filter = f"WHERE subnet IN ({subnet_filter})"
         else:
             raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
 
         return f"""
         SELECT 
-            client_subnet, 
+            subnet, 
             arraySort(x -> -x.2, groupArray((vp_subnet, score))) AS vps_score
             FROM 
                 {self.settings.DATABASE}.{table_name} 
             {subnet_filter}    
             GROUP BY 
-                client_subnet
+                subnet
             
         """
 

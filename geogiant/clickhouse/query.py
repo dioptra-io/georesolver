@@ -38,7 +38,7 @@ class NativeQuery:
                 f"Could not insert data::{cmd}, failed with error: {stderr}"
             )
         else:
-            logger.info(f"{cmd}::Successfully executed")
+            logger.debug(f"{cmd}::Successfully executed")
 
         stdout = stdout.decode()
 
@@ -90,7 +90,7 @@ class Query:
         rows = []
         statement = self.statement(table_name, **kwargs)
 
-        logger.info(f"query={self.name} table_name={table_name}  limit={limit}")
+        logger.debug(f"query={self.name} table_name={table_name}  limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
@@ -119,7 +119,7 @@ class Query:
         rows = []
         statement = self.statement(table_name, **kwargs)
 
-        logger.info(f"query={self.name} table_name={table_name}  limit={limit}")
+        logger.debug(f"query={self.name} table_name={table_name}  limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
@@ -147,7 +147,7 @@ class Query:
         rows = []
         statement = self.statement(table_name)
 
-        logger.info(f"query={self.name} table_name={table_name}  limit={limit}")
+        logger.debug(f"query={self.name} table_name={table_name}  limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
@@ -169,7 +169,7 @@ class Query:
         """
         statement = self.statement(table_name, **kwargs)
 
-        logger.info(f"query={self.name} table_name={table_name} limit={limit}")
+        logger.debug(f"query={self.name} table_name={table_name} limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
@@ -188,7 +188,7 @@ class Query:
         Execute the query and return each row as a dict, as they are received from the database.
         """
         statement = self.statement(table_name, **kwargs)
-        logger.info(f"query={self.name} table_name={table_name} limit={limit}")
+        logger.debug(f"query={self.name} table_name={table_name} limit={limit}")
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,

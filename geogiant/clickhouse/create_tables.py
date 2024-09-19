@@ -152,13 +152,13 @@ class CreateNameServerTable(Query):
 
 class CreateDNSMappingWithMetadataTable(Query):
     def statement(self, table_name: str) -> str:
-        sorting_key = "client_subnet,client_bgp_prefix, client_asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"
+        sorting_key = "subnet, bgp_prefix, asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"
         return f"""
             CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
             (
-                client_subnet          IPv4,
-                client_bgp_prefix      String,
-                client_asn             UInt32,
+                subnet                 IPv4,
+                bgp_prefix             String,
+                asn                    UInt32,
                 hostname               String,
                 answer                 IPv4,
                 answer_subnet          IPv4,
@@ -178,11 +178,11 @@ class CreateDNSMappingWithMetadataTable(Query):
 
 class CreateScoreTable(Query):
     def statement(self, table_name: str) -> str:
-        sorting_key = "client_subnet, vp_subnet, metric, score"
+        sorting_key = "subnet, vp_subnet, metric, score"
         return f"""
             CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
             (
-                client_subnet          IPv4,
+                subnet                 IPv4,
                 vp_subnet              IPv4,
                 metric                 String,
                 answer_granularity     String,
