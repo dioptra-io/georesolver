@@ -85,6 +85,18 @@ def load_csv(input_file: Path) -> list[str]:
     return data
 
 
+def load_iter_csv(input_file: Path) -> Generator:
+    """load csv file, return list of string"""
+    try:
+        with input_file.open("r") as f:
+            for row in f.readlines():
+                yield row.strip("\n")
+    except FileNotFoundError as e:
+        logger.error(f"file does not exists: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"the file you are trying to retrieve is empty: {e}")
+
+
 def dump_json(data: dict, output_file: Path) -> None:
     """output data into output file with json format"""
     # check that dir exists before writing

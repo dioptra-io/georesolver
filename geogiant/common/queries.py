@@ -121,19 +121,6 @@ def get_pings_per_src_dst(
     return ping_vps_to_target
 
 
-def load_subnets_from_ecs_mapping() -> list:
-    """retrieve all RIPE IP map subnets"""
-    # get routers 2ms subnets
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        rows = GetSubnets().execute(client=client, table_name=ECS_TABLE)
-
-    end_to_end_subnets = []
-    for row in rows:
-        end_to_end_subnets.append(row["subnet"])
-
-    return end_to_end_subnets
-
-
 def load_vps(input_table: str) -> list:
     """retrieve all VPs from clickhouse"""
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
@@ -203,13 +190,14 @@ def get_subnets_mapping(
     dns_table: str,
     subnets: list[str],
     hostname_filter: list[str] = None,
+    print_error: bool = True,
 ) -> dict:
     """get ecs-dns resolution per hostname for all input subnets"""
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
         resp = GetDNSMappingHostnames().execute_iter(
             client=client,
             table_name=dns_table,
-            subnet_filter=[s for s in subnets],
+            subnet_filter=subnets,
             hostname_filter=hostname_filter,
         )
 
@@ -231,44 +219,33 @@ def get_subnets_mapping(
                 }
 
         except ClickHouseException as e:
-            logger.warning(
-                f"Something went wrong. Probably that {dns_table} does not exists:: {e}"
-            )
+            if print_error:
+                logger.warning(
+                    f"Something went wrong. Probably that {dns_table} does not exists:: {e}"
+                )
             pass
 
     return subnets_mapping
 
 
-def get_mapping_per_hostname(
-    dns_table: str,
-    subnets: list[str],
-    hostname_filter: list[str] = None,
-) -> dict:
-    """get ecs-dns resolution per hostname for all input subnets"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        resp = GetDNSMappingPerHostnames().execute_iter(
-            client=client,
-            table_name=dns_table,
-            subnet_filter=[s for s in subnets],
-            hostname_filter=hostname_filter,
-        )
+def get_subnets(table_name: str, subnets: list[str], print_error: bool = True) -> dict:
+    target_subnets = []
+    try:
+        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+            rows = GetSubnets().execute(
+                client=client, table_name=table_name, subnet_filter=[s for s in subnets]
+            )
 
-        mapping_per_hostname = defaultdict(dict)
-        for row in resp:
-            subnet = row["client_subnet"]
-            answer_bgp_prefixes = row["answer_bgp_prefixes"]
-            hostname = row["hostname"]
+            print("rows::", len(rows))
 
-            mapping_per_hostname[hostname][subnet] = answer_bgp_prefixes
+        target_subnets = [row["subnet"] for row in rows]
 
-    return mapping_per_hostname
-
-
-def get_subnets(dns_table: str) -> dict:
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        targets = GetSubnets().execute(client=client, table_name=dns_table)
-
-    target_subnets = [target["subnet"] for target in targets]
+    except ClickHouseException as e:
+        if print_error:
+            logger.warning(
+                f"Something went wrong. Probably that {table_name} does not exists:: {e}"
+            )
+            pass
 
     return target_subnets
 
@@ -287,6 +264,31 @@ def get_dst_prefix(ping_table: str) -> list[str]:
         subnets.append(row["dst_prefix"])
 
     return subnets
+
+
+def get_mapping_per_hostname(
+    dns_table: str,
+    subnets: list[str],
+    hostname_filter: list[str] = None,
+) -> dict:
+    """get ecs-dns resolution per hostname for all input subnets"""
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetDNSMappingPerHostnames().execute_iter(
+            client=client,
+            table_name=dns_table,
+            subnet_filter=subnets,
+            hostname_filter=hostname_filter,
+        )
+
+        mapping_per_hostname = defaultdict(dict)
+        for row in resp:
+            subnet = row["client_subnet"]
+            answer_bgp_prefixes = row["answer_bgp_prefixes"]
+            hostname = row["hostname"]
+
+            mapping_per_hostname[hostname][subnet] = answer_bgp_prefixes
+
+    return mapping_per_hostname
 
 
 def load_target_subnets(dns_table: str) -> dict:
@@ -316,7 +318,6 @@ def load_target_scores(score_table: str, subnets: list[str]) -> dict:
     target_score = {}
 
     try:
-
         with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
             resp = GetTargetScore().execute(
                 client=client,
@@ -325,11 +326,11 @@ def load_target_scores(score_table: str, subnets: list[str]) -> dict:
             )
 
         for row in resp:
-            target_score[row["client_subnet"]] = row["vps_score"]
+            target_score[row["subnet"]] = row["vps_score"]
 
-    except ClickHouseException:
+    except ClickHouseException as e:
         logger.warning(
-            f"Something went wrong. Probably that {score_table} does not exists"
+            f"Something went wrong. Probably that {score_table} does not exists:: {e}"
         )
         pass
 
