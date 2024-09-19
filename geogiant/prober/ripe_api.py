@@ -71,7 +71,6 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def get_traceroute_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
@@ -94,7 +93,6 @@ class RIPEAtlasAPI:
                 {"value": v_id, "type": "probes", "requested": 1} for v_id in vp_ids
             ],
             "is_oneoff": True,
-            # "bill_to": self.settings.RIPE_ATLAS_USERNAME,
         }
 
     def is_geoloc_disputed(self, probe: dict) -> bool:

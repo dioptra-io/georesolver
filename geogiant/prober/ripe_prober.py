@@ -117,12 +117,12 @@ class RIPEAtlasProber:
 
         await insert_traceroutes(csv_data, output_table)
 
-    async def insert_results(self, wait_time: int = 60) -> None:
+    async def insert_results(self, wait_time: int = 10) -> None:
         """insert ongoing measurements"""
         inserted_measurements = set()
         current_time = self.start_time
         insert_done = False
-        while insert_done:
+        while not insert_done:
 
             # 1. get all stopped measurements
             stopped_measurement_ids = await self.api.get_stopped_measurement_ids(
@@ -147,6 +147,7 @@ class RIPEAtlasProber:
             )
 
             if not measurement_to_insert:
+                await asyncio.sleep(wait_time)
                 continue
 
             logger.info(f"Measurement to insert:: {len(measurement_to_insert)}")
@@ -162,16 +163,13 @@ class RIPEAtlasProber:
             else:
                 raise RuntimeError(f"{self.probing_type} not supported")
 
-            current_time = datetime.timestamp(datetime.now()) - timedelta(
-                seconds=wait_time + 60
-            )
+            current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
 
             inserted_measurements.update(measurement_to_insert)
 
             # stopping point for the insertion
-            if (
-                self.measurement_done
-                and len(inserted_measurements) == self.measurement_ids
+            if self.measurement_done and len(inserted_measurements) == len(
+                self.measurement_ids
             ):
                 insert_done = True
 
@@ -241,7 +239,7 @@ class RIPEAtlasProber:
 
             print_debug = True
             logger.info(
-                f"Restarting measurements, slots available:: {self.api.settings.MAX_MEASUREMENT - self.nb_ongoing_measurements}"
+                f"Starting measurement, slots available:: {self.api.settings.MAX_MEASUREMENT - self.nb_ongoing_measurements}"
             )
 
             id = await self.probe(
