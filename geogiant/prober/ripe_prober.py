@@ -23,6 +23,7 @@ class RIPEAtlasProber:
         output_table: str,
         uuid: str = None,
         dry_run: bool = False,
+        output_logs: Path = None,
     ) -> None:
         self.dry_run = dry_run
 
@@ -40,6 +41,7 @@ class RIPEAtlasProber:
         self.measurement_done: bool = False
         self.config: dict = None
         self.measurement_ids = set()
+        self.output_logs = output_logs
 
     async def init_prober(self) -> None:
         """get connected vps from measurement platform, insert in clickhouse"""
@@ -93,11 +95,20 @@ class RIPEAtlasProber:
     ) -> None:
         """retrieve all ping measurements from a list of measurement ids"""
         csv_data = []
-        for id in tqdm(ids):
+
+        if self.output_logs:
+            output_file = self.output_logs.open("a")
+        else:
+            output_file = None
+
+        for id in tqdm(ids, file=output_file):
             ping_results = await RIPEAtlasAPI().get_ping_results(id)
             csv_data.extend(ping_results)
 
             await asyncio.sleep(wait_time)
+
+        if output_file:
+            output_file.close()
 
         await insert_pings(csv_data, output_table)
 
