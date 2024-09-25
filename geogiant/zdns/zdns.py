@@ -45,6 +45,7 @@ class ZDNS:
         timeout: float = 0.1,
         iterative: bool = False,
         request_type: str = "A",
+        output_logs: Path = None,
     ) -> None:
         self.subnets = subnets
         self.hostname_file = hostname_file
@@ -54,6 +55,7 @@ class ZDNS:
         self.timeout = timeout
         self.iterative = iterative
         self.request_type = request_type
+        self.output_logs = output_logs
 
         self.settings = ZDNSSettings()
 
@@ -233,13 +235,22 @@ class ZDNS:
         asndb = pyasn.pyasn(str(self.settings.RIB_TABLE))
 
         zdns_data = []
-        for subnet in tqdm(self.subnets):
+
+        if self.output_logs:
+            output_file = open(self.output_logs, "a")
+        else:
+            output_file = None
+
+        for subnet in tqdm(self.subnets, file=output_file):
             query_results = await self.query(subnet)
             parsed_data = self.parse(subnet, query_results, asndb)
             zdns_data.extend(parsed_data)
 
             if not self.iterative:
                 await asyncio.sleep(self.timeout)
+
+        if output_file:
+            output_file.close()
 
         return zdns_data
 
