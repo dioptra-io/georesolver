@@ -1,5 +1,6 @@
 """general tool settings"""
 
+from loguru import logger
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -143,3 +144,8 @@ class ZDNSSettings(PathSettings, ClickhouseSettings):
 
     # ZDNS tool parameters
     RECORD_TYPE: str = "A"
+
+
+def setup_logger(log_file_path: Path) -> None:
+    logger.remove()
+    logger.add(log_file_path, level="INFO")

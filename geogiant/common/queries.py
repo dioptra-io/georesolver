@@ -236,8 +236,6 @@ def get_subnets(table_name: str, subnets: list[str], print_error: bool = True) -
                 client=client, table_name=table_name, subnet_filter=[s for s in subnets]
             )
 
-            print("rows::", len(rows))
-
         target_subnets = [row["subnet"] for row in rows]
 
     except ClickHouseException as e:
