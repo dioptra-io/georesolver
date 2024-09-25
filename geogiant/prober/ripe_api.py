@@ -4,7 +4,6 @@ import pyasn
 import time
 import json
 
-from tqdm import tqdm
 from numpy import mean
 from ipaddress import IPv4Address, AddressValueError
 from collections import defaultdict
@@ -150,7 +149,13 @@ class RIPEAtlasAPI:
 
         while resp["next"]:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(resp["next"], params=params)
+                for _ in range(3):
+                    try:
+                        resp = await client.get(resp["next"], params=params)
+                        break
+                    except httpx.ReadTimeout:
+                        await asyncio.sleep(60)
+
                 resp = resp.json()
 
             stopped_measurements.extend([m["id"] for m in resp["results"]])
