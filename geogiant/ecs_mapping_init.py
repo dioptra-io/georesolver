@@ -44,6 +44,7 @@ async def resolve_hostnames(
     waiting_time: int = 60,
     request_timout: float = 0.1,
     request_type: str = "A",
+    output_logs: Path = None,
 ) -> None:
     """repeat zdns measurement on set of VPs"""
 
@@ -82,6 +83,7 @@ async def resolve_hostnames(
                     iterative=iterative,
                     timeout=request_timout,
                     request_type=request_type,
+                    output_logs=output_logs,
                 )
                 await zdns.main()
 

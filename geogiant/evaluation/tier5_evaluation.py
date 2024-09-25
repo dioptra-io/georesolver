@@ -130,10 +130,10 @@ def get_diff_error_per_budget() -> tuple[dict, dict]:
 def get_first_vp_under_40() -> list:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    ast_mile_delay = get_min_rtt_per_vp(clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE)
+    last_mile_delay = get_min_rtt_per_vp(clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
     targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     target_coordinates = {}
