@@ -5,6 +5,7 @@ import time
 import json
 
 from numpy import mean
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address, AddressValueError
 from collections import defaultdict
 
@@ -50,7 +51,13 @@ class RIPEAtlasAPI:
                     f"Too many VPs scheduled for target: {target} (nb vps: {len(vp_ids)}, max: {self.settings.MAX_VP})"
                 )
 
-    def get_ping_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
+    def get_ping_config(
+        self,
+        target: str,
+        vp_ids: list[int],
+        uuid: str,
+        measurement_timeout: int = 15,
+    ) -> dict:
         return {
             "definitions": [
                 {

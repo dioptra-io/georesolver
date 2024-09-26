@@ -228,7 +228,11 @@ def get_subnets_mapping(
     return subnets_mapping
 
 
-def get_subnets(table_name: str, subnets: list[str], print_error: bool = True) -> dict:
+def get_subnets(
+    table_name: str,
+    subnets: list[str] = [],
+    print_error: bool = True,
+) -> dict:
     target_subnets = []
     try:
         with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
