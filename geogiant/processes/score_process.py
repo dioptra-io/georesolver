@@ -67,14 +67,29 @@ async def calculate_scores(
 
 async def filter_score_subnets(
     subnets: list[str],
-    ecs_mapping_subnets: list[str],
+    ecs_mapping_table: list[str],
     score_table: str,
+    verbose: bool = False,
 ) -> list[str]:
     """filter and return subnets for which score calculation is yet to be done"""
     filtered_subnets = []
-    cached_subnets = get_subnets(table_name=score_table, subnets=subnets)
-    no_score_subnet = set(subnets).difference(set(cached_subnets))
-    filtered_subnets = set(no_score_subnet).intersection(set(ecs_mapping_subnets))
+
+    # Check if ECS mapping exists for part of the subnets
+    cached_ecs_subnets = get_subnets(
+        table_name=ecs_mapping_table,
+        print_error=verbose,
+    )
+
+    if not cached_ecs_subnets:
+        return None, None
+
+    cached_score_subnets = get_subnets(
+        table_name=score_table,
+        print_error=verbose,
+    )
+
+    no_score_subnet = set(subnets).difference(set(cached_score_subnets))
+    filtered_subnets = set(no_score_subnet).intersection(set(cached_ecs_subnets))
 
     return list(filtered_subnets), list(no_score_subnet)
 
@@ -89,60 +104,54 @@ async def score_task(
     verbose: bool = False,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "score_task.log",
+    dry_run: bool = False,
 ) -> None:
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
 
     while True:
 
-        # Check if ECS mapping exists for part of the subnets
-        ecs_mapping_subnets = get_subnets_mapping(
-            dns_table=ecs_mapping_table,
+        # get subnets on which score calculation is needed
+        filtered_subnets, no_score_subnets = await filter_score_subnets(
             subnets=subnets,
-            print_error=verbose,
+            ecs_mapping_table=ecs_mapping_table,
+            score_table=score_table,
+            verbose=verbose,
         )
 
-        if ecs_mapping_subnets:
+        logger.info(f"Original number of subnets:: {len(subnets)}")
+        logger.info(f"Remaining subnets for score process:: {len(no_score_subnets)}")
 
-            # Check if some score were already calculated
-            filtered_subnets, no_score_subnets = await filter_score_subnets(
-                subnets,
-                ecs_mapping_subnets,
-                score_table,
-            )
+        if not no_score_subnets:
+            logger.info("Score calculation process completed")
+            break
 
-            logger.info(f"Original number of subnets:: {len(subnets)}")
-            logger.info(
-                f"Remaining subnets on which to calculate score:: {len(no_score_subnets)}"
-            )
+        if filtered_subnets:
 
-            if not no_score_subnets:
-                logger.info("Score calculation process completed")
+            logger.info(f"Calculating score for:: {len(filtered_subnets)} subnets")
+
+            if dry_run:
+                logger.info("Stopped Score process")
                 break
 
-            # ECS mapping
-            if filtered_subnets:
+            for i in range(0, len(filtered_subnets), batch_size):
+                input_subnets = filtered_subnets[i : i + batch_size]
+                logger.info(
+                    f"Score:: batch={(i // batch_size) + 1}{(len(filtered_subnets) // batch_size) + 1}"
+                )
 
-                logger.info(f"Calculating score for:: {len(filtered_subnets)} subnets")
-
-                for i in range(0, len(filtered_subnets), batch_size):
-                    input_subnets = filtered_subnets[i : i + batch_size]
-                    logger.info(
-                        f"Score:: batch={(i // batch_size) + 1}{(len(filtered_subnets) // batch_size) + 1}"
-                    )
-
-                    await calculate_scores(
-                        target_subnets=input_subnets,
-                        hostnames=hostnames,
-                        ecs_mapping_table=ecs_mapping_table,
-                        score_table=score_table,
-                        output_logs=log_path / output_logs,
-                    )
-
-            else:
-                logger.info("Waiting for ECS mapping to complete")
-                await asyncio.sleep(wait_time)
+                await calculate_scores(
+                    target_subnets=input_subnets,
+                    hostnames=hostnames,
+                    ecs_mapping_table=ecs_mapping_table,
+                    score_table=score_table,
+                    output_logs=log_path / output_logs,
+                )
 
         else:
             logger.info("Waiting for ECS mapping to complete")
             await asyncio.sleep(wait_time)
+
+            if dry_run:
+                logger.info("Stopped Geolocation process")
+                break

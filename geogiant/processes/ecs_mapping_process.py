@@ -2,7 +2,7 @@ from pathlib import Path
 from loguru import logger
 
 from geogiant.ecs_mapping_init import resolve_hostnames
-from geogiant.common.queries import get_subnets_mapping
+from geogiant.common.queries import get_subnets
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -10,11 +10,9 @@ path_settings = PathSettings()
 
 async def filter_ecs_subnets(subnets: list[str], ecs_mapping_table: str) -> list[str]:
     """retrieve all subnets for which ECS resolution was done"""
-    subnet_mapping = []
-    subnet_mapping = get_subnets_mapping(dns_table=ecs_mapping_table, subnets=subnets)
+    cached_ecs_subnets = get_subnets(table_name=ecs_mapping_table)
 
-    cached_subnets = [subnet for subnet in subnet_mapping]
-    filtered_subnets = set(subnets).difference(set(cached_subnets))
+    filtered_subnets = set(subnets).difference(set(cached_ecs_subnets))
 
     return list(filtered_subnets)
 
@@ -26,6 +24,7 @@ async def ecs_mapping_task(
     batch_size: int = 1_000,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "ecs_mapping_task.log",
+    dry_run: bool = False,
 ) -> None:
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
@@ -42,6 +41,10 @@ async def ecs_mapping_task(
             logger.info(
                 f"ECS mapping:: batch={(i+1) // batch_size}/{(len(filtered_subnets) // batch_size)}"
             )
+
+            if dry_run:
+                logger.info("Stopped ECS mapping process")
+                break
 
             await resolve_hostnames(
                 subnets=input_subnets,

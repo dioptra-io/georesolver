@@ -140,11 +140,18 @@ def get_measurement_schedule(
 
 def filter_targets(
     targets: list[str],
-    score_subnets: list[str],
+    score_table: list[str],
     ping_table: str,
+    verbose: bool = False,
 ) -> list[str]:
     """return targets for which pings were not made"""
     filtered_targets = []
+
+    # Check if scores exists for part of the subnets
+    cached_score_subnets = get_subnets(
+        table_name=score_table,
+        print_error=verbose,
+    )
 
     # remove targets for which we already made measurements
     cached_targets = load_cached_targets(ping_table)
@@ -155,7 +162,7 @@ def filter_targets(
     # remove targets for which we do not have scores ready
     for target in no_measured_target:
         target_subnet = get_prefix_from_ip(target)
-        if target_subnet in score_subnets:
+        if target_subnet in cached_score_subnets:
             filtered_targets.append(target)
 
     return filtered_targets, no_measured_target
@@ -232,63 +239,57 @@ async def geolocation_task(
     wait_time: int = 30,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "geolocation_task.log",
+    dry_run: bool = False,
 ) -> None:
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
 
     while True:
 
-        # Check if scores exists for part of the subnets
-        score_subnets = get_subnets(
-            table_name=score_table,
-            subnets=subnets,
-            print_error=verbose,
+        # Retrieve target with no geolocation for which we have a score
+        filtered_targets, no_measured_target = filter_targets(
+            targets=targets,
+            score_table=score_table,
+            ping_table=ping_table,
         )
 
-        if score_subnets:
+        logger.info(f"Original number of targets:: {len(targets)}")
+        logger.info(f"Remaining target to geolocate:: {len(no_measured_target)}")
 
-            logger.info(f"Found score for:: {len(score_subnets)} subnets")
+        if not no_measured_target:
+            logger.info("No remaning target to geolocate, process finished")
+            break
 
-            # Check if some target were already geolocated
-            filtered_targets, no_measured_target = filter_targets(
-                targets, score_subnets, ping_table
-            )
+        if filtered_targets:
 
-            logger.info(f"Original number of targets:: {len(targets)}")
-            logger.info(f"Remaining target to geolocate:: {len(no_measured_target)}")
+            logger.info(f"Running geolocation for {len(filtered_targets)} targets")
 
-            if not no_measured_target:
-                logger.info("No remaning target to geolocate, process finished")
+            if dry_run:
+                logger.info("Stopped Geolocation process")
                 break
 
-            if filtered_targets:
+            measurement_schedule = get_measurement_schedule(
+                targets=filtered_targets,
+                subnets=subnets,
+                score_table=score_table,
+                output_logs=log_path / output_logs,
+            )
 
-                logger.info(f"Running geolocation for {len(filtered_targets)} targets")
+            logger.info(f"Starting geolocation for {len(measurement_schedule)} targets")
 
-                measurement_schedule = get_measurement_schedule(
-                    targets=filtered_targets,
-                    subnets=subnets,
-                    score_table=score_table,
-                    output_logs=log_path / output_logs,
-                )
+            await RIPEAtlasProber(
+                probing_type="ping",
+                probing_tag="ping_targets",
+                output_table=ping_table,
+                output_logs=log_path / output_logs,
+            ).main(measurement_schedule)
 
-                logger.info(
-                    f"Starting geolocation for {len(measurement_schedule)} targets"
-                )
-
-                await RIPEAtlasProber(
-                    probing_type="ping",
-                    probing_tag="ping_targets",
-                    output_table=ping_table,
-                    output_logs=log_path / output_logs,
-                ).main(measurement_schedule)
-
-                logger.info("Geolocation complete")
-
-            else:
-                logger.info("Waiting for score process to complete")
-                await asyncio.sleep(wait_time)
+            logger.info("Geolocation complete")
 
         else:
             logger.info("Waiting for score process to complete")
             await asyncio.sleep(wait_time)
+
+            if dry_run:
+                logger.info("Stopped Geolocation process")
+                break
