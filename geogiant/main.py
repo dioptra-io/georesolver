@@ -38,6 +38,7 @@ def main(
     update_meshed_traceroutes: bool = True,
     init_ecs_mapping: bool = False,
     verbose: bool = False,
+    dry_run: bool = False,
 ) -> None:
 
     if verbose:
@@ -84,6 +85,7 @@ def main(
                 "ecs_mapping_table": ecs_mapping_table,
                 "log_path": log_path,
                 "batch_size": batch_size,
+                "dry_run": dry_run,
             },
         ),
     )
@@ -99,6 +101,7 @@ def main(
                 "score_table": score_table,
                 "log_path": log_path,
                 "batch_size": batch_size,
+                "dry_run": dry_run,
             },
         ),
     )
@@ -114,6 +117,7 @@ def main(
                 "ping_table": ping_table,
                 "log_path": log_path,
                 "verbose": verbose,
+                "dry_run": dry_run,
             },
         ),
     )
