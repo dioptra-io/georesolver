@@ -168,7 +168,7 @@ def get_measurement_ids(measurement_table: str) -> set:
         resp = GetMeasurementIds().execute(client, measurement_table)
 
         for row in resp:
-            measurement_ids.add(row["vp_ids"])
+            measurement_ids.add(row["msm_ids"])
 
     return measurement_ids
 
