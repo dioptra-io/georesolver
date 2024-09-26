@@ -67,11 +67,12 @@ class GetTargets(Query):
 class GetSubnets(Query):
     def statement(self, table_name: str, **kwargs) -> str:
 
-        if subnet_filter := kwargs.get("subnet_filter"):
+        subnet_filter = kwargs.get("subnet_filter")
+        if subnet_filter:
             subnet_filter = "".join([f",'{s}'" for s in subnet_filter])[1:]
             subnet_filter = f"WHERE subnet IN ({subnet_filter})"
         else:
-            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+            subnet_filter = ""
 
         return f"""
         SELECT 
