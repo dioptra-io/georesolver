@@ -51,13 +51,7 @@ class RIPEAtlasAPI:
                     f"Too many VPs scheduled for target: {target} (nb vps: {len(vp_ids)}, max: {self.settings.MAX_VP})"
                 )
 
-    def get_ping_config(
-        self,
-        target: str,
-        vp_ids: list[int],
-        uuid: str,
-        measurement_timeout: int = 15,
-    ) -> dict:
+    def get_ping_config(self, target: str, vp_ids: list[int], probing_tag: str) -> dict:
         return {
             "definitions": [
                 {
@@ -65,7 +59,7 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "size": 48,
-                    "tags": ["dioptra", str(uuid)],
+                    "tags": ["dioptra", str(probing_tag)],
                     "description": f"Active Geolocation of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
@@ -79,7 +73,9 @@ class RIPEAtlasAPI:
             "is_oneoff": True,
         }
 
-    def get_traceroute_config(self, target: str, vp_ids: list[int], uuid: str) -> dict:
+    def get_traceroute_config(
+        self, target: str, vp_ids: list[int], probing_tag: str
+    ) -> dict:
         return {
             "definitions": [
                 {
@@ -87,7 +83,7 @@ class RIPEAtlasAPI:
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
                     "protocol": self.settings.PROTOCOL,
-                    "tags": ["dioptra", str(uuid)],
+                    "tags": ["dioptra", str(probing_tag)],
                     "description": f"Dioptra Traceroute of {target}",
                     "resolve_on_probe": False,
                     "skip_dns_check": True,
@@ -109,13 +105,13 @@ class RIPEAtlasAPI:
                 return True
         return False
 
-    async def get_ongoing_measurements(self, tags: list[str]) -> int:
+    async def get_ongoing_measurements(self, tag: str) -> int:
         """return the number of measurements which have the status Ongoing"""
         async with httpx.AsyncClient() as client:
             params = {
                 "sort": ["-start_time"],
                 "status__in": "Specified,Scheduled,Ongoing",
-                "tags": [str(tag) for tag in tags],
+                "tags": [tag],
                 "mine": True,
                 "key": self.settings.RIPE_ATLAS_SECRET_KEY,
             }
@@ -129,10 +125,29 @@ class RIPEAtlasAPI:
                 return None
         try:
             ongoing_measurements = resp["count"]
+            logger.info(f"Nb ongoing measurements:: {ongoing_measurements}")
         except KeyError:
-            raise RuntimeError("Count key should be present in response")
+            raise RuntimeError(f"Count key should be present in response:: {resp}")
 
         return ongoing_measurements
+
+    async def stop_measurement(self, id: int) -> None:
+        """stop an ongoing measurement"""
+        async with httpx.AsyncClient() as client:
+            params = {"id": id, "key": self.settings.RIPE_ATLAS_SECRET_KEY}
+
+            try:
+                resp = await client.delete(
+                    url=self.measurement_url + f"{id}", params=params
+                )
+            except httpx.ReadTimeout:
+                return id
+
+            # delete response is empty
+            if resp.status_code != 204:
+                logger.error(f"Delete query failed because:: {resp.json()}")
+
+            return id
 
     async def get_stopped_measurement_ids(
         self, start_time: str, tags: list[str]
@@ -638,7 +653,7 @@ class RIPEAtlasAPI:
         self,
         target: str,
         vp_ids: list[str],
-        uuid: str,
+        probing_tag: str,
         max_retry: int = 3,
         timeout: int = 60 * 5,
         wait_time: int = 60,
@@ -652,7 +667,7 @@ class RIPEAtlasAPI:
                     resp = await client.post(
                         self.measurement_url
                         + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
-                        json=self.get_ping_config(target, vp_ids, uuid),
+                        json=self.get_ping_config(target, vp_ids, probing_tag),
                         timeout=timeout,
                     )
                     resp = resp.json()
@@ -672,18 +687,18 @@ class RIPEAtlasAPI:
                     id = resp["measurements"][0]
                     break
                 except KeyError as e:
-                    logger.error(f"{uuid}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
                     logger.error(f"{resp=}")
                     await asyncio.sleep(wait_time)
                     break
             else:
                 raise Exception(
-                    f"{uuid}:: Cannot perform measurement for target: {target}"
+                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
                 )
         return id
 
     async def traceroute(
-        self, target: str, vp_ids: list[str], uuid: str, max_retry: int = 3
+        self, target: str, vp_ids: list[str], probing_tag: str, max_retry: int = 3
     ) -> int:
         id = None
         async with httpx.AsyncClient(timeout=60) as client:
@@ -691,7 +706,7 @@ class RIPEAtlasAPI:
                 resp = await client.post(
                     self.measurement_url
                     + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
-                    json=self.get_traceroute_config(target, vp_ids, uuid),
+                    json=self.get_traceroute_config(target, vp_ids, probing_tag),
                     timeout=60,
                 )
 
@@ -701,12 +716,12 @@ class RIPEAtlasAPI:
                     id = resp["measurements"][0]
                     break
                 except KeyError as e:
-                    logger.error(f"{uuid}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
                     logger.error(f"{resp=}")
                     await asyncio.sleep(60)
             else:
                 raise Exception(
-                    f"{uuid}:: Cannot perform measurement for target: {target}"
+                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
                 )
         return id
 

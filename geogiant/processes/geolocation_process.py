@@ -4,6 +4,7 @@ from tqdm import tqdm
 from pyasn import pyasn
 from loguru import logger
 from pathlib import Path
+from uuid import uuid4
 
 from geogiant.prober import RIPEAtlasProber
 from geogiant.evaluation.ecs_geoloc_eval import (
@@ -114,8 +115,6 @@ def get_measurement_schedule(
             f"Should have retrieved some subnets from {score_table} table"
         )
 
-    logger.info(f"Targets in schedule:: {len(targets)}")
-
     target_schedule = get_geo_resolver_schedule(
         targets,
         subnet_scores,
@@ -140,7 +139,8 @@ def get_measurement_schedule(
 
 def filter_targets(
     targets: list[str],
-    score_table: list[str],
+    geolocated_targets: list[str],
+    score_table: str,
     ping_table: str,
     verbose: bool = False,
 ) -> list[str]:
@@ -157,13 +157,14 @@ def filter_targets(
     cached_targets = load_cached_targets(ping_table)
     no_measured_target = set(targets).difference(set(cached_targets))
 
-    logger.info(f"Number of unmeasured targets:: {len(no_measured_target)}")
-
     # remove targets for which we do not have scores ready
     for target in no_measured_target:
         target_subnet = get_prefix_from_ip(target)
         if target_subnet in cached_score_subnets:
             filtered_targets.append(target)
+
+    # remove targets for which a measurement was started but results not inserted yet
+    filtered_targets = set(filtered_targets).difference(set(geolocated_targets))
 
     return filtered_targets, no_measured_target
 
@@ -235,7 +236,7 @@ async def geolocation_task(
     subnets: list[str],
     score_table: str,
     ping_table: str,
-    verbose: bool = False,
+    measurement_uuid: str,
     wait_time: int = 30,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "geolocation_task.log",
@@ -244,11 +245,19 @@ async def geolocation_task(
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
 
+    geolocated_targets = []
+    prober = RIPEAtlasProber(
+        probing_type="ping",
+        probing_tag=measurement_uuid,
+        output_table=ping_table,
+        output_logs=log_path / output_logs,
+    )
     while True:
 
         # Retrieve target with no geolocation for which we have a score
         filtered_targets, no_measured_target = filter_targets(
             targets=targets,
+            geolocated_targets=geolocated_targets,
             score_table=score_table,
             ping_table=ping_table,
         )
@@ -275,16 +284,15 @@ async def geolocation_task(
                 output_logs=log_path / output_logs,
             )
 
-            logger.info(f"Starting geolocation for {len(measurement_schedule)} targets")
+            logger.info(
+                f"Starting geolocation round for {len(measurement_schedule)} targets"
+            )
 
-            await RIPEAtlasProber(
-                probing_type="ping",
-                probing_tag="ping_targets",
-                output_table=ping_table,
-                output_logs=log_path / output_logs,
-            ).main(measurement_schedule)
+            await prober.main(measurement_schedule)
 
-            logger.info("Geolocation complete")
+            geolocated_targets.extend(filtered_targets)
+
+            logger.info("Geolocation round complete")
 
         else:
             logger.info("Waiting for score process to complete")
