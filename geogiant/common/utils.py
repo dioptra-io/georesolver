@@ -75,16 +75,15 @@ def get_vps_country(vps: list) -> dict[str]:
     return vps_country
 
 
-def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = None) -> dict:
+def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = []) -> dict:
     """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
     vps_coordinates = {}
     vps_subnet = defaultdict(list)
     vps_bgp_prefix = defaultdict(list)
 
     for vp in vps:
-        if removed_vps:
-            if vp["addr"] in removed_vps:
-                continue
+        if vp["addr"] in removed_vps:
+            continue
         vp_addr = vp["addr"]
         subnet = get_prefix_from_ip(vp_addr)
         vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)

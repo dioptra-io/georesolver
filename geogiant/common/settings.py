@@ -91,6 +91,7 @@ class ClickhouseSettings(BaseSettings):
     # VPs related tables
     VPS_RAW_TABLE: str = "vps_raw"
     VPS_FILTERED_TABLE: str = "vps_filtered"
+    VPS_FILTERED_FINAL_TABLE: str = "vps_filtered_final"
     VPS_MESHED_PINGS_TABLE: str = "vps_meshed_pings"
     VPS_MESHED_TRACEROUTE_TABLE: str = "vps_meshed_traceroutes"
     VPS_ECS_MAPPING_TABLE: str = "vps_ecs_mapping"
@@ -126,7 +127,7 @@ class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
 
     # RIPE Atlas parameters
     MAX_VP: int = 1_000
-    MAX_MEASUREMENT: int = 1500
+    MAX_MEASUREMENT: int = 2_000
     PING_NB_PACKETS: int = 3
     PROTOCOL: str = "ICMP"
 
