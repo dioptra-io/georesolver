@@ -273,8 +273,8 @@ def get_random_itdk_routers(nb_addr: int, out_file: Path) -> None:
 
 
 if __name__ == "__main__":
-    do_get_dataset: bool = False
-    do_get_random: bool = True
+    do_get_dataset: bool = True
+    do_get_random: bool = False
 
     if do_get_dataset:
         get_itdk_responsive_router_interface()
