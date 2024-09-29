@@ -42,7 +42,7 @@ async def calculate_scores(
 
     score_config = {
         "targets_subnet_path": subnet_tmp_path,
-        "vps_table": clickhouse_settings.VPS_FILTERED_TABLE,
+        "vps_table": clickhouse_settings.VPS_FILTERED_FINAL_TABLE,
         "selected_hostnames": hostnames,
         "targets_ecs_table": ecs_mapping_table,
         "vps_ecs_table": clickhouse_settings.VPS_ECS_MAPPING_TABLE,
@@ -81,7 +81,7 @@ async def filter_score_subnets(
     )
 
     if not cached_ecs_subnets:
-        return None, None
+        return [], subnets
 
     cached_score_subnets = get_subnets(
         table_name=score_table,

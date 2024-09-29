@@ -1,7 +1,9 @@
 import asyncio
 
+
 from random import shuffle
 from uuid import uuid4
+from pyasn import pyasn
 from datetime import datetime, timedelta
 from pathlib import Path
 from loguru import logger
@@ -12,8 +14,13 @@ from geogiant.common.queries import (
     get_measurement_ids,
     insert_pings,
     insert_traceroutes,
+    load_target_geoloc,
+    insert_geoloc,
+    load_geoloc,
+    load_vps,
 )
-from geogiant.common.files_utils import dump_json
+from geogiant.common.ip_addresses_utils import route_view_bgp_prefix, get_prefix_from_ip
+from geogiant.common.files_utils import dump_json, load_json
 from geogiant.common.settings import ClickhouseSettings
 
 
@@ -154,9 +161,72 @@ class RIPEAtlasProber:
 
         await insert_traceroutes(csv_data, output_table)
 
-    async def insert_results(self, nb_targets: int, wait_time: int = 60) -> None:
+    def parse_geoloc_data(self, target_geoloc: dict) -> list[str]:
+        """parse ping data to geoloc csv"""
+        csv_data = []
+        asndb = pyasn(str(self.api.settings.RIB_TABLE))
+        vps = load_vps(self.settings.VPS_RAW_TABLE)
+
+        vps_per_vps_addr = {}
+        for vp in vps:
+            vps_per_vps_addr[vp["addr"]] = vp
+
+        for target_addr, shortest_ping_data in target_geoloc.items():
+            target_subnet = get_prefix_from_ip(target_addr)
+            target_asn, target_bgp_prefix = route_view_bgp_prefix(target_addr, asndb)
+            if not target_bgp_prefix or not target_asn:
+                target_bgp_prefix = "Unknown"
+                target_asn = -1
+
+            msm_id = shortest_ping_data[1]
+            min_rtt = shortest_ping_data[2]
+
+            # filter unresponisive targets
+            if min_rtt == -1:
+                continue
+
+            vp_addr = shortest_ping_data[0]
+            try:
+                vp = vps_per_vps_addr[vp_addr]
+            except KeyError:
+                logger.debug(f"VP {vp_addr} does not exists")
+                continue
+
+            csv_data.append(
+                f"{target_addr},\
+                {target_subnet},\
+                {target_bgp_prefix},\
+                {target_asn},\
+                {vp['lat']},\
+                {vp['lon']},\
+                {vp['country_code']},\
+                {vp_addr},\
+                {vp['subnet']},\
+                {vp['bgp_prefix']},\
+                {vp['asn_v4']},\
+                {min_rtt},\
+                {msm_id}"
+            )
+
+        return csv_data
+
+    async def insert_geoloc_from_pings(
+        self, ping_table: str, geoloc_table: str
+    ) -> None:
+        """insert all geoloc in clickhouse"""
+        target_geoloc = load_target_geoloc(table_name=ping_table)
+        csv_data = self.parse_geoloc_data(target_geoloc)
+
+        await insert_geoloc(
+            csv_data=csv_data,
+            output_table=geoloc_table,
+        )
+
+    async def insert_results(
+        self, nb_targets: int, geoloc_table: str, wait_time: int = 60
+    ) -> None:
         """insert ongoing measurements"""
-        inserted_measurements = set()
+        inserted_measurements = get_measurement_ids(self.output_table)
         current_time = self.start_time
         insert_done = False
         while not insert_done:
@@ -185,6 +255,12 @@ class RIPEAtlasProber:
                 await self.retrieve_pings(
                     measurement_to_insert, self.output_table, wait_time=1
                 )
+
+                await self.insert_geoloc_from_pings(
+                    ping_table=self.output_table,
+                    geoloc_table=geoloc_table,
+                )
+
             elif self.probing_type == "traceroute":
                 await self.retrieve_traceroutes(
                     measurement_to_insert, self.output_table, wait_time=1
@@ -197,7 +273,7 @@ class RIPEAtlasProber:
             inserted_measurements.update(measurement_to_insert)
 
             # stopping point for the insertion
-            if len(inserted_measurements) == nb_targets:
+            if len(inserted_measurements) >= nb_targets:
                 insert_done = True
 
             await asyncio.sleep(wait_time)
@@ -294,6 +370,8 @@ class RIPEAtlasProber:
         # check if schedule is in accordance with API's parameters
         self.api.check_schedule_validity(schedule)
         shuffle(schedule)
+
+        self.measurement_done = False
 
         dump_json(
             data=schedule,

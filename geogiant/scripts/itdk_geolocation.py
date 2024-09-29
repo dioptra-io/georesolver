@@ -15,17 +15,16 @@ ITDK_TARGET_FILE = path_settings.DATASET / "itdk/itdk_target_file.csv"
 ITDK_ECS_MAPPING_TABLE = "itdk_ecs_mapping"
 ITDK_SCORE_TABLE = "itdk_score"
 ITDK_PING_TABLE = "itdk_ping"
+ITDK_GEOLOC_TABLE = "itdk_geoloc"
 
 if __name__ == "__main__":
     logger.info(f"Starting ITDK measurements::")
     logger.info(f"Target file:: {ITDK_TARGET_FILE}")
 
     if not ITDK_TARGET_FILE.exists():
-        itdk_targets = load_csv(ITDK_TARGET_FILE)
+        itdk_targets = load_csv(ITDK_RESPONSIVE_ROUTER_INTERFACE)
         itdk_targets = [row.split(",")[-1] for row in itdk_targets]
         dump_csv(itdk_targets, ITDK_TARGET_FILE)
-
-    logger.info(f"Total number of targets:: {len(itdk_targets)}")
 
     main(
         target_file=ITDK_TARGET_FILE,
@@ -33,6 +32,7 @@ if __name__ == "__main__":
         ecs_mapping_table=ITDK_ECS_MAPPING_TABLE,
         score_table=ITDK_SCORE_TABLE,
         ping_table=ITDK_PING_TABLE,
+        geoloc_table=ITDK_GEOLOC_TABLE,
         log_path=path_settings.LOG_PATH / "itdk",
-        batch_size=10_000,
+        batch_size=1_000,
     )

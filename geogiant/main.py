@@ -37,6 +37,7 @@ def main(
     ecs_mapping_table: str = clickhouse_settings.TARGET_ECS_MAPPING_TABLE,
     score_table: str = clickhouse_settings.TARGET_SCORE_TABLE,
     ping_table: str = clickhouse_settings.TARGET_PING_TABLE,
+    geoloc_table: str = clickhouse_settings.TARGET_GEOLOC_TABLE,
     log_path: Path = path_settings.LOG_PATH,
     measurement_uuid: str = None,
     batch_size: int = 1_000,
@@ -140,8 +141,9 @@ def main(
         args=(
             insert_results_task,
             {
-                "nb_targets": len(targets),
+                "targets": targets,
                 "ping_table": ping_table,
+                "geoloc_table": geoloc_table,
                 "measurement_uuid": measurement_uuid,
                 "log_path": log_path,
                 "dry_run": dry_run,
@@ -161,10 +163,11 @@ def main(
     logger.info("##########################################")
     logger.info("# Output dirs and table")
     logger.info("##########################################")
-    logger.info(f"ECS mapping output table :: {ecs_mapping_table}")
-    logger.info(f"Score output table       :: {score_table}")
-    logger.info(f"Ping output table        :: {ping_table}")
-    logger.info(f"Logs output dir          :: {log_path}")
+    logger.info(f"ECS mapping output table   :: {ecs_mapping_table}")
+    logger.info(f"Score output table         :: {score_table}")
+    logger.info(f"Ping output table          :: {ping_table}")
+    logger.info(f"Geoloc output table        :: {geoloc_table}")
+    logger.info(f"Logs output dir            :: {log_path}")
 
     logger.info("##########################################")
     logger.info("# Starting processes")
@@ -189,10 +192,7 @@ def main(
     geolocation_process.join()
     insert_results_process.join()
 
-    # TODO: geolocation process
-    # Create geolocation table/file
-    # filtered_geoloc = load_geolocation()
-    # await insert_geoloc_from_pings(targets)
+    logger.info(f"Measurement {measurement_uuid} succesfully done")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,6 @@ from tqdm import tqdm
 from pyasn import pyasn
 from loguru import logger
 from pathlib import Path
-from uuid import uuid4
 
 from geogiant.prober import RIPEAtlasProber
 from geogiant.evaluation.ecs_geoloc_eval import (
@@ -12,20 +11,15 @@ from geogiant.evaluation.ecs_geoloc_eval import (
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
 )
-from geogiant.common.files_utils import (
-    load_json,
-)
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
     load_vps,
     load_target_scores,
-    load_target_geoloc,
     load_cached_targets,
-    insert_geoloc,
     get_subnets,
 )
 from geogiant.common.utils import get_parsed_vps
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import (
     PathSettings,
     ClickhouseSettings,
@@ -107,8 +101,12 @@ def get_measurement_schedule(
     last_mile_delay = get_min_rtt_per_vp(
         clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
-
-    subnet_scores = load_target_scores(score_table=score_table, subnets=subnets)
+    subnet_scores = {}
+    for i in range(0, len(subnets), 1000):
+        batch_subnets = subnets[i : i + 1_000]
+        subnet_scores.update(
+            load_target_scores(score_table=score_table, subnets=batch_subnets)
+        )
 
     if not subnet_scores:
         raise RuntimeError(
@@ -153,8 +151,11 @@ def filter_targets(
         print_error=verbose,
     )
 
-    # remove targets for which we already made measurements
+    # get cached target from table
     cached_targets = load_cached_targets(ping_table)
+    # add targets that were geolocated but not inserted
+    cached_targets.extend(geolocated_targets)
+    # get remaining targets to geolocate
     no_measured_target = set(targets).difference(set(cached_targets))
 
     # remove targets for which we do not have scores ready
@@ -169,68 +170,6 @@ def filter_targets(
     return filtered_targets, no_measured_target
 
 
-def parse_geoloc_data(target_geoloc: dict) -> list[str]:
-    """parse ping data to geoloc csv"""
-    csv_data = []
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
-    removed_vps = load_json(path_settings.REMOVED_VPS)
-    _, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
-
-    for target_addr, shortest_ping_data in target_geoloc.items():
-        target_subnet = get_prefix_from_ip(target_addr)
-        target_asn, target_bgp_prefix = route_view_bgp_prefix(target_addr, asndb)
-        if not target_bgp_prefix or not target_asn:
-            target_bgp_prefix = "Unknown"
-            target_asn = -1
-
-        vp_addr = shortest_ping_data[0]
-        vp_subnet = get_prefix_from_ip(vp_addr)
-        vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
-
-        if not vp_bgp_prefix or not vp_asn:
-            vp_bgp_prefix = "Unknown"
-            vp_asn = -1
-
-        lat, lon, country_code, _ = vps_coordinates[vp_addr]
-        msm_id = shortest_ping_data[1]
-        min_rtt = shortest_ping_data[2]
-
-        csv_data.append(
-            f"{target_addr},\
-            {target_subnet},\
-            {target_bgp_prefix},\
-            {target_asn},\
-            {lat},\
-            {lon},\
-            {country_code},\
-            {vp_addr},\
-            {vp_subnet},\
-            {vp_bgp_prefix},\
-            {vp_asn},\
-            {min_rtt},\
-            {msm_id}"
-        )
-
-    return csv_data
-
-
-async def insert_geoloc_from_pings(
-    targets: list[str], ping_table: str, geoloc_table: str
-) -> None:
-    """insert all geoloc in clickhouse"""
-    target_geoloc = load_target_geoloc(table_name=ping_table, targets=targets)
-
-    csv_data = parse_geoloc_data(target_geoloc)
-
-    await insert_geoloc(
-        csv_data=csv_data,
-        output_table=geoloc_table,
-    )
-
-    return csv_data
-
-
 async def geolocation_task(
     targets: list[str],
     subnets: list[str],
@@ -242,7 +181,7 @@ async def geolocation_task(
     output_logs: str = "geolocation_task.log",
     dry_run: bool = False,
 ) -> None:
-    """run ecs mapping on batches of target subnets"""
+    """run GeoResolver on batches of target subnets"""
     setup_logger(log_path / output_logs)
 
     geolocated_targets = []
@@ -277,9 +216,10 @@ async def geolocation_task(
                 logger.info("Stopped Geolocation process")
                 break
 
+            # get measurement schedule for all subnets with score
             measurement_schedule = get_measurement_schedule(
                 targets=filtered_targets,
-                subnets=subnets,
+                subnets=[get_prefix_from_ip(target) for target in filtered_targets],
                 score_table=score_table,
                 output_logs=log_path / output_logs,
             )
