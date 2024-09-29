@@ -286,14 +286,18 @@ class GetCachedTargets(Query):
         """
 
 
-class GetShortestPingResults(Query):
-    def statement(self, table_name: str, **kwargs) -> str:
-        if filtered_targets := kwargs.get("filtered_targets"):
-            target_filter = "".join([f",toIPv4('{s}')" for s in filtered_targets])[1:]
-            target_filter = f"AND dst_addr IN ({target_filter})"
-        else:
-            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+class GetGeolocatedTargets(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT
+            distinct addr
+        FROM 
+            {self.settings.DATABASE}.{table_name} 
+        """
 
+
+class GetShortestPingResults(Query):
+    def statement(self, table_name: str) -> str:
         return f"""
         SELECT
             dst_addr,
@@ -316,7 +320,6 @@ class GetShortestPingResults(Query):
             {self.settings.DATABASE}.{table_name}
         WHERE 
             min > -1
-            {target_filter}
         GROUP BY 
             dst_addr
         """

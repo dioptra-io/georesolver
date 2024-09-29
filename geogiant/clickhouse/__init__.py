@@ -18,7 +18,6 @@ from .create_tables import (
 )
 from .dns_score import OverallScore, HostnameScore, CountRows
 from .get import (
-    GetSubnets,
     GetVPsSubnets,
     GetSubnets,
     GetDstPrefix,
@@ -51,6 +50,7 @@ from .get import (
     GetHostnames,
     GetHostnamesAnswerSubnet,
     GetProbeConnectivity,
+    GetGeolocatedTargets,
     GetGeolocFromTraceroute,
 )
 
@@ -72,7 +72,6 @@ __all__ = (
     "CreateGeolocTable",
     "GetSubnets",
     "GetVPsSubnets",
-    "GetSubnets",
     "GetDstPrefix",
     "GetTargets",
     "GetCachedTargets",
@@ -90,7 +89,6 @@ __all__ = (
     "GetAvgRTTPerSubnet",
     "GetShortestPingResults",
     "GetLastMileDelay",
-    "GetSubnetScore",
     "OverallScore",
     "HostnameScore",
     "CountRows",
@@ -107,7 +105,6 @@ __all__ = (
     "GetHostnames",
     "GetHostnamesAnswerSubnet",
     "GetProbeConnectivity",
-    "GetGeolocFromTraceroute",
-    "GetProbeConnectivity",
+    "GetGeolocatedTargets",
     "GetGeolocFromTraceroute",
 )

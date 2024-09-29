@@ -21,6 +21,7 @@ from geogiant.clickhouse import (
     GetDstPrefix,
     GetTargetScore,
     GetMeasurementIds,
+    GetGeolocatedTargets,
     GetShortestPingResults,
     GetCachedTargets,
     GetMeasurementIds,
@@ -76,7 +77,27 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
     return ping_vps_to_target
 
 
-def load_target_geoloc(table_name: str, targets: list[str]) -> dict:
+def load_geoloc(table_name: str) -> list[str]:
+    """load all target for which the geoloc is already known"""
+    targets_geoloc = []
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+
+        try:
+            resp = GetGeolocatedTargets().execute_iter(
+                client=client,
+                table_name=table_name,
+            )
+
+            for row in resp:
+                targets_geoloc.append(row["addr"])
+        except ClickHouseException:
+            logger.warning(f"Table:: {table_name} does not exists")
+            pass
+
+    return targets_geoloc
+
+
+def load_target_geoloc(table_name: str) -> dict:
     """
     return shortest ping results for all targets
     """
@@ -85,7 +106,6 @@ def load_target_geoloc(table_name: str, targets: list[str]) -> dict:
         resp = GetShortestPingResults().execute(
             client=client,
             table_name=table_name,
-            filtered_targets=targets,
         )
 
     for row in resp:
@@ -165,10 +185,15 @@ def get_measurement_ids(measurement_table: str) -> set:
     """return all the measurement ids that were saved"""
     measurement_ids = set()
     with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        resp = GetMeasurementIds().execute(client, measurement_table)
 
-        for row in resp:
-            measurement_ids.add(row["msm_ids"])
+        try:
+            resp = GetMeasurementIds().execute(client, measurement_table)
+
+            for row in resp:
+                measurement_ids.add(row["msm_id"])
+        except ClickHouseException:
+            logger.warning(f"Table {measurement_table} does not exists")
+            pass
 
     return measurement_ids
 
@@ -327,8 +352,8 @@ def load_target_scores(score_table: str, subnets: list[str]) -> dict:
                 subnet_filter=subnets,
             )
 
-        for row in resp:
-            target_score[row["subnet"]] = row["vps_score"]
+            for row in resp:
+                target_score[row["subnet"]] = row["vps_score"]
 
     except ClickHouseException as e:
         logger.warning(
