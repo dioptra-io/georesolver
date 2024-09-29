@@ -1,5 +1,7 @@
 """VPs initialization functions"""
 
+import asyncio
+
 from tqdm import tqdm
 from loguru import logger
 from datetime import datetime
@@ -7,14 +9,15 @@ from collections import defaultdict
 from pych_client import AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
-from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
+from geogiant.prober import RIPEAtlasAPI
 from geogiant.clickhouse import CreateVPsTable, InsertFromCSV
+from geogiant.evaluation.ecs_geoloc_eval import filter_vps_last_mile_delay
 from geogiant.common.queries import (
     load_vps,
     load_targets,
     get_vps_ids,
     get_pings_per_src_dst,
-    get_pings_per_target,
+    get_min_rtt_per_vp,
 )
 from geogiant.common.geoloc import (
     distance,
@@ -370,6 +373,57 @@ async def filter_vps() -> None:
     tmp_file_path.unlink()
 
 
+async def filter_low_connectivity_vps(delay_threshold: int = 2) -> None:
+    """filter all VPs for which the measured minimum last mile delay above 2ms"""
+    targets = load_targets(clickhouse_settings.VPS_RAW_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_RAW_TABLE)
+    last_mile_delay = get_min_rtt_per_vp(
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
+    )
+    vps.extend(targets)
+
+    logger.info(f"Original number of VPs:: {len(vps)}")
+
+    # only keep vps with a last mile delay under threshold
+    filtered_vps = []
+    for vp in vps:
+        try:
+            min_rtt = last_mile_delay[vp["addr"]]
+            if min_rtt <= delay_threshold:
+                filtered_vps.append(vp["addr"])
+        except KeyError:
+            continue
+
+    logger.info(f"Remaining VPs after last mile delay filtering:: {len(filtered_vps)}")
+
+    csv_data = []
+    for vp in vps:
+        if vp["addr"] not in filtered_vps:
+            continue
+
+        row = []
+        for val in vp.values():
+            row.append(f"{val}")
+
+        row = ",".join(row)
+        csv_data.append(row)
+
+    # create filtered table
+    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        await CreateVPsTable().aio_execute(
+            client=client,
+            table_name=clickhouse_settings.VPS_FILTERED_FINAL_TABLE,
+        )
+
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    await InsertFromCSV().execute(
+        table_name=clickhouse_settings.VPS_FILTERED_FINAL_TABLE, in_file=tmp_file_path
+    )
+
+    tmp_file_path.unlink()
+
+
 def get_updated_vps(latest_vps: list[dict], prev_vps: list[dict]) -> list[dict]:
     """return vps that were prevly unknown"""
     updated_vps = []
@@ -413,14 +467,17 @@ async def vps_init(
     # await filter_vps()
 
     # # 4. perform meshed traceroutes
-    traceroutes_schedule = meshed_traceroutes_schedule()
-    await RIPEAtlasProber(
-        probing_type="traceroute",
-        probing_tag="meshed_traceroutes",
-        output_table=clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE,
-    ).main(traceroutes_schedule)
+    # traceroutes_schedule = meshed_traceroutes_schedule()
+    # await RIPEAtlasProber(
+    #     probing_type="traceroute",
+    #     probing_tag="meshed_traceroutes",
+    #     output_table=clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE,
+    # ).main(traceroutes_schedule)
+
+    # 5. create a table with only VPs with last myle delay under 2 ms
+    await filter_low_connectivity_vps(delay_threshold=2)
 
 
 # debugging, testing
 if __name__ == "__main__":
-    traceroutes_schedule = meshed_traceroutes_schedule()
+    asyncio.run(vps_init())
