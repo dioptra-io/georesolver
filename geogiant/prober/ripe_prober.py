@@ -215,7 +215,17 @@ class RIPEAtlasProber:
     ) -> None:
         """insert all geoloc in clickhouse"""
         target_geoloc = load_target_geoloc(table_name=ping_table)
-        csv_data = self.parse_geoloc_data(target_geoloc)
+        cached_geoloc_msm_ids = get_measurement_ids(ping_table)
+        
+        filtered_geoloc = {}
+        for target, geoloc in target_geoloc.items():
+            msm_id = geoloc[1]
+            if msm_id in cached_geoloc_msm_ids:
+               continue
+            
+            filtered_geoloc[target] = geoloc
+            
+        csv_data = self.parse_geoloc_data(filtered_geoloc)
 
         await insert_geoloc(
             csv_data=csv_data,
@@ -227,7 +237,7 @@ class RIPEAtlasProber:
     ) -> None:
         """insert ongoing measurements"""
         inserted_measurements = get_measurement_ids(self.output_table)
-        current_time = self.start_time
+        current_time = datetime.timestamp(datetime.now() - timedelta(days=2))
         insert_done = False
         while not insert_done:
 
@@ -251,22 +261,25 @@ class RIPEAtlasProber:
             logger.info(f"Measurements done      :: {len(stopped_measurement_ids)}")
             logger.info(f"Measurements to insert :: {len(measurement_to_insert)}")
 
-            if self.probing_type == "ping":
-                await self.retrieve_pings(
-                    measurement_to_insert, self.output_table, wait_time=1
-                )
+            # insert by batch to avoid losing some results
+            for j in range(0, len(measurement_to_insert), 1_000):
+                measurement_to_insert_batch = list(measurement_to_insert)[j : j + 1_000]
+                if self.probing_type == "ping":
+                    await self.retrieve_pings(
+                        measurement_to_insert_batch, self.output_table, wait_time=0.1
+                    )
 
-                await self.insert_geoloc_from_pings(
-                    ping_table=self.output_table,
-                    geoloc_table=geoloc_table,
-                )
+                    await self.insert_geoloc_from_pings(
+                        ping_table=self.output_table,
+                        geoloc_table=geoloc_table,
+                    )
 
-            elif self.probing_type == "traceroute":
-                await self.retrieve_traceroutes(
-                    measurement_to_insert, self.output_table, wait_time=1
-                )
-            else:
-                raise RuntimeError(f"{self.probing_type} not supported")
+                elif self.probing_type == "traceroute":
+                    await self.retrieve_traceroutes(
+                        measurement_to_insert, self.output_table, wait_time=0.1
+                    )
+                else:
+                    raise RuntimeError(f"{self.probing_type} not supported")
 
             current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
 
