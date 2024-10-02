@@ -26,6 +26,8 @@ if __name__ == "__main__":
         itdk_targets = [row.split(",")[-1] for row in itdk_targets]
         dump_csv(itdk_targets, ITDK_TARGET_FILE)
 
+    measurement_uuid = "3e9baf36-0a87-4184-9e3e-b10a365da20b"
+
     main(
         target_file=ITDK_TARGET_FILE,
         hostname_file=path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv",
@@ -33,6 +35,7 @@ if __name__ == "__main__":
         score_table=ITDK_SCORE_TABLE,
         ping_table=ITDK_PING_TABLE,
         geoloc_table=ITDK_GEOLOC_TABLE,
+        measurement_uuid=measurement_uuid,
         log_path=path_settings.LOG_PATH / "itdk",
         batch_size=1_000,
     )
