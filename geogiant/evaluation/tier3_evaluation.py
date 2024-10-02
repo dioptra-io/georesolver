@@ -22,7 +22,7 @@ from geogiant.common.utils import (
     TargetScores,
 )
 from geogiant.evaluation.ecs_geoloc_eval import ecs_dns_vp_selection_eval
-from geogiant.scores import get_scores
+from geogiant.evaluation.scores import get_scores
 from geogiant.evaluation.plot import (
     plot_ref,
     get_proportion_under,

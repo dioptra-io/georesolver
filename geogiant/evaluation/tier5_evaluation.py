@@ -18,7 +18,7 @@ from geogiant.common.utils import (
 from geogiant.common.geoloc import distance
 from geogiant.evaluation.plot import ecdf, plot_cdf, get_proportion_under
 from geogiant.evaluation.ecs_geoloc_eval import ecs_dns_vp_selection_eval
-from geogiant.scores import get_scores
+from geogiant.evaluation.scores import get_scores
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings

@@ -3,34 +3,37 @@ import asyncio
 from loguru import logger
 from pathlib import Path
 
-from geogiant.scores import get_scores, TargetScores
-from geogiant.common.files_utils import create_tmp_json_file
-from geogiant.common.queries import get_subnets_mapping, insert_scores, get_subnets
+from geogiant.scores import get_scores
+from geogiant.common.queries import insert_scores, get_subnets, load_vp_subnets
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 
-def parsed_score(score_per_granularity: dict, answer_granularity: str) -> list[str]:
+def parsed_score(
+    target_scores: dict,
+    answer_granularity: str = "answer_subnets",
+    metric: str = "jaccard",
+) -> list[str]:
     """parse score function of granularity and return list for insert"""
     score_data = []
-    for subnet, score_per_metric in score_per_granularity.items():
-        for metric, vps_subnet_score in score_per_metric.items():
-            for vp_subnet, score in vps_subnet_score:
-                score_data.append(
-                    f"{subnet},\
-                    {vp_subnet},\
-                    {metric},\
-                    {answer_granularity},\
-                    {score}"
-                )
+    for subnet, vps_subnet_score in target_scores.items():
+        for vp_subnet, score in vps_subnet_score:
+            score_data.append(
+                f"{subnet},\
+                {vp_subnet},\
+                {metric},\
+                {answer_granularity},\
+                {score}"
+            )
 
     return score_data
 
 
 async def calculate_scores(
     target_subnets: list[str],
+    vps_subnets: list[str],
     hostnames: list[str],
     ecs_mapping_table: str,
     score_table: str,
@@ -38,31 +41,20 @@ async def calculate_scores(
 ) -> None:
     """calculate score and insert"""
 
-    subnet_tmp_path = create_tmp_json_file(target_subnets)
-
-    score_config = {
-        "targets_subnet_path": subnet_tmp_path,
-        "vps_table": clickhouse_settings.VPS_FILTERED_FINAL_TABLE,
-        "selected_hostnames": hostnames,
-        "targets_ecs_table": ecs_mapping_table,
-        "vps_ecs_table": clickhouse_settings.VPS_ECS_MAPPING_TABLE,
-        "hostname_selection": "max_bgp_prefix",
-        "score_metric": ["jaccard"],
-        "answer_granularities": ["answer_subnets"],
-        "output_logs": output_logs,
-    }
-
-    scores: TargetScores = get_scores(score_config)
-    target_score_subnet = scores.score_answer_subnets
-
-    score_data = parsed_score(target_score_subnet, "answer_subnets")
+    scores = get_scores(
+        target_subnets=target_subnets,
+        vp_subnets=vps_subnets,
+        hostnames=hostnames,
+        targets_ecs_table=ecs_mapping_table,
+        vps_ecs_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
+        output_logs=output_logs,
+    )
+    score_data = parsed_score(scores)
 
     await insert_scores(
         csv_data=score_data,
         output_table=score_table,
     )
-
-    subnet_tmp_path.unlink()
 
 
 async def filter_score_subnets(
@@ -108,6 +100,7 @@ async def score_task(
 ) -> None:
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
+    vps_subnets = load_vp_subnets(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
 
     while True:
 
@@ -119,16 +112,14 @@ async def score_task(
             verbose=verbose,
         )
 
-        logger.info(f"Original number of subnets:: {len(subnets)}")
-        logger.info(f"Remaining subnets for score process:: {len(no_score_subnets)}")
+        logger.info(f"Original number of subnets          :: {len(subnets)}")
+        logger.info(f"Remaining subnets for score process :: {len(no_score_subnets)}")
 
         if not no_score_subnets:
             logger.info("Score calculation process completed")
             break
 
         if filtered_subnets:
-
-            logger.info(f"Calculating score for:: {len(filtered_subnets)} subnets")
 
             if dry_run:
                 logger.info("Stopped Score process")
@@ -137,11 +128,12 @@ async def score_task(
             for i in range(0, len(filtered_subnets), batch_size):
                 input_subnets = filtered_subnets[i : i + batch_size]
                 logger.info(
-                    f"Score:: batch={(i // batch_size) + 1}{(len(filtered_subnets) // batch_size) + 1}"
+                    f"Score:: batch={(i // batch_size) + 1}/{(len(filtered_subnets) // batch_size) + 1}"
                 )
 
                 await calculate_scores(
                     target_subnets=input_subnets,
+                    vps_subnets=vps_subnets,
                     hostnames=hostnames,
                     ecs_mapping_table=ecs_mapping_table,
                     score_table=score_table,

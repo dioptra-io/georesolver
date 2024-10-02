@@ -94,14 +94,14 @@ class CreateGeolocTable(Query):
                 addr               IPv4,
                 subnet             IPv4,
                 bgp_prefix         String,
-                asn                UInt16,
+                asn                Int16,
                 lat                Float32, 
                 lon                Float32,
                 country_code       String,
                 vp_addr            IPv4,
                 vp_subnet          IPv4,
                 vp_bgp_prefix      String,
-                vp_asn             UInt16,
+                vp_asn             Int16,
                 min_rtt            Float32,
                 msm_id             UInt32
             )

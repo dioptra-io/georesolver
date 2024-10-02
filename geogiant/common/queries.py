@@ -9,6 +9,7 @@ from geogiant.clickhouse import (
     GetPingsPerTarget,
     GetPingsPerSrcDst,
     GetDNSMappingHostnames,
+    GetECSResults,
     GetDNSMappingPerHostnames,
     GetVPsSubnets,
     GetLastMileDelay,
@@ -242,6 +243,40 @@ def get_subnets_mapping(
                     "answer_bgp_prefixes": answer_bgp_prefixes,
                     "source_scope": source_scope,
                 }
+
+        except ClickHouseException as e:
+            if print_error:
+                logger.warning(
+                    f"Something went wrong. Probably that {dns_table} does not exists:: {e}"
+                )
+            pass
+
+    return subnets_mapping
+
+
+def get_ecs_results(
+    dns_table: str,
+    subnets: list[str],
+    hostname_filter: list[str] = None,
+    print_error: bool = True,
+) -> dict:
+    """get ecs-dns resolution per hostname for all input subnets"""
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetECSResults().execute_iter(
+            client=client,
+            table_name=dns_table,
+            subnet_filter=subnets,
+            hostname_filter=hostname_filter,
+        )
+
+        subnets_mapping = defaultdict(dict)
+        try:
+            for row in resp:
+                subnet = row["client_subnet"]
+                hostname = row["hostname"]
+                answer_subnets = row["answer_subnets"]
+
+                subnets_mapping[subnet][hostname] = answer_subnets
 
         except ClickHouseException as e:
             if print_error:
