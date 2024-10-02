@@ -1,10 +1,10 @@
 import json
 import pyasn
 import asyncio
-import time
+import itertools
 
 from uuid import uuid4
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from datetime import datetime
 from dateutil import parser
 from enum import Enum
@@ -74,6 +74,7 @@ class ZDNS:
                 hostname_cmd
                 + " | "
                 + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --name-servers {self.name_servers}"
+                + " --threads 200 --timeout 3"
             )
 
     async def query(self, subnet: str) -> dict:
@@ -99,7 +100,7 @@ class ZDNS:
         except json.decoder.JSONDecodeError:
             pass
 
-        return query_results
+        return query_results, subnet
 
     def parse_timestamp(self, resp: dict) -> datetime:
         """retrieve timestamp from DNS resp"""
@@ -241,13 +242,25 @@ class ZDNS:
         else:
             output_file = None
 
-        for subnet in tqdm(self.subnets, file=output_file):
-            query_results = await self.query(subnet)
-            parsed_data = self.parse(subnet, query_results, asndb)
-            zdns_data.extend(parsed_data)
+        step_size = 5
+        for i in trange(0, len(self.subnets), step_size, file=output_file):
+            batch_subnets = self.subnets[i : i + step_size]
+            tasks = tuple([self.query(subnet) for subnet in batch_subnets])
 
-            if not self.iterative:
-                await asyncio.sleep(self.timeout)
+            query_results = await asyncio.gather(*tasks)
+
+            for result, subnet in query_results:
+                parsed_data = self.parse(subnet, result, asndb)
+                zdns_data.extend(parsed_data)
+
+        # for subnet in tqdm(self.subnets, file=output_file):
+        #     # TODO: multiple queries in parrallel
+        #     query_results = await self.query(subnet)
+        #     parsed_data = self.parse(subnet, query_results, asndb)
+        #     zdns_data.extend(parsed_data)
+
+        #     if not self.iterative:
+        #         await asyncio.sleep(self.timeout)
 
         if output_file:
             output_file.close()
