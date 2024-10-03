@@ -17,7 +17,9 @@ from geogiant.clickhouse import (
     CreatePingTable,
     CreateScoreTable,
     CreateGeolocTable,
+    CreateDNSMappingTable,
     CreateTracerouteTable,
+    CreateNameServerTable,
     GetSubnets,
     GetDstPrefix,
     GetTargetScore,
@@ -292,7 +294,8 @@ def get_subnets(
     table_name: str,
     subnets: list[str] = [],
     print_error: bool = True,
-) -> dict:
+) -> list[str]:
+    """retrieve all distinct /24 prefixes from table_name"""
     target_subnets = []
     try:
         with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
@@ -399,6 +402,25 @@ def load_target_scores(score_table: str, subnets: list[str]) -> dict:
     return target_score
 
 
+def insert_dns_answers(
+    csv_data: list[str],
+    output_table: str,
+    request_type: str,
+) -> None:
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        if request_type == "A":
+            CreateDNSMappingTable().execute(client=client, table_name=output_table)
+        elif request_type == "NS":
+            CreateNameServerTable().execute(client=client, table_name=output_table)
+
+        InsertFromCSV().execute(
+            table_name=output_table,
+            in_file=tmp_file_path,
+        )
+
+
 async def insert_pings(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
@@ -456,7 +478,6 @@ async def insert_geoloc(csv_data: list[str], output_table: str) -> None:
 async def get_ping_measurement_ids(table_name: str) -> list[int]:
     """return all measurement ids that were already inserted within clickhouse"""
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
-        await CreatePingTable().aio_execute(client, table_name)
         resp = await GetMeasurementIds().aio_execute(client, table_name)
 
         measurement_ids = []

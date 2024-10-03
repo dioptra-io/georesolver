@@ -258,17 +258,18 @@ def get_itdk_responsive_router_interface() -> None:
     dump_csv(responsive_router_interface, ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH)
 
 
-def get_random_itdk_routers(nb_addr: int, out_file: Path) -> None:
+def get_random_itdk_routers(nb_addr: int, out_file: Path, mode: str = "a") -> None:
     """get random IP addresses on which to perform geolocation for testing and demo"""
     dump_csv(
-        sample(
+        data=sample(
             [
                 row.split(",")[-1]
                 for row in load_iter_csv(ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH)
             ],
             nb_addr,
         ),
-        out_file,
+        output_file=out_file,
+        mode=mode,
     )
 
 

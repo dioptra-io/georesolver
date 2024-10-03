@@ -56,8 +56,6 @@ async def resolve_hostnames(
         logger.info(f"Starting ECS resolution, {repeat=}, {end_date=}")
 
         with hostname_file.open("r") as f:
-            logger.info("raw hostname file already generated")
-
             all_hostnames = f.readlines()
 
             logger.info(
