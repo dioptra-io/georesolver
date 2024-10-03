@@ -434,18 +434,30 @@ class RIPEAtlasAPI:
 
         return self.parse_ping(ping_results)
 
-    async def get_ping_results(self, id: int) -> dict:
+    async def get_ping_results(
+        self,
+        id: int,
+        timeout: int = 30,
+        max_retry: int = 3,
+        wait_time: int = 30,
+    ) -> dict:
         """get results from ping measurement id"""
         url = (
             f"{self.measurement_url}/{id}/results/"
             + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
         )
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=30)
-            resp = resp.json()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for i in range(max_retry):
+                try:
+                    resp = await client.get(url, timeout=timeout)
+                    resp = resp.json()
 
-            ping_results = self.parse_ping(resp)
-            await asyncio.sleep(0.1)
+                    ping_results = self.parse_ping(resp)
+                    await asyncio.sleep(0.1)
+                except httpx.ReadTimeout as e:
+                    logger.error(f"{e}")
+                    logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
+                    await asyncio.sleep(wait_time)
 
         return ping_results
 
