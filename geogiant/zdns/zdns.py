@@ -78,7 +78,7 @@ class ZDNS:
             )
 
     async def query(self, subnet: str) -> dict:
-        """run zdns tool and return zdns raw results"""
+        """run zdns tool and return raw results"""
         query_results = []
 
         zdns_cmd = self.get_zdns_cmd(subnet)
@@ -242,7 +242,7 @@ class ZDNS:
         else:
             output_file = None
 
-        step_size = 5
+        step_size = 2
         for i in trange(0, len(self.subnets), step_size, file=output_file):
             batch_subnets = self.subnets[i : i + step_size]
             tasks = tuple([self.query(subnet) for subnet in batch_subnets])
@@ -252,15 +252,6 @@ class ZDNS:
             for result, subnet in query_results:
                 parsed_data = self.parse(subnet, result, asndb)
                 zdns_data.extend(parsed_data)
-
-        # for subnet in tqdm(self.subnets, file=output_file):
-        #     # TODO: multiple queries in parrallel
-        #     query_results = await self.query(subnet)
-        #     parsed_data = self.parse(subnet, query_results, asndb)
-        #     zdns_data.extend(parsed_data)
-
-        #     if not self.iterative:
-        #         await asyncio.sleep(self.timeout)
 
         if output_file:
             output_file.close()
