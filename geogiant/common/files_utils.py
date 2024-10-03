@@ -59,13 +59,13 @@ def iter_file(file: str, *, read_size: int = 2**20) -> Iterator[bytes]:
             yield chunk
 
 
-def dump_csv(data: list[str], output_file: Path) -> None:
+def dump_csv(data: list[str], output_file: Path, mode: str = "w") -> None:
     """output data into output file with json format"""
     # check that dir exists before writing
     if not output_file.parent.exists():
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    with output_file.open("w") as f:
+    with output_file.open(mode) as f:
         for row in data:
             f.write(row + "\n")
 
