@@ -18,6 +18,7 @@ from geogiant.common.queries import (
     load_cached_targets,
     get_subnets,
 )
+from geogiant.common.files_utils import load_csv
 from geogiant.common.utils import get_parsed_vps
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import (
@@ -172,7 +173,6 @@ def filter_targets(
 
 async def geolocation_task(
     targets: list[str],
-    subnets: list[str],
     score_table: str,
     ping_table: str,
     measurement_uuid: str,
@@ -182,14 +182,18 @@ async def geolocation_task(
     dry_run: bool = False,
 ) -> None:
     """run GeoResolver on batches of target subnets"""
-    setup_logger(log_path / output_logs)
+    if output_logs and log_path:
+        output_logs = log_path / output_logs
+        setup_logger(output_logs)
+    else:
+        output_logs = None
 
     geolocated_targets = []
     prober = RIPEAtlasProber(
         probing_type="ping",
         probing_tag=measurement_uuid,
         output_table=ping_table,
-        output_logs=log_path / output_logs,
+        output_logs=output_logs,
     )
     while True:
 
@@ -221,7 +225,7 @@ async def geolocation_task(
                 targets=filtered_targets,
                 subnets=[get_prefix_from_ip(target) for target in filtered_targets],
                 score_table=score_table,
-                output_logs=log_path / output_logs,
+                output_logs=output_logs,
             )
 
             logger.info(
@@ -241,3 +245,21 @@ async def geolocation_task(
             if dry_run:
                 logger.info("Stopped Geolocation process")
                 break
+
+
+# profiling, testing, debugging
+if __name__ == "__main__":
+
+    targets = load_csv(path_settings.DATASET / "demo_targets.csv")
+    subnets = [get_prefix_from_ip(addr) for addr in targets]
+    hostnames = load_csv(path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv")
+
+    asyncio.run(
+        geolocation_task(
+            targets=targets,
+            score_table="demo_score",
+            ping_table="demo_ping",
+            measurement_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
+            output_logs=None,
+        )
+    )
