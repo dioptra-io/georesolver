@@ -240,8 +240,21 @@ class InsertFromCSV:
     def statement(self, table_name: str, in_file: Path) -> str:
         return f"INSERT INTO {self.settings.DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
 
+    def execute(self, table_name: str, in_file: Path) -> None:
+        """insert data contained in local csv file"""
+        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
+
+        ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+        logger.debug(f"Insert from CSV:: {in_file=}, {ps.stdout=}, {ps.stderr=}")
+
+        if ps.stderr:
+            raise RuntimeError(f"Could not insert data::{cmd}, error:: {ps.stderr}")
+        else:
+            logger.info(f"{cmd}::Successfully executed")
+
     async def execute(self, table_name: str, in_file: Path) -> None:
-        """insert data contained in local file"""
+        """insert data contained in local file asynchronously"""
         cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
 
         ps = await asyncio.subprocess.create_subprocess_shell(
@@ -257,21 +270,5 @@ class InsertFromCSV:
             for row in stderr:
                 logger.error(row.strip())
             raise RuntimeError(f"Could not insert data::{cmd}")
-        else:
-            logger.info(f"{cmd}::Successfully executed")
-
-    def execute_from_in_file(self, table_name: str, in_file: Path) -> None:
-        """insert data contained in local file"""
-        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
-
-        # create result dir for vm
-        ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-
-        logger.debug(f"Insert from CSV:: {in_file=}, {ps.stdout=}, {ps.stderr=}")
-
-        if ps.stderr:
-            stderr = stderr.decode()
-            logger.error(f"{stderr=}")
-            raise RuntimeError(f"Could not insert data::{cmd}, failed with error")
         else:
             logger.info(f"{cmd}::Successfully executed")
