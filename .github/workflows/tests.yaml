@@ -1,3 +1,9 @@
+name: Tests
+
+on: [push]
+
+jobs:
+
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -15,3 +21,4 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
           platforms: linux/amd64
           push: ${{ github.actor != 'dependabot[bot]' }}
+
