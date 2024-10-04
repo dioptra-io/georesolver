@@ -1,14 +1,17 @@
-name: Tests
-
-on: [push]
-
 jobs:
   docker:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - ecs-mapping-agent
+          - score-agent
     steps:
       - uses: actions/checkout@v3
       - uses: dioptra-io/publish-docker-action@v1
         with:
+          file: ./dockerfiles/{{ matrix.image }}.dockerfile
+          image: dioptra-io/iris/{{ matrix.image }}
           password: ${{ secrets.GITHUB_TOKEN }}
           platforms: linux/amd64
           push: ${{ github.actor != 'dependabot[bot]' }}
