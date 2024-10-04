@@ -11,7 +11,7 @@ jobs:
       - uses: dioptra-io/publish-docker-action@v1
         with:
           file: ./dockerfiles/${{ matrix.image }}.dockerfile
-          image: dioptra-io/iris/${{ matrix.image }}
+          image: dioptra-io/geogiant/${{ matrix.image }}
           password: ${{ secrets.GITHUB_TOKEN }}
           platforms: linux/amd64
           push: ${{ github.actor != 'dependabot[bot]' }}
