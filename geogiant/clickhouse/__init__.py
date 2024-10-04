@@ -1,4 +1,4 @@
-from .query import (
+from .main import (
     InsertCSV,
     InsertFromInFile,
     InsertFromCSV,

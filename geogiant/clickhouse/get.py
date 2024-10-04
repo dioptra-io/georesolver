@@ -1,4 +1,4 @@
-from geogiant.clickhouse.query import Query
+from geogiant.clickhouse.main import Query
 
 
 class GetCompleVPs(Query):
