@@ -16,4 +16,5 @@ jobs:
           file: ./dockerfiles/{{ matrix.image }}.dockerfile
           image: dioptra-io/iris/{{ matrix.image }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          push: ${{ github.event_name == 'push' && github.actor != 'dependabot[bot]' }}
+          platforms: linux/amd64
+          push: ${{ github.actor != 'dependabot[bot]' }}
