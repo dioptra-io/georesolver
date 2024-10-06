@@ -77,10 +77,17 @@ def main(
             )
         )
 
+    if not target_file.exists():
+        raise RuntimeError(f"Target file does not exists:: {target_file}")
+
+    if not hostname_file.exists():
+        raise RuntimeError(f"Hostname file does not exists:: {hostname_file}")
+
     # load targets, subnets and hostnames
-    targets = load_csv(target_file)
+    targets = load_csv(target_file, exit_on_failure=True)
+    hostnames = load_csv(hostname_file, exit_on_failure=True)
     subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
-    hostnames = load_csv(hostname_file)
+
     # generate a measurement uuid that defines the entire measurement
     if not measurement_uuid:
         measurement_uuid = str(uuid4())
@@ -91,7 +98,7 @@ def main(
         args=(
             ecs_mapping_task,
             {
-                "subnets": subnets,
+                "target_file": target_file,
                 "hostname_file": hostname_file,
                 "ecs_mapping_table": ecs_mapping_table,
                 "log_path": log_path,
@@ -107,8 +114,8 @@ def main(
         args=(
             score_task,
             {
-                "subnets": subnets,
-                "hostnames": hostnames,
+                "target_file": target_file,
+                "hostname_file": hostname_file,
                 "ecs_mapping_table": ecs_mapping_table,
                 "score_table": score_table,
                 "log_path": log_path,
@@ -124,8 +131,7 @@ def main(
         args=(
             geolocation_task,
             {
-                "targets": targets,
-                "subnets": subnets,
+                "target_file": target_file,
                 "score_table": score_table,
                 "ping_table": ping_table,
                 "measurement_uuid": measurement_uuid,
@@ -135,13 +141,13 @@ def main(
         ),
     )
 
-    # init Insert results process
+    # # init Insert results process
     insert_results_process = Process(
         target=main_processes,
         args=(
             insert_results_task,
             {
-                "targets": targets,
+                "nb_targets": len(targets),
                 "ping_table": ping_table,
                 "geoloc_table": geoloc_table,
                 "measurement_uuid": measurement_uuid,
@@ -186,13 +192,13 @@ def main(
     logger.info("Starting Insert results process")
     insert_results_process.start()
 
-    # Wait for each process to finish
+    # # # Wait for each process to finish
     ecs_mapping_process.join()
     score_process.join()
     geolocation_process.join()
     insert_results_process.join()
 
-    logger.info(f"Measurement {measurement_uuid} succesfully done")
+    logger.info(f"Measurement {measurement_uuid} succesfully executed")
 
 
 if __name__ == "__main__":

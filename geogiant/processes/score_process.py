@@ -265,8 +265,8 @@ async def score_calculate(
 
 
 async def score_task(
-    subnets: list[str],
-    hostnames: list[str],
+    target_file: Path,
+    hostname_file: Path,
     ecs_mapping_table: str,
     score_table: str,
     wait_time: int = 30,
@@ -284,7 +284,10 @@ async def score_task(
     else:
         output_logs = None
 
+    targets = load_csv(target_file, exit_on_failure=True)
+    hostnames = load_csv(hostname_file, exit_on_failure=True)
     vp_subnets = load_vp_subnets(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
+    subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
 
     while True:
 
@@ -298,7 +301,7 @@ async def score_task(
 
         logger.info(f"Original number of subnets          :: {len(subnets)}")
         logger.info(f"Remaining subnets for score process :: {len(no_score_subnets)}")
-        logger.info(f"Subnets ready for score             :: {len(no_score_subnets)}")
+        logger.info(f"Subnets ready for score             :: {len(filtered_subnets)}")
 
         if not no_score_subnets:
             logger.info("Score calculation process completed")

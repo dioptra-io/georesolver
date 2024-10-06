@@ -11,7 +11,6 @@ from pych_client.exceptions import ClickHouseException
 
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.clickhouse import CreateVPsTable, InsertFromCSV
-from geogiant.evaluation.ecs_geoloc_eval import filter_vps_last_mile_delay
 from geogiant.common.queries import (
     load_vps,
     load_targets,

@@ -172,7 +172,7 @@ def filter_targets(
 
 
 async def geolocation_task(
-    targets: list[str],
+    target_file: Path,
     score_table: str,
     ping_table: str,
     measurement_uuid: str,
@@ -187,6 +187,9 @@ async def geolocation_task(
         setup_logger(output_logs)
     else:
         output_logs = None
+
+    logger.info("Targets loading")
+    targets = load_csv(target_file, exit_on_failure=True)
 
     geolocated_targets = []
     prober = RIPEAtlasProber(

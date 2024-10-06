@@ -35,6 +35,7 @@ class PathSettings(BaseSettings):
     FIGURE_PATH: Path = DEFAULT / "../figures"
     TMP_PATH: Path = DEFAULT / "../tmp/"
     LOG_PATH: Path = DEFAULT / "../logs"
+    EXPERIMENT_PATH: Path = DEFAULT / "../experiments"
     CONFIG_PATH: Path = DEFAULT / "../config"
 
     # Static files from other organization

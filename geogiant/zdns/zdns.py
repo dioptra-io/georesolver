@@ -242,7 +242,7 @@ class ZDNS:
         else:
             output_file = None
 
-        step_size = 2
+        step_size = 3
         for i in trange(0, len(self.subnets), step_size, file=output_file):
             batch_subnets = self.subnets[i : i + step_size]
             tasks = tuple([self.query(subnet) for subnet in batch_subnets])

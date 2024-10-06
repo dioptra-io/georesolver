@@ -3,6 +3,7 @@
 import json
 import pickle
 import bz2
+import subprocess
 
 from tqdm import tqdm
 from ipaddress import IPv4Address, AddressValueError
@@ -70,7 +71,7 @@ def dump_csv(data: list[str], output_file: Path, mode: str = "w") -> None:
             f.write(row + "\n")
 
 
-def load_csv(input_file: Path) -> list[str]:
+def load_csv(input_file: Path, exit_on_failure: bool = False) -> list[str]:
     """load csv file, return list of string"""
     data = []
     try:
@@ -78,7 +79,9 @@ def load_csv(input_file: Path) -> list[str]:
             for row in f.readlines():
                 data.append(row.strip("\n"))
     except FileNotFoundError as e:
-        logger.error(f"file does not exists: {e}")
+        if exit_on_failure:
+            raise RuntimeError(f"File does not exits:: {input_file}")
+        logger.warning(f"file does not exists: {e}")
     except json.JSONDecodeError as e:
         logger.error(f"the file you are trying to retrieve is empty: {e}")
 
@@ -365,3 +368,19 @@ def ip_addresses_hitlist() -> None:
     logger.info(f"{len(total_subnets)=}")
 
     dump_json(targets_per_prefix, path_settings.USER_HITLIST_FILE)
+
+
+def copy_to(in_file: Path, out_path: Path) -> None:
+    """use subprocess to copy a file from one dir to another"""
+    # upload file on distant server, save locally
+    ps = subprocess.run(
+        f"cp {in_file} {out_path}",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if ps.stderr:
+        raise RuntimeError(
+            f"Cannot copy target file {in_file} to {out_path}:: {ps.stderr=}"
+        )

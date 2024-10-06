@@ -3,9 +3,22 @@ from loguru import logger
 
 from geogiant.ecs_mapping_init import resolve_hostnames
 from geogiant.common.queries import get_subnets
+from geogiant.common.files_utils import load_csv
+from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
+
+
+def docker_run_cmd() -> str:
+    return """
+        docker run -d \
+        -v "$(pwd)/results:/app/geogiant/results" \
+        -v "$(pwd)/datasets/all_ecs_selected_hostnames.csv:/app/geogiant/datasets/all_ecs_selected_hostnames.csv" \
+        -v "$(pwd)/datasets/vm_config.json:/app/geogiant/datasets/vm_config.json" \
+        --network host \
+        ghcr.io/dioptra-io/geogiant:main
+    """
 
 
 async def filter_ecs_subnets(subnets: list[str], ecs_mapping_table: str) -> list[str]:
@@ -17,9 +30,27 @@ async def filter_ecs_subnets(subnets: list[str], ecs_mapping_table: str) -> list
     return list(filtered_subnets)
 
 
+async def ecs_mapping_agents(
+    agents: tuple[str],
+    measurement_config: dict,
+) -> None:
+    """TODO:
+    for each server:
+        - distribute load by assigning a set of subnets to each agent
+        - create instance of ecs mapping task with docker (if none on the server)
+        - upload target file to distant server
+        - start ecs mapping task
+        inser results:
+            a) insert remotely into Clickhouse
+            b) output file, copy from distant, insert locally
+    """
+    # create ecs agents
+    pass
+
+
 async def ecs_mapping_task(
-    subnets: list[str],
-    hostname_file: list[str],
+    target_file: Path,
+    hostname_file: Path,
     ecs_mapping_table: str,
     batch_size: int = 1_000,
     log_path: Path = path_settings.LOG_PATH,
@@ -28,6 +59,9 @@ async def ecs_mapping_task(
 ) -> None:
     """run ecs mapping on batches of target subnets"""
     setup_logger(log_path / output_logs)
+
+    targets = load_csv(target_file, exit_on_failure=True)
+    subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
 
     # Check ECS mapping exists
     filtered_subnets = await filter_ecs_subnets(subnets, ecs_mapping_table)
