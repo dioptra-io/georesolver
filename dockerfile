@@ -37,6 +37,7 @@ COPY geogiant/prober geogiant/prober
 COPY geogiant/processes/ geogiant/processes
 COPY geogiant/ripe_init.py geogiant/ripe_init.py
 COPY geogiant/ecs_mapping_init.py geogiant/ecs_mapping_init.py
+COPY geogiant/ecs_geoloc_eval.py geogiant/ecs_geoloc_eval.py
 COPY geogiant/main.py geogiant/main.py
 COPY README.md README.md
 

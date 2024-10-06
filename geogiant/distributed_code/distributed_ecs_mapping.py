@@ -30,6 +30,7 @@ def docker_run_cmd() -> str:
         -v "$(pwd)/results:/app/geogiant/results" \
         -v "$(pwd)/datasets/all_ecs_selected_hostnames.csv:/app/geogiant/datasets/all_ecs_selected_hostnames.csv" \
         -v "$(pwd)/datasets/vm_config.json:/app/geogiant/datasets/vm_config.json" \
+        -e RIPE_ATLAS_SECRET_KEY='90480d5d-8c67-457f-ae23-2dbf76045162' \
         --network host \
         ghcr.io/dioptra-io/geogiant:main
     """
@@ -282,7 +283,7 @@ if __name__ == "__main__":
     logger.info(f"NB vms:: {len(gcp_vms)}")
     for vm, vm_config in config_per_vm.items():
         logger.info(f"{vm=}, {vm_config['ip_addr']=}, {len(vm_config['hostnames'])=}")
-        # deploy_hostname_resolution(vm, vm_config)
+        deploy_hostname_resolution(vm, vm_config)
         monitor_memory_space(vm, vm_config)
         rsync_files(vm, vm_config, delete_after=True)
         check_docker_running(vm, vm_config)

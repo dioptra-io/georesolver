@@ -17,7 +17,7 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.evaluation.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings

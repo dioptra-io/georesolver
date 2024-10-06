@@ -6,7 +6,7 @@ from loguru import logger
 from pathlib import Path
 
 from geogiant.prober import RIPEAtlasProber
-from geogiant.evaluation.ecs_geoloc_eval import (
+from geogiant.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,

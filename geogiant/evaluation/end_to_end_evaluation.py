@@ -15,7 +15,7 @@ from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
 from geogiant.ecs_mapping_init import resolve_vps_subnet
 from geogiant.evaluation.plot import plot_router_2ms
 from geogiant.evaluation.scores import get_scores
-from geogiant.evaluation.ecs_geoloc_eval import (
+from geogiant.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
