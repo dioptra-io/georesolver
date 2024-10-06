@@ -266,6 +266,7 @@ class InsertFromCSV:
         _, stderr = await ps.communicate()
 
         if stderr:
+            logger.error(stderr)
             stderr = stderr.decode().splitlines()
             for row in stderr:
                 logger.error(row.strip())

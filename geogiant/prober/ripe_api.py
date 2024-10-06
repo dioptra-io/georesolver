@@ -165,6 +165,9 @@ class RIPEAtlasAPI:
 
         async with httpx.AsyncClient() as client:
             resp = await client.get(self.measurement_url, params=params)
+            if resp.status_code != 200:
+                logger.error(f"Error:: {resp.json()}")
+
             resp = resp.json()
 
         stopped_measurements = [m["id"] for m in resp["results"]]
