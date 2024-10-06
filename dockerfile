@@ -24,7 +24,7 @@ WORKDIR /app
 # copy necessary scripts
 RUN mkdir -p geogiant
 RUN mkdir -p logs
-RUN mkdir -p target_files
+RUN mkdir -p geogiant/experiments
 RUN mkdir -p geogiant/datasets
 
 COPY pyproject.toml pyproject.toml
