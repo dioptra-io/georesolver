@@ -30,15 +30,19 @@ RUN mkdir -p geogiant/datasets
 COPY pyproject.toml pyproject.toml
 COPY poetry.lock poetry.lock
 
-COPY geogiant/clickhouse geogiant/clickhouse
-COPY geogiant/common geogiant/common
+COPY geogiant/static_files geogiant/datasets/static_files
+
 COPY geogiant/zdns geogiant/zdns
 COPY geogiant/prober geogiant/prober
+COPY geogiant/common geogiant/common
 COPY geogiant/processes/ geogiant/processes
+COPY geogiant/clickhouse geogiant/clickhouse
+
 COPY geogiant/ripe_init.py geogiant/ripe_init.py
-COPY geogiant/ecs_mapping_init.py geogiant/ecs_mapping_init.py
 COPY geogiant/ecs_geoloc_eval.py geogiant/ecs_geoloc_eval.py
+COPY geogiant/ecs_mapping_init.py geogiant/ecs_mapping_init.py
 COPY geogiant/main.py geogiant/main.py
+
 COPY README.md README.md
 
 # install zdns
