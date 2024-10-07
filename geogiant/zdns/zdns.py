@@ -213,8 +213,11 @@ class ZDNS:
         """return resolution server ip addr"""
         parsed_data = []
         for resp in query_results:
-            if not resp["status"] == ZDNS_STATUS.NOERROR.value:
-                continue
+            try:
+                if not resp["status"] == ZDNS_STATUS.NOERROR.value:
+                    continue
+            except KeyError as e:
+                raise RuntimeError(f"Bad response:: {resp}, {e}")
 
             # filter answers that are not IP addresses
             if self.request_type == "A":
