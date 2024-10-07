@@ -24,7 +24,9 @@ from geogiant.common.ip_addresses_utils import (
     get_prefix_from_ip,
     route_view_bgp_prefix,
 )
-from geogiant.common.settings import ZDNSSettings
+from geogiant.common.settings import ZDNSSettings, PathSettings
+
+path_settings = PathSettings()
 
 
 class ZDNS_STATUS(Enum):
@@ -114,11 +116,16 @@ class ZDNS:
         """parse A records from ZDNS output"""
         parsed_output = []
         try:
-            resp_body = resp["data"]
             hostname = resp["name"]
-            answers = resp_body["answers"]
-            timestamp = self.parse_timestamp(resp)
-            source_scope = resp_body["additionals"][0]["csubnet"]["source_scope"]
+            results = resp["results"]["A"]
+
+            if not results["status"] == ZDNS_STATUS.NOERROR.value:
+                return None
+
+            answers = answers = results["data"]["answers"]
+            timestamp = self.parse_timestamp(results)
+            source_scope = results["data"]["additionals"][0]["csubnet"]["source_scope"]
+
             if source_scope == 0:
                 return None
 
@@ -126,6 +133,11 @@ class ZDNS:
             return None
 
         for answer in answers:
+
+            # check answer type
+            if answer["type"] != "A":
+                continue
+
             answer = answer["answer"]
             if is_valid_ipv4(answer):
                 subnet_addr = get_prefix_from_ip(subnet)
@@ -213,11 +225,6 @@ class ZDNS:
         """return resolution server ip addr"""
         parsed_data = []
         for resp in query_results:
-            try:
-                if not resp["status"] == ZDNS_STATUS.NOERROR.value:
-                    continue
-            except KeyError as e:
-                raise RuntimeError(f"Bad response:: {resp}, {e}")
 
             # filter answers that are not IP addresses
             if self.request_type == "A":
@@ -298,3 +305,23 @@ class ZDNS:
         tmp_file_path.unlink()
 
         logger.info(f"ZDNS::Resolution done")
+
+
+# testting, debugging
+if __name__ == "__main__":
+
+    import asyncio
+    from geogiant.zdns import ZDNS
+
+    subnets = ["132.227.123.0/24"]
+    hostname_file = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
+
+    zdns = ZDNS(
+        subnets=subnets,
+        hostname_file=hostname_file,
+        output_file="test.pickle",
+        name_servers="8.8.8.8",
+        request_type="A",
+    )
+
+    asyncio.run(zdns.main())

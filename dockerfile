@@ -19,15 +19,15 @@ RUN wget https://golang.org/dl/go1.22.2.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go1.22.2.linux-amd64.tar.gz && \
     rm go1.22.2.linux-amd64.tar.gz
 
-# Download and install clickhouse
+# Set Go environment variables
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+
+    # Download and install clickhouse
 RUN curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
 RUN echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main" | tee \
     /etc/apt/sources.list.d/clickhouse.list
 RUN apt-get update && apt-get install --yes clickhouse-client
-
-# Set Go environment variables
-ENV PATH="/usr/local/go/bin:${PATH}"
-ENV GOPATH="/go"
 
 WORKDIR /app
 
