@@ -275,6 +275,8 @@ class ZDNS:
 
         zdns_data = await self.run()
 
+        logger.info(f"Resolution done, inserting to:: {self.output_table}")
+
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
         if self.output_table:
