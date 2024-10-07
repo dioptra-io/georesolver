@@ -30,8 +30,6 @@ RUN mkdir -p geogiant/datasets
 COPY pyproject.toml pyproject.toml
 COPY poetry.lock poetry.lock
 
-COPY geogiant/static_files geogiant/datasets/static_files
-
 COPY geogiant/zdns geogiant/zdns
 COPY geogiant/prober geogiant/prober
 COPY geogiant/common geogiant/common
