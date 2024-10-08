@@ -1,10 +1,9 @@
 import json
 import pyasn
 import asyncio
-import itertools
 
 from uuid import uuid4
-from tqdm import tqdm, trange
+from tqdm import trange
 from datetime import datetime
 from dateutil import parser
 from enum import Enum
@@ -275,7 +274,7 @@ class ZDNS:
 
         zdns_data = await self.run()
 
-        logger.info(f"Resolution done, inserting to:: {self.output_table}")
+        logger.info(f"Resolution done, inserting to :: {self.output_table}")
 
         tmp_file_path = create_tmp_csv_file(zdns_data)
 
