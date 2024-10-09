@@ -8,7 +8,7 @@ class CreateVPsTable(Query):
             "address_v4, asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
         )
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 address_v4         IPv4,
                 subnet_v4          IPv4,
@@ -30,7 +30,7 @@ class CreatePingTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -58,7 +58,7 @@ class CreateTracerouteTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, ttl, reply_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -89,7 +89,7 @@ class CreateGeolocTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "addr, subnet, bgp_prefix, asn, vp_addr"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 addr               IPv4,
                 subnet             IPv4,
@@ -115,7 +115,7 @@ class CreateDNSMappingTable(Query):
         """returns anchors mapping table query"""
         sorting_key = "subnet, netmask, hostname, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+        CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,
@@ -136,7 +136,7 @@ class CreateNameServerTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "subnet, netmask, hostname,name_server, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+        CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,
@@ -154,7 +154,7 @@ class CreateDNSMappingWithMetadataTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "subnet, bgp_prefix, asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 subnet                 IPv4,
                 bgp_prefix             String,
@@ -180,7 +180,7 @@ class CreateScoreTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "subnet, vp_subnet, metric, score"
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.settings.DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {self.settings.CLICKHOUSE_DATABASE}.{table_name}
             (
                 subnet                 IPv4,
                 vp_subnet              IPv4,

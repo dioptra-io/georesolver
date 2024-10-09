@@ -199,13 +199,15 @@ class Query:
 @dataclass(frozen=True)
 class InsertCSV(Query):
     def statement(self, table_name: str) -> str:
-        return f"INSERT INTO {self.settings.DATABASE}.{table_name} FORMAT CSV"
+        return (
+            f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
+        )
 
 
 @dataclass(frozen=True)
 class DropTable(Query):
     def statement(self, table_name: str) -> str:
-        return f"DROP TABLE {self.settings.DATABASE}.{table_name}"
+        return f"DROP TABLE {self.settings.CLICKHOUSE_DATABASE}.{table_name}"
 
 
 # clickhouse files cannot be sent directly from the server
@@ -214,7 +216,7 @@ class InsertFromInFile:
     settings = ClickhouseSettings()
 
     def statement(self, table_name: str, in_file: Path) -> str:
-        return f"INSERT INTO {self.settings.DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
+        return f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
 
     async def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local file"""
@@ -238,7 +240,7 @@ class InsertFromCSV:
     settings = ClickhouseSettings()
 
     def statement(self, table_name: str, in_file: Path) -> str:
-        return f"INSERT INTO {self.settings.DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
+        return f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
 
     def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local csv file"""

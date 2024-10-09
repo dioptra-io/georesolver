@@ -70,7 +70,7 @@ class GetClosestAddr(Query):
         SELECT
             src_prefix,
             groupUniqArray(dst_addr) as landmarks
-        FROM {self.settings.DATABASE}.{table_name}
+        FROM {self.settings.CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             min > -1
             AND min <= 2

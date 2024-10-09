@@ -83,11 +83,11 @@ class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
 
     # Clickhouse driver parameters
-    BASE_URL: str = "http://localhost:8123"
-    DATABASE: str = "GeoResolver"
+    CLICKHOUSE_BASE_URL: str = "http://localhost:8123"
+    CLICKHOUSE_DATABASE: str = "GeoResolver"
 
-    USERNAME: str = "default"
-    PASSWORD: str = ""
+    CLICKHOUSE_USERNAME: str = "default"
+    CLICKHOUSE_PASSWORD: str = ""
 
     # VPs related tables
     VPS_RAW_TABLE: str = "vps_raw"
@@ -108,10 +108,10 @@ class ClickhouseSettings(BaseSettings):
     @property
     def clickhouse(self):
         return {
-            "base_url": self.BASE_URL,
-            "database": self.DATABASE,
-            "username": self.USERNAME,
-            "password": self.PASSWORD,
+            "base_url": self.CLICKHOUSE_BASE_URL,
+            "database": self.CLICKHOUSE_DATABASE,
+            "username": self.CLICKHOUSE_USERNAME,
+            "password": self.CLICKHOUSE_PASSWORD,
             "settings": {
                 "max_query_size": 1000000000000000,
             },

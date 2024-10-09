@@ -62,7 +62,7 @@ class OverallScore(Query):
                 SELECT
                     client_subnet,
                     groupUniqArray({column_name}) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
+                FROM {self.settings.CLICKHOUSE_DATABASE}.{table_name}
                 WHERE 
                     client_subnet IN ({target_filter})
                     {hostname_filter}
@@ -74,7 +74,7 @@ class OverallScore(Query):
                 SELECT
                     client_subnet,
                     groupUniqArray({column_name}) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
+                FROM {self.settings.CLICKHOUSE_DATABASE}.{table_name}
                 WHERE 
                     client_subnet NOT IN ({target_filter})
                     {hostname_filter}
@@ -131,7 +131,7 @@ class HostnameScore(Query):
                     subnet,
                     hostname,
                     groupUniqArray({column_name}) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
+                FROM {self.settings.CLICKHOUSE_DATABASE}.{table_name}
                 WHERE 
                     {targets}
                     {hostname_filter}
@@ -143,7 +143,7 @@ class HostnameScore(Query):
                     subnet,
                     hostname,
                     groupUniqArray({column_name}) AS mapping
-                FROM {self.settings.DATABASE}.{table_name}
+                FROM {self.settings.CLICKHOUSE_DATABASE}.{table_name}
                 WHERE 
                     {target_filter}
                     {hostname_filter}
@@ -164,5 +164,5 @@ class CountRows(NativeQuery):
         SELECT
             count(distinct *)
         FROM 
-            {self.settings.DATABASE}.{table_name}
+            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
         """
