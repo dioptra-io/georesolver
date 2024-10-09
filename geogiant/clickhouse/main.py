@@ -195,6 +195,11 @@ class Query:
         )
         return client.iter_json(statement, data=data, settings=settings)
 
+    def execute_insert(self, client: ClickHouseClient, table_name: str, in_file: Path):
+        with ClickHouseClient(**self.settings.clickhouse) as client:
+            query = f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
+            client.execute(query, data=in_file.read_bytes())
+
 
 @dataclass(frozen=True)
 class InsertCSV(Query):
@@ -244,7 +249,12 @@ class InsertFromCSV:
 
     def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local csv file"""
-        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
+        cmd = f"""clickhouse client \
+            --host {self.settings.CLICKHOUSE_HOST} \ 
+            --port {self.settings.CLICKHOUSE_PORT} \
+            --protocol http \
+            --query=\"{self.statement(table_name, in_file)}\"
+        """
 
         ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
@@ -255,7 +265,7 @@ class InsertFromCSV:
         else:
             logger.info(f"{cmd}::Successfully executed")
 
-    async def execute(self, table_name: str, in_file: Path) -> None:
+    async def aio_execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local file asynchronously"""
         cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
 

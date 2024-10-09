@@ -4,6 +4,7 @@ from pych_client import ClickHouseClient, AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
 from geogiant.clickhouse import (
+    Query,
     GetVPs,
     GetVPsIds,
     GetPingsPerTarget,
@@ -415,7 +416,8 @@ def insert_dns_answers(
         elif request_type == "NS":
             CreateNameServerTable().execute(client=client, table_name=output_table)
 
-        InsertFromCSV().execute(
+        Query().execute_insert(
+            client=client,
             table_name=output_table,
             in_file=tmp_file_path,
         )
@@ -426,7 +428,8 @@ async def insert_pings(csv_data: list[str], output_table: str) -> None:
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreatePingTable().aio_execute(client=client, table_name=output_table)
-        await InsertFromCSV().execute(
+        Query().execute_insert(
+            client=client,
             table_name=output_table,
             in_file=tmp_file_path,
         )
@@ -441,7 +444,8 @@ async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
         await CreateTracerouteTable().aio_execute(
             client=client, table_name=output_table
         )
-        await InsertFromCSV().execute(
+        Query().execute_insert(
+            client=client,
             table_name=output_table,
             in_file=tmp_file_path,
         )
@@ -454,7 +458,8 @@ async def insert_scores(csv_data: list[str], output_table: str) -> None:
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreateScoreTable().aio_execute(client=client, table_name=output_table)
-        await InsertFromCSV().execute(
+        Query().execute_insert(
+            client=client,
             table_name=output_table,
             in_file=tmp_file_path,
         )
@@ -467,7 +472,8 @@ async def insert_geoloc(csv_data: list[str], output_table: str) -> None:
 
     async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
         await CreateGeolocTable().aio_execute(client=client, table_name=output_table)
-        await InsertFromCSV().execute(
+        Query().execute_insert(
+            client=client,
             table_name=output_table,
             in_file=tmp_file_path,
         )

@@ -12,7 +12,7 @@ from loguru import logger
 from pych_client import AsyncClickHouseClient
 
 from geogiant.clickhouse import (
-    InsertFromCSV,
+    Query,
     CreateDNSMappingTable,
     CreateNameServerTable,
 )
@@ -289,7 +289,8 @@ class ZDNS:
                         client=client, table_name=self.output_table
                     )
 
-                await InsertFromCSV().execute(
+                Query().execute_insert(
+                    client=client,
                     table_name=self.output_table,
                     in_file=tmp_file_path,
                 )
@@ -320,7 +321,7 @@ if __name__ == "__main__":
     zdns = ZDNS(
         subnets=subnets,
         hostname_file=hostname_file,
-        output_file="test.pickle",
+        output_table="test_ecs_mapping",
         name_servers="8.8.8.8",
         request_type="A",
     )
