@@ -83,7 +83,8 @@ class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
 
     # Clickhouse driver parameters
-    CLICKHOUSE_BASE_URL: str = "http://localhost:8123"
+    CLICKHOUSE_HOST: str = "localhost"
+    CLICKHOUSE_PORT: int = 8123
     CLICKHOUSE_DATABASE: str = "GeoResolver"
 
     CLICKHOUSE_USERNAME: str = "default"
@@ -108,7 +109,7 @@ class ClickhouseSettings(BaseSettings):
     @property
     def clickhouse(self):
         return {
-            "base_url": self.CLICKHOUSE_BASE_URL,
+            "base_url": f"http://{self.CLICKHOUSE_HOST}:{self.CLICKHOUSE_PORT}",
             "database": self.CLICKHOUSE_DATABASE,
             "username": self.CLICKHOUSE_USERNAME,
             "password": self.CLICKHOUSE_PASSWORD,
