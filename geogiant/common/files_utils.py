@@ -136,7 +136,7 @@ def insert_json(data, output_file: Path) -> None:
         json.dump(data, f, indent=4)
 
 
-def load_json(input_file: Path) -> dict:
+def load_json(input_file: Path, exit_on_failure: bool = True) -> dict:
     """load json file"""
     try:
         with input_file.open("r") as f:
@@ -145,6 +145,9 @@ def load_json(input_file: Path) -> dict:
         logger.error(f"file does not exists: {e}")
     except json.JSONDecodeError as e:
         logger.error(f"the file you are trying to retrieve is empty: {e}")
+        
+    if exit_on_failure:
+        raise RuntimeError(f"{input_file} does not exists")
 
     return None
 
