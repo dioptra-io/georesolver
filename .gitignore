@@ -15,6 +15,8 @@ tmp/
 results/
 debbuging/
 logs/
+experiments/
+config/
 
 # clickhouse exec file
 .vscode/
