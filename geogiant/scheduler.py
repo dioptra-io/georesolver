@@ -177,20 +177,22 @@ def create_agents(config_path: dict) -> list[Agent]:
         agent_targets = targets[i * agent_target_load : (i + 1) * agent_target_load]
         dump_csv(agent_targets, agent_dir / "targets.csv")
 
-        # create and dump local agent config
+        # some parameters are copied from general config
+        agent_definition["experiment_uuid"] = config["experiment_uuid"]
+        agent_definition["processes"] = config["processes"]
+        agent_definition["max_ongoing_ping"] = config["batch_size"]
+
+        # specific agent parameters and files
+        agent_definition["max_ongoing_ping"] = agent_max_ping
         agent_definition["local_dir"] = str(agent_dir)
         agent_definition["target_file"] = str(agent_dir / "targets.csv")
         agent_definition["hostname_file"] = str(
             experiment_path / config["hostname_file"].name
         )
 
-        agent_definition["processes"] = config["processes"]
-        agent_definition["max_ongoing_ping"] = agent_max_ping
-        agent_definition["max_ongoing_ping"] = config["batch_size"]
+        # dump agent config, create and store agent
         dump_json(agent_definition, agent_dir / "config.json")
-
         agent = Agent(agent_dir / "config.json")
-
         agents.append(agent)
 
     return agents

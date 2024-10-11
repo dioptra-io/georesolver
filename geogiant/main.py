@@ -108,16 +108,8 @@ def main(agent_config_path: Path) -> None:
         in_table = process_definition["in_table"]
         out_table = process_definition["out_table"]
 
-        if name == ProcessNames.ECS_PROC.value:
-            func = ecs_task
-        if name == ProcessNames.SCORE_PROC.value:
-            func = score_task
-        if name == ProcessNames.PING_PROC.value:
-            func = ping_task
-        if name == ProcessNames.INSERT_PROC.value:
-            func = insert_task
-
-        params = {
+        # base set of parameters for each agent's process
+        base_params = {
             "target_file": target_file,
             "hostnmae_file": hostname_file,
             "in_table": in_table,
@@ -128,7 +120,22 @@ def main(agent_config_path: Path) -> None:
             "dry_run": dry_run,
         }
 
-        process = Process(target=main_processes, args=(func, params))
+        # get process associated task and modify parameters if needed
+        if name == ProcessNames.ECS_PROC.value:
+            func = ecs_task
+            base_params.pop("experiment_uuid")
+        if name == ProcessNames.SCORE_PROC.value:
+            func = score_task
+            base_params.pop("experiment_uuid")
+        if name == ProcessNames.PING_PROC.value:
+            func = ping_task
+            base_params.pop("hostname_file")
+        if name == ProcessNames.INSERT_PROC.value:
+            func = insert_task
+            base_params.pop("hostname_file")
+
+        # create process object
+        process = Process(target=main_processes, args=(func, base_params))
         processes.append((name, process))
 
         logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")

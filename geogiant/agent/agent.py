@@ -22,6 +22,7 @@ class ProcessNames(Enum):
 
 class Agent:
     def __init__(self, agent_config_path: Path) -> None:
+        self.agent_config_path = agent_config_path
         self.agent_config = load_json(agent_config_path, exit_on_failure=True)
 
         # remote server ssh parameters
@@ -89,7 +90,12 @@ class Agent:
 
     def upload_target_files(self) -> None:
         """upload target and hostname files to"""
-        target_files = [self.target_file, self.hostname_file, path_settings.RIB_TABLE]
+        target_files = [
+            self.agent_config_path,
+            self.target_file,
+            self.hostname_file,
+            path_settings.RIB_TABLE,
+        ]
 
         for file in target_files:
             _ = ssh_upload_file(
@@ -116,7 +122,7 @@ class Agent:
 
     def agent_start(self) -> None:
         """start georesolver on the remote server"""
-        cmd = docker_run_agent_cmd(self.remote_dir)
+        cmd = docker_run_agent_cmd(self.remote_dir, self.agent_config_path)
         pprint(cmd)
 
         _ = ssh_run_cmd(

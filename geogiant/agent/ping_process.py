@@ -173,8 +173,8 @@ def filter_targets(
 
 async def ping_task(
     target_file: Path,
-    score_table: str,
-    ping_table: str,
+    in_table: str,
+    out_table: str,
     measurement_uuid: str,
     wait_time: int = 30,
     log_path: Path = path_settings.LOG_PATH,
@@ -195,7 +195,7 @@ async def ping_task(
     prober = RIPEAtlasProber(
         probing_type="ping",
         probing_tag=measurement_uuid,
-        output_table=ping_table,
+        output_table=out_table,
         output_logs=output_logs,
     )
     while True:
@@ -204,8 +204,8 @@ async def ping_task(
         filtered_targets, no_measured_target = filter_targets(
             targets=targets,
             geolocated_targets=geolocated_targets,
-            score_table=score_table,
-            ping_table=ping_table,
+            score_table=in_table,
+            ping_table=out_table,
         )
 
         logger.info(f"Original number of targets:: {len(targets)}")
@@ -227,7 +227,7 @@ async def ping_task(
             measurement_schedule = get_measurement_schedule(
                 targets=filtered_targets,
                 subnets=[get_prefix_from_ip(target) for target in filtered_targets],
-                score_table=score_table,
+                score_table=in_table,
                 output_logs=output_logs,
             )
 

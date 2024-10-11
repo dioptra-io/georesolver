@@ -267,8 +267,8 @@ async def score_calculate(
 async def score_task(
     target_file: Path,
     hostname_file: Path,
-    ecs_mapping_table: str,
-    score_table: str,
+    in_table: str,
+    out_table: str,
     wait_time: int = 30,
     batch_size: int = 1_000,
     verbose: bool = False,
@@ -294,8 +294,8 @@ async def score_task(
         # get subnets on which score calculation is needed
         filtered_subnets, no_score_subnets = await score_filter(
             subnets=subnets,
-            ecs_mapping_table=ecs_mapping_table,
-            score_table=score_table,
+            ecs_mapping_table=in_table,
+            score_table=out_table,
             verbose=verbose,
         )
 
@@ -323,9 +323,9 @@ async def score_task(
                     target_subnets=input_subnets,
                     vp_subnets=vp_subnets,
                     hostnames=hostnames,
-                    targets_ecs_table=ecs_mapping_table,
+                    targets_ecs_table=in_table,
                     vps_ecs_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
-                    score_table=score_table,
+                    score_table=out_table,
                     nb_cpu=nb_cpu,
                     output_logs=output_logs,
                 )

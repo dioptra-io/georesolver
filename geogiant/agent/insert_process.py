@@ -243,13 +243,14 @@ async def insert_results(
 
 
 async def insert_task(
-    nb_targets: list[str],
-    ping_table: str,
-    geoloc_table: str,
+    target_file: Path,
+    in_table: str,
+    out_table: str,
     measurement_uuid: str,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "insert_results_task.log",
     dry_run: bool = False,
+    **kwargs,
 ) -> None:
     if output_logs and log_path:
         output_logs = log_path / output_logs
@@ -258,16 +259,17 @@ async def insert_task(
         output_logs = None
 
     # remove targets for which we already made measurements
-    cached_targets = load_cached_targets(ping_table)
+    cached_targets = load_cached_targets(in_table)
 
     # remove targets for which a measurement was started but results not inserted yet
-    remaining_nb_targets = nb_targets - len(cached_targets)
+    targets = load_csv(target_file)
+    remaining_nb_targets = len(targets) - len(cached_targets)
 
-    if nb_targets == 0:
+    if len(targets) == 0:
         logger.info("All measurements done, insert results process stopped")
         return
     else:
-        logger.info(f"Remainning targets to geolocate:: {nb_targets}")
+        logger.info(f"Remainning targets to geolocate:: {len(targets)}")
 
     if dry_run:
         logger.info("Stopped insert results task")
@@ -275,8 +277,8 @@ async def insert_task(
     await insert_results(
         probing_type="ping",
         probing_tag=measurement_uuid,
-        measurement_table=ping_table,
-        geoloc_table=geoloc_table,
+        measurement_table=in_table,
+        geoloc_table=out_table,
         nb_targets=remaining_nb_targets,
         output_logs=output_logs,
     )
