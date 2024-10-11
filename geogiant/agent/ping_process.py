@@ -175,7 +175,7 @@ async def ping_task(
     target_file: Path,
     in_table: str,
     out_table: str,
-    measurement_uuid: str,
+    experiment_uuid: str,
     wait_time: int = 30,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "ping_task.log",
@@ -194,7 +194,7 @@ async def ping_task(
     geolocated_targets = []
     prober = RIPEAtlasProber(
         probing_type="ping",
-        probing_tag=measurement_uuid,
+        probing_tag=experiment_uuid,
         output_table=out_table,
         output_logs=output_logs,
     )
@@ -262,7 +262,7 @@ if __name__ == "__main__":
             targets=targets,
             score_table="demo_score",
             ping_table="demo_ping",
-            measurement_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
+            experiment_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
             output_logs=None,
         )
     )

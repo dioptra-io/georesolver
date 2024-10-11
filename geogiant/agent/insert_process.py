@@ -176,6 +176,7 @@ async def insert_results(
     nb_targets: int,
     wait_time: int = 60,
     output_logs: Path = None,
+    batch_size: int = 1_000,
 ) -> None:
     """insert ongoing measurements"""
     inserted_measurements = get_measurement_ids(measurement_table)
@@ -204,8 +205,10 @@ async def insert_results(
         logger.info(f"Measurements to insert :: {len(measurement_to_insert)}")
 
         # insert by batch to avoid losing some results
-        for j in range(0, len(measurement_to_insert), 1_000):
-            measurement_to_insert_batch = list(measurement_to_insert)[j : j + 1_000]
+        for j in range(0, len(measurement_to_insert), batch_size):
+            measurement_to_insert_batch = list(measurement_to_insert)[
+                j : j + batch_size
+            ]
             if probing_type == "ping":
                 await retrieve_pings(
                     measurement_to_insert_batch,
@@ -246,11 +249,11 @@ async def insert_task(
     target_file: Path,
     in_table: str,
     out_table: str,
-    measurement_uuid: str,
+    experiment_uuid: str,
     log_path: Path = path_settings.LOG_PATH,
-    output_logs: str = "insert_results_task.log",
+    output_logs: str = "insert_task.log",
     dry_run: bool = False,
-    **kwargs,
+    batch_size: int = 1_000,
 ) -> None:
     if output_logs and log_path:
         output_logs = log_path / output_logs
@@ -276,11 +279,12 @@ async def insert_task(
 
     await insert_results(
         probing_type="ping",
-        probing_tag=measurement_uuid,
+        probing_tag=experiment_uuid,
         measurement_table=in_table,
         geoloc_table=out_table,
         nb_targets=remaining_nb_targets,
         output_logs=output_logs,
+        batch_size=batch_size,
     )
 
     logger.info(f"All pings and geoloc inserted, measurement finished")
@@ -298,7 +302,7 @@ if __name__ == "__main__":
             nb_targets=len(targets),
             ping_table="demo_ping",
             geoloc_table="demo_geoloc",
-            measurement_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
+            experiment_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
             output_logs=None,
         )
     )

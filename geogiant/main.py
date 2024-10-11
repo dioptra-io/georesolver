@@ -39,7 +39,7 @@ def main(agent_config_path: Path) -> None:
 
     # load input path from config
     try:
-        experiment_uuid = agent_config["experiement_uuid"]
+        experiment_uuid = agent_config["experiment_uuid"]
         target_file = Path(agent_config["target_file"])
         hostname_file = Path(agent_config["hostname_file"])
         batch_size = agent_config["batch_size"]
@@ -111,7 +111,7 @@ def main(agent_config_path: Path) -> None:
         # base set of parameters for each agent's process
         base_params = {
             "target_file": target_file,
-            "hostnmae_file": hostname_file,
+            "hostname_file": hostname_file,
             "in_table": in_table,
             "out_table": out_table,
             "experiment_uuid": experiment_uuid,
@@ -130,6 +130,7 @@ def main(agent_config_path: Path) -> None:
         if name == ProcessNames.PING_PROC.value:
             func = ping_task
             base_params.pop("hostname_file")
+            base_params.pop("batch_size")
         if name == ProcessNames.INSERT_PROC.value:
             func = insert_task
             base_params.pop("hostname_file")
@@ -155,7 +156,6 @@ def main(agent_config_path: Path) -> None:
     process: Process = None
     for name, process in processes:
         # join and wait all processes
-        logger.info(f"Starting {name} process")
         process.join()
 
     logger.info(f"Experiment {experiment_uuid} succesfully executed")
