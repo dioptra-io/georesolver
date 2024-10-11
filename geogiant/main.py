@@ -1,22 +1,24 @@
+"""define the main function of a single agent, also entry point of docker image"""
+
 import sys
 import typer
 import asyncio
 
-from uuid import uuid4
 from loguru import logger
 from pathlib import Path
 from multiprocessing import Process
 
+from geogiant.agent import ProcessNames
 from geogiant.ripe_init import vps_init
 from geogiant.ecs_mapping_init import resolve_hostnames
-from geogiant.common.files_utils import load_csv
+from geogiant.common.files_utils import load_csv, load_json
 from geogiant.common.queries import load_vp_subnets
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.processes import (
-    ecs_mapping_task,
+from geogiant.agent import (
+    ecs_task,
     score_task,
-    geolocation_task,
-    insert_results_task,
+    ping_task,
+    insert_task,
 )
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
@@ -31,39 +33,44 @@ def main_processes(task, task_args) -> None:
     loop.run_until_complete(task(**task_args))
 
 
-def main(
-    target_file: Path,
-    hostname_file: Path,
-    ecs_mapping_table: str = clickhouse_settings.TARGET_ECS_MAPPING_TABLE,
-    score_table: str = clickhouse_settings.TARGET_SCORE_TABLE,
-    ping_table: str = clickhouse_settings.TARGET_PING_TABLE,
-    geoloc_table: str = clickhouse_settings.TARGET_GEOLOC_TABLE,
-    log_path: Path = path_settings.LOG_PATH,
-    measurement_uuid: str = None,
-    batch_size: int = 1_000,
-    init_vps: bool = False,
-    update_meshed_pings: bool = True,
-    update_meshed_traceroutes: bool = True,
-    init_ecs_mapping: bool = False,
-    verbose: bool = False,
-    dry_run: bool = False,
-) -> None:
+def main(agent_config_path: Path) -> None:
 
-    if verbose:
+    agent_config = load_json(agent_config_path, exit_on_failure=True)
+
+    # load input path from config
+    try:
+        experiment_uuid = agent_config["experiement_uuid"]
+        target_file = Path(agent_config["target_file"])
+        hostname_file = Path(agent_config["hostname_file"])
+        batch_size = agent_config["batch_size"]
+        process_definitions = agent_config["processes"]
+        log_path = Path(agent_config["log_path"])
+        dry_run = agent_config["dry_run"] if "dry_run" in agent_config else False
+    except KeyError as e:
+        raise RuntimeError(f"Parameter {e} missing in agent configuration")
+
+    # check if input dir exists, exit if not, create logs dir
+    if not target_file.exists():
+        raise RuntimeError(f"Target file does not exists:: {target_file}")
+    if not hostname_file.exists():
+        raise RuntimeError(f"Hostname file does not exists:: {hostname_file}")
+    if not log_path.exists():
+        log_path.mkdir(parents=True)
+
+    # log level chack
+    if agent_config.get("verbose"):
         logger.remove()
         logger.add(sys.stdout, level="DEBUG")
     else:
         logger.remove()
         logger.add(sys.stdout, level="INFO")
 
-    if not log_path.exists():
-        log_path.mkdir(parents=True)
-
-    if init_vps:
+    # optional init steps
+    if agent_config.get("init_vps"):
         logger.info(f"Starting VPs init (this step might take several days)")
-        asyncio.run(vps_init(update_meshed_pings, update_meshed_traceroutes))
+        asyncio.run(vps_init(True, True))
 
-    if init_ecs_mapping:
+    if agent_config.get("init_ecs_mapping"):
         logger.info(
             f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING_TABLE}"
         )
@@ -77,90 +84,15 @@ def main(
             )
         )
 
-    if not target_file.exists():
-        raise RuntimeError(f"Target file does not exists:: {target_file}")
-
-    if not hostname_file.exists():
-        raise RuntimeError(f"Hostname file does not exists:: {hostname_file}")
-
     # load targets, subnets and hostnames
     targets = load_csv(target_file, exit_on_failure=True)
     hostnames = load_csv(hostname_file, exit_on_failure=True)
     subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
 
-    # generate a measurement uuid that defines the entire measurement
-    if not measurement_uuid:
-        measurement_uuid = str(uuid4())
-
-    # init ECS mapping process
-    ecs_mapping_process = Process(
-        target=main_processes,
-        args=(
-            ecs_mapping_task,
-            {
-                "target_file": target_file,
-                "hostname_file": hostname_file,
-                "ecs_mapping_table": ecs_mapping_table,
-                "log_path": log_path,
-                "batch_size": batch_size,
-                "dry_run": dry_run,
-            },
-        ),
-    )
-
-    # init Score process
-    score_process = Process(
-        target=main_processes,
-        args=(
-            score_task,
-            {
-                "target_file": target_file,
-                "hostname_file": hostname_file,
-                "ecs_mapping_table": ecs_mapping_table,
-                "score_table": score_table,
-                "log_path": log_path,
-                "batch_size": batch_size,
-                "dry_run": dry_run,
-            },
-        ),
-    )
-
-    # init Geolocation process
-    geolocation_process = Process(
-        target=main_processes,
-        args=(
-            geolocation_task,
-            {
-                "target_file": target_file,
-                "score_table": score_table,
-                "ping_table": ping_table,
-                "measurement_uuid": measurement_uuid,
-                "log_path": log_path,
-                "dry_run": dry_run,
-            },
-        ),
-    )
-
-    # # init Insert results process
-    insert_results_process = Process(
-        target=main_processes,
-        args=(
-            insert_results_task,
-            {
-                "nb_targets": len(targets),
-                "ping_table": ping_table,
-                "geoloc_table": geoloc_table,
-                "measurement_uuid": measurement_uuid,
-                "log_path": log_path,
-                "dry_run": dry_run,
-            },
-        ),
-    )
-
     logger.info("##########################################")
     logger.info(f"# Starting geolocation")
     logger.info("##########################################")
-    logger.info(f"Measurement uuid    :: {measurement_uuid}")
+    logger.info(f"Experiment uuid     :: {experiment_uuid}")
     logger.info(f"Number of targets   :: {len(targets)}")
     logger.info(f"Number of subnets   :: {len(subnets)}")
     logger.info(f"Number of hostnames :: {len(hostnames)}")
@@ -169,36 +101,57 @@ def main(
     logger.info("##########################################")
     logger.info("# Output dirs and table")
     logger.info("##########################################")
-    logger.info(f"ECS mapping output table   :: {ecs_mapping_table}")
-    logger.info(f"Score output table         :: {score_table}")
-    logger.info(f"Ping output table          :: {ping_table}")
-    logger.info(f"Geoloc output table        :: {geoloc_table}")
-    logger.info(f"Logs output dir            :: {log_path}")
+
+    processes = []
+    for process_definition in process_definitions:
+        name = process_definition["name"]
+        in_table = process_definition["in_table"]
+        out_table = process_definition["out_table"]
+
+        if name == ProcessNames.ECS_PROC.value:
+            func = ecs_task
+        if name == ProcessNames.SCORE_PROC.value:
+            func = score_task
+        if name == ProcessNames.PING_PROC.value:
+            func = ping_task
+        if name == ProcessNames.INSERT_PROC.value:
+            func = insert_task
+
+        params = {
+            "target_file": target_file,
+            "hostnmae_file": hostname_file,
+            "in_table": in_table,
+            "out_table": out_table,
+            "experiment_uuid": experiment_uuid,
+            "log_path": log_path,
+            "batch_size": batch_size,
+            "dry_run": dry_run,
+        }
+
+        process = Process(target=main_processes, args=(func, params))
+        processes.append((name, process))
+
+        logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")
 
     logger.info("##########################################")
     logger.info("# Starting processes")
     logger.info("##########################################")
+    process: Process = None
+    for name, process in processes:
+        # Start all processes
+        logger.info(f"Starting {name} process")
+        process.start()
 
-    # Start all processes
-    logger.info("Starting ECS mapping process")
-    ecs_mapping_process.start()
+    logger.info("##########################################")
+    logger.info("# Waiting for process to finish")
+    logger.info("##########################################")
+    process: Process = None
+    for name, process in processes:
+        # join and wait all processes
+        logger.info(f"Starting {name} process")
+        process.join()
 
-    logger.info("Starting Score process")
-    score_process.start()
-
-    logger.info("Starting Geolocation process")
-    geolocation_process.start()
-
-    logger.info("Starting Insert results process")
-    insert_results_process.start()
-
-    # # # Wait for each process to finish
-    ecs_mapping_process.join()
-    score_process.join()
-    geolocation_process.join()
-    insert_results_process.join()
-
-    logger.info(f"Measurement {measurement_uuid} succesfully executed")
+    logger.info(f"Experiment {experiment_uuid} succesfully executed")
 
 
 if __name__ == "__main__":

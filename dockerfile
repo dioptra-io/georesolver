@@ -43,7 +43,7 @@ COPY poetry.lock poetry.lock
 COPY geogiant/zdns geogiant/zdns
 COPY geogiant/prober geogiant/prober
 COPY geogiant/common geogiant/common
-COPY geogiant/processes/ geogiant/processes
+COPY geogiant/agent/ geogiant/agent
 COPY geogiant/clickhouse geogiant/clickhouse
 
 COPY geogiant/ripe_init.py geogiant/ripe_init.py
