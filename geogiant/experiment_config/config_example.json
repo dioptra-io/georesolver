@@ -16,7 +16,8 @@
                 "user" : "kvermeulen",
                 "host" : "linux1"
             },
-            "remote_dir": "/srv/hugo/georesolver"
+            "remote_dir": "/srv/hugo/georesolver",
+            "agent_uuid": "d1d51228-ee66-44e4-8381-ccdce1ab73e4"
         }
     ],
     "batch_size": 1000

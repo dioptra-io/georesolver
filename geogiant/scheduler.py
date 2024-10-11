@@ -178,7 +178,6 @@ def create_agents(config_path: dict) -> list[Agent]:
         dump_csv(agent_targets, agent_dir / "targets.csv")
 
         # some parameters are copied from general config
-        agent_definition["experiment_uuid"] = config["experiment_uuid"]
         agent_definition["processes"] = config["processes"]
         agent_definition["batch_size"] = config["batch_size"]
         agent_definition["log_path"] = str(agent_dir / "logs")

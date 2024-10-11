@@ -39,7 +39,7 @@ def main(agent_config_path: Path) -> None:
 
     # load input path from config
     try:
-        experiment_uuid = agent_config["experiment_uuid"]
+        experiment_uuid = agent_config["agent_uuid"]
         target_file = Path(agent_config["target_file"])
         hostname_file = Path(agent_config["hostname_file"])
         batch_size = agent_config["batch_size"]
