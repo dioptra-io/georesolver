@@ -1,0 +1,23 @@
+{
+    "target_file" : "/storage/hugo/geogiant/geogiant/datasets/test_targets.csv",
+    "hostname_file" : "/storage/hugo/geogiant/geogiant/datasets/hostname_files/hostnames_georesolver.csv",
+    "experiment_uuid" : "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f",
+    "processes" : [
+        {"name": "ecs_process", "in_table": "test_ecs", "out_table": "test_ecs"},
+        {"name": "score_process", "in_table": "test_ecs", "out_table": "test_score"},
+        {"name": "ping_process", "in_table": "test_score", "out_table": "test_ping"},
+        {"name": "insert_process", "in_table": "test_ping", "out_table": "test_geoloc"}
+    ],
+    "agents": [
+        {
+            "user": "kvermeulen",
+            "host": "ssh.laas.fr",
+            "gateway": {
+                "user" : "kvermeulen",
+                "host" : "linux1"
+            },
+            "remote_dir": "/srv/hugo/georesolver"
+        }
+    ],
+    "batch_size": 1000
+}
