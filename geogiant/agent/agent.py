@@ -5,12 +5,13 @@ from loguru import logger
 from enum import Enum
 from pprint import pprint
 
-from geogiant.common.files_utils import load_json
-from geogiant.common.docker_utils import docker_pull_cmd, docker_run_agent_cmd
+from geogiant.common.files_utils import load_json, dump_json
 from geogiant.common.ssh_utils import ssh_run_cmd, ssh_run_cmds, ssh_upload_file
-from geogiant.common.settings import PathSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
+clickhouse_settings = RIPEAtlasSettings()
+ripe_atlas_settings = RIPEAtlasSettings()
 
 
 class ProcessNames(Enum):
@@ -20,31 +21,100 @@ class ProcessNames(Enum):
     INSERT_PROC = "insert_process"
 
 
+def docker_run_agent_cmd(remote_dir: str, agent_config_path: Path) -> str:
+    """define the docker run command for starting a georesolver docker agent"""
+    return f"""
+        docker run -d \
+        -v "{remote_dir}:{remote_dir}" \
+        -v "{remote_dir}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
+        -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
+        -e CLICKHOUSE_HOST={clickhouse_settings.CLICKHOUSE_HOST} \
+        -e CLICKHOUSE_PORT={clickhouse_settings.CLICKHOUSE_PORT} \
+        -e CLICKHOUSE_DATABASE={clickhouse_settings.CLICKHOUSE_DATABASE} \
+        -e CLICKHOUSE_USERNAME={clickhouse_settings.CLICKHOUSE_USERNAME} \
+        -e CLICKHOUSE_PASSWORD={clickhouse_settings.CLICKHOUSE_PASSWORD} \
+        -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
+        --network host \
+        --entrypoint poetry \
+        ghcr.io/dioptra-io/geogiant:main run python geogiant/main.py {remote_dir}/{agent_config_path.name}
+    """
+
+
+def docker_pull_cmd() -> list[str]:
+    return [
+        f"echo {path_settings.GITHUB_TOKEN} | docker login ghcr.io -u {path_settings.DOCKER_USERNAME} --password-stdin",
+        f"docker pull ghcr.io/dioptra-io/geogiant:main",
+    ]
+
+
+def get_running_images(agent_config: dict) -> str:
+    """check if docker image is running or not"""
+    # TODO: parse string output
+    result = ssh_run_cmd(
+        cmd="docker ps",
+        user=agent_config["user"],
+        host=agent_config["host"],
+        gateway_host=(
+            agent_config["gateway_host"] if "gateway_host" in agent_config else None
+        ),
+        gateway_user=(
+            agent_config["gateway_user"] if "gateway_user" in agent_config else None
+        ),
+        exit_on_failure=True,
+    )
+
+    logger.debug(f"docker images running running:: {result.stdout}")
+
+    return result
+
+
 class Agent:
-    def __init__(self, agent_config_path: Path) -> None:
-        self.agent_config_path = agent_config_path
-        self.agent_config = load_json(agent_config_path, exit_on_failure=True)
+    def __init__(
+        self,
+        agent_uuid: str,
+        user: str,
+        host: str,
+        local_dir: Path,
+        remote_dir: Path,
+        target_file: Path,
+        hostname_file: Path,
+        processes: list[dict],
+        batch_size: int = 1_000,
+        max_ongoing_pings: int = 1_00,
+        gateway: dict = {"user": None, "host": None},
+    ) -> None:
 
-        # remote server ssh parameters
-        try:
-            self.user = self.agent_config["user"]
-            self.host = self.agent_config["host"]
-            self.local_dir = Path(self.agent_config["local_dir"])
-            self.remote_dir = Path(self.agent_config["remote_dir"])
-            self.target_file = Path(self.agent_config["target_file"])
-            self.hostname_file = Path(self.agent_config["hostname_file"])
-        except KeyError as e:
-            raise RuntimeError(f"Agent parameter {e} is missing")
+        self.agent_uuid = agent_uuid
+        self.user = user
+        self.host = host
+        self.local_dir = Path(local_dir)
+        self.remote_dir = Path(remote_dir) / agent_uuid
+        self.target_file = Path(target_file)
+        self.hostname_file = Path(hostname_file)
+        self.processes = processes
+        self.batch_size = batch_size
+        self.max_ongoing_pings = max_ongoing_pings
+        self.gateway = gateway
 
-        # in the case of ssh proxy jump, not nested
-        if gateway := self.agent_config.get("gateway"):
-            self.gateway = gateway
-        else:
-            self.gateway = {"user": None, "host": None}
+        # create remote agent config
+        self.agent_config_path = self.create_agent_config()
 
-        # mandatory parameters check
-        assert "processes" in self.agent_config
-        assert "max_ongoing_ping" in self.agent_config
+    def create_agent_config(self) -> Path:
+        """create remote agent config, necessary for starting docker image"""
+        agent_config = {
+            "agent_uuid": str(self.agent_uuid),
+            "target_file": str(self.remote_dir / self.target_file.name),
+            "hostname_file": str(self.remote_dir / self.hostname_file.name),
+            "batch_size": self.batch_size,
+            "processes": self.processes,
+            "log_path": str(self.remote_dir / "logs"),
+        }
+
+        # upload config file in local dir
+        output_path = self.local_dir / "config.json"
+        dump_json(agent_config, output_path)
+
+        return output_path
 
     def check_connection(self) -> None:
         """various check for connection and file existence"""
@@ -88,16 +158,9 @@ class Agent:
             f"Agent={self.user}@{self.host}:: remote dir={self.remote_dir} created"
         )
 
-    def upload_target_files(self) -> None:
+    def upload_target_files(self, files: list[Path]) -> None:
         """upload target and hostname files to"""
-        target_files = [
-            self.agent_config_path,
-            self.target_file,
-            self.hostname_file,
-            path_settings.RIB_TABLE,
-        ]
-
-        for file in target_files:
+        for file in files:
             _ = ssh_upload_file(
                 in_file=file,
                 out_file=str(self.remote_dir / file.name),
@@ -145,7 +208,14 @@ class Agent:
         self.create_remote_dir()
 
         # upload target files
-        self.upload_target_files()
+        # create remote agent config
+        target_files = [
+            self.agent_config_path,
+            self.target_file,
+            self.hostname_file,
+            path_settings.RIB_TABLE,
+        ]
+        self.upload_target_files(target_files)
 
         # pull docker image
         self.pull_docker_image()

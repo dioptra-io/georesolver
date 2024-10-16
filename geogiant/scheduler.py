@@ -159,7 +159,6 @@ def create_agents(config_path: dict) -> list[Agent]:
     # create experiement directory
     experiment_path = create_experiment_path(config["experiment_uuid"])
     # copy hostname file to experiement path (common to all agents)
-    copy_to(config["hostname_file"], experiment_path)
 
     # load targets from target file
     targets = load_csv(config["target_file"])
@@ -176,23 +175,22 @@ def create_agents(config_path: dict) -> list[Agent]:
         # upload local agent targets
         agent_targets = targets[i * agent_target_load : (i + 1) * agent_target_load]
         dump_csv(agent_targets, agent_dir / "targets.csv")
+        copy_to(config["hostname_file"], agent_dir)
 
-        # some parameters are copied from general config
-        agent_definition["processes"] = config["processes"]
-        agent_definition["batch_size"] = config["batch_size"]
-        agent_definition["log_path"] = str(agent_dir / "logs")
-
-        # specific agent parameters and files
-        agent_definition["max_ongoing_ping"] = agent_max_ping
-        agent_definition["local_dir"] = str(agent_dir)
-        agent_definition["target_file"] = str(agent_dir / "targets.csv")
-        agent_definition["hostname_file"] = str(
-            experiment_path / config["hostname_file"].name
+        agent = Agent(
+            agent_uuid=agent_definition["agent_uuid"],
+            user=agent_definition["user"],
+            host=agent_definition["host"],
+            local_dir=agent_dir,
+            remote_dir=agent_definition["remote_dir"],
+            target_file=agent_dir / "targets.csv",
+            hostname_file=agent_dir / config["hostname_file"].name,
+            processes=config["processes"],
+            batch_size=config["batch_size"],
+            max_ongoing_pings=agent_max_ping,
+            gateway=agent_definition["gateway"],
         )
 
-        # dump agent config, create and store agent
-        dump_json(agent_definition, agent_dir / "config.json")
-        agent = Agent(agent_dir / "config.json")
         agents.append(agent)
 
     return agents
