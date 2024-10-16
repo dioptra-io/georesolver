@@ -3,7 +3,7 @@
 from loguru import logger
 
 from geogiant.main import main
-from geogiant.evaluation.itdk_dataset_evaluation import get_random_itdk_routers
+from geogiant.evaluation.itdk_dataset import get_random_itdk_routers
 from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
