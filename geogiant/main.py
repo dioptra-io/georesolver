@@ -10,7 +10,7 @@ from multiprocessing import Process
 
 from geogiant.agent import ProcessNames
 from geogiant.ripe_init import vps_init
-from geogiant.ecs_mapping_init import resolve_hostnames
+from geogiant.agent.ecs_mapping_init import resolve_hostnames
 from geogiant.common.files_utils import load_csv, load_json
 from geogiant.common.queries import load_vp_subnets
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip

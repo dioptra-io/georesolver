@@ -7,7 +7,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.ecs_geoloc_eval import (
+from geogiant.agent.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
@@ -35,7 +35,7 @@ clickhouse_settings = ClickhouseSettings()
 
 PING_TABLE = "pings_internet_scale"
 ECS_TABLE = "internet_scale_mapping_ecs"
-VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_ecs_mapping"
 
 PROBING_BUDGET = 50
 

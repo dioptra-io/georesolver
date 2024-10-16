@@ -20,7 +20,7 @@ clickhouse_settings = ClickhouseSettings()
 # CLICKHOUSE TABLE
 PING_INTERNET_SCALE = "pings_routers"
 ECS_TABLE = "internet_scale_mapping_ecs"
-VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
+VPS_ECS_MAPPING_TABLE = "vps_ecs_mapping"
 
 ALL_INTERNET_SCALE_SUBNETS_PATH = (
     path_settings.INTERNET_SCALE_DATASET / "all_internet_scale_subnets.json"
