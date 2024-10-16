@@ -4,13 +4,9 @@ from tqdm import tqdm
 from pyasn import pyasn
 from loguru import logger
 from pathlib import Path
+from collections import defaultdict
 
 from geogiant.prober import RIPEAtlasProber
-from geogiant.agent.ecs_geoloc_eval import (
-    get_ecs_vps,
-    filter_vps_last_mile_delay,
-    select_one_vp_per_as_city,
-)
 from geogiant.common.queries import (
     get_min_rtt_per_vp,
     load_vps,
@@ -18,6 +14,7 @@ from geogiant.common.queries import (
     load_cached_targets,
     get_subnets,
 )
+from geogiant.common.geoloc import distance
 from geogiant.common.files_utils import load_csv
 from geogiant.common.utils import get_parsed_vps
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
@@ -33,6 +30,108 @@ clickhouse_settings = ClickhouseSettings()
 constant_settings = ConstantSettings()
 
 BATCH_SIZE = 1_000
+
+
+def filter_vps_last_mile_delay(
+    ecs_vps: list[tuple], last_mile_delay: dict, rtt_thresholdd: int = 4
+) -> list[tuple]:
+    """remove vps that have a high last mile delay"""
+    filtered_vps = []
+    for vp_addr, score in ecs_vps:
+        try:
+            min_rtt = last_mile_delay[vp_addr]
+            if min_rtt < rtt_thresholdd:
+                filtered_vps.append((vp_addr, score))
+        except KeyError:
+            continue
+
+    return filtered_vps
+
+
+def select_one_vp_per_as_city(
+    raw_vp_selection: list,
+    vp_coordinates: dict,
+    last_mile_delay: dict,
+    threshold: int = 40,
+) -> list:
+    """from a list of VP, select one per AS and per city"""
+    filtered_vp_selection = []
+    vps_per_as = defaultdict(list)
+    for vp_addr, score in raw_vp_selection:
+        _, _, vp_asn, _ = vp_coordinates[vp_addr]
+        try:
+            last_mile_delay_vp = last_mile_delay[vp_addr]
+        except KeyError:
+            continue
+
+        vps_per_as[vp_asn].append((vp_addr, last_mile_delay_vp, score))
+
+    # select one VP per AS, take maximum VP score in AS
+    selected_vps_per_as = defaultdict(list)
+    for asn, vps in vps_per_as.items():
+        vps_per_as[asn] = sorted(vps, key=lambda x: x[1])
+        for vp_i, last_mile_delay, score in vps_per_as[asn]:
+            vp_i_lat, vp_i_lon, _, _ = vp_coordinates[vp_i]
+
+            if not selected_vps_per_as[asn]:
+                selected_vps_per_as[asn].append((vp_i, score))
+                filtered_vp_selection.append((vp_i, score))
+            else:
+                already_found = False
+                for vp_j, score in selected_vps_per_as[asn]:
+
+                    vp_j_lat, vp_j_lon, _, _ = vp_coordinates[vp_j]
+
+                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+
+                    if d < threshold:
+                        already_found = True
+                        break
+
+                if not already_found:
+                    selected_vps_per_as[asn].append((vp_i, score))
+                    filtered_vp_selection.append((vp_i, score))
+
+    return filtered_vp_selection
+
+
+def get_ecs_vps(
+    target_subnet: str,
+    target_score: dict,
+    vps_per_subnet: dict,
+    last_mile_delay_vp: dict,
+    probing_budget: int = 50,
+) -> list:
+    """
+    get the target score and extract best VPs function of the probing budget
+    """
+    # retrieve all vps belonging to subnets with highest mapping scores
+    ecs_vps = []
+    # target_score = sorted(target_score, key=lambda x: x[1], reverse=True)
+    for subnet, score in target_score:
+        # for fairness, do not take vps that are in the same subnet as the target
+        if subnet == target_subnet:
+            continue
+
+        vps_in_subnet = vps_per_subnet[subnet]
+
+        vps_delay_subnet = []
+        for vp in vps_in_subnet:
+            try:
+                vps_delay_subnet.append((vp, last_mile_delay_vp[vp]))
+            except KeyError:
+                continue
+
+        # for each subnet, elect the VP with the lowest last mile delay
+        if vps_delay_subnet:
+            elected_subnet_vp_addr, _ = min(vps_delay_subnet, key=lambda x: x[-1])
+            ecs_vps.append((elected_subnet_vp_addr, score))
+
+        # take only a number of subnets up to probing budget
+        if len(ecs_vps) >= probing_budget:
+            break
+
+    return ecs_vps
 
 
 def get_geo_resolver_schedule(

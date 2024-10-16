@@ -7,10 +7,8 @@ from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
 from collections import defaultdict
-from datetime import datetime
 from pych_client import AsyncClickHouseClient
 
-from geogiant.zdns import ZDNS
 from geogiant.agent import run_dns_mapping
 from geogiant.clickhouse import (
     GetDNSMapping,
