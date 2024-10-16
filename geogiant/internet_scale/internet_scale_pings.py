@@ -7,7 +7,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.agent.ecs_geoloc_eval import (
+from geogiant.evaluation.ecs_geoloc_utils import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,

@@ -188,22 +188,6 @@ def get_vp_info(
     }
 
 
-def filter_vps_last_mile_delay(
-    ecs_vps: list[tuple], last_mile_delay: dict, rtt_thresholdd: int = 4
-) -> list[tuple]:
-    """remove vps that have a high last mile delay"""
-    filtered_vps = []
-    for vp_addr, score in ecs_vps:
-        try:
-            min_rtt = last_mile_delay[vp_addr]
-            if min_rtt < rtt_thresholdd:
-                filtered_vps.append((vp_addr, score))
-        except KeyError:
-            continue
-
-    return filtered_vps
-
-
 def get_vps_pings(
     target_associated_vps: list,
     ping_to_target: list,
