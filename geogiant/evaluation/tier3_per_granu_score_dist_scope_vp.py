@@ -1,10 +1,11 @@
 import numpy as np
 
+from pathlib import Path
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
 
-from geogiant.hostname_selection import (
+from geogiant.evaluation.hostname import (
     select_hostname_per_org_per_ns,
     get_all_name_servers,
     parse_name_servers,
@@ -21,13 +22,14 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.agent.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
 from geogiant.evaluation.plot import (
     plot_ref,
     get_proportion_under,
     ecdf,
     plot_multiple_cdf,
+    distance_error_vs_latency,
 )
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
@@ -94,8 +96,8 @@ def compute_score() -> None:
     targets_table = clickhouse_settings.VPS_FILTERED_TABLE
     vps_table = clickhouse_settings.VPS_FILTERED_TABLE
 
-    targets_ecs_table = "vps_mapping_ecs"
-    vps_ecs_table = "vps_mapping_ecs"
+    targets_ecs_table = "vps_ecs_mapping"
+    vps_ecs_table = "vps_ecs_mapping"
 
     selected_hostnames_per_cdn_per_ns = load_json(
         path_settings.DATASET
@@ -116,7 +118,6 @@ def compute_score() -> None:
         / f"tier3_evaluation/scores__best_hostname_geo_score_answers.pickle"
     )
 
-    # some organizations do not have enought hostnames
     if output_path.exists():
         return None
 
@@ -130,17 +131,17 @@ def compute_score() -> None:
         "vps_ecs_table": vps_ecs_table,
         "hostname_selection": "max_bgp_prefix",
         "score_metric": [
-            # "intersection",
+            "intersection",
             "jaccard",
-            # "jaccard_scope_linear_weight",
-            # "jaccard_scope_poly_weight",
-            # "intersection_scope_linear_weight",
-            # "intersection_scope_poly_weight",
+            "jaccard_scope_linear_weight",
+            "jaccard_scope_poly_weight",
+            "intersection_scope_linear_weight",
+            "intersection_scope_poly_weight",
         ],
         "answer_granularities": [
             "answers",
-            # "answer_subnets",
-            # "answer_bgp_prefixes",
+            "answer_subnets",
+            "answer_bgp_prefixes",
         ],
         "output_path": output_path,
     }
@@ -158,7 +159,7 @@ def evaluate() -> None:
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
     targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
@@ -456,6 +457,46 @@ def plot_per_vp_selection():
     plot_multiple_cdf(all_cdfs, output_path, "d_error", False, "lower right", 8)
 
 
+def plot_d_error_vs_latency(
+    legend_outside: bool = False,
+    legend_pos: str = "lower right",
+) -> None:
+    """get all targets geolocation error and check the latency"""
+
+    score_file = (
+        path_settings.RESULTS_PATH
+        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+    )
+    output_path = ("d_error_vs_latency",)
+    eval: EvalResults = load_pickle(score_file)
+    logger.info(f"{score_file=} loaded")
+
+    score_config = eval.target_scores.score_config
+    hostname_per_cdn = score_config["hostname_per_cdn"]
+
+    total_hostnames = set()
+    for _, hostnames in hostname_per_cdn.items():
+        total_hostnames.update(hostnames)
+
+    all_cdfs = []
+    latency_thresholds = [(0, 1), (1, 2), (2, 4)]
+    for latency_threshold in latency_thresholds:
+        cdfs = distance_error_vs_latency(
+            results=eval.results_answer_subnets, latency_threshold=latency_threshold
+        )
+        all_cdfs.extend(cdfs)
+
+    plot_multiple_cdf(
+        all_cdfs,
+        output_path,
+        "d_error",
+        legend_outside,
+        legend_pos=legend_pos,
+        legend_size=10,
+        under_padding=22,
+    )
+
+
 if __name__ == "__main__":
     compute_scores = False
     evaluation = False
@@ -472,3 +513,4 @@ if __name__ == "__main__":
         plot_per_scores_distance()
         plot_per_scores_distance_scope()
         plot_per_vp_selection()
+        plot_d_error_vs_latency()

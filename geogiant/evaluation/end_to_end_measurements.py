@@ -1,3 +1,5 @@
+"""perform ECS resolution, score calculation and pings mesehd pings for routers and RIPE IP map datasets"""
+
 import asyncio
 
 from tqdm import tqdm
@@ -5,17 +7,16 @@ from random import shuffle
 from pyasn import pyasn
 from loguru import logger
 from tqdm import tqdm
-from collections import defaultdict
 from pych_client import ClickHouseClient
 from ipaddress import IPv4Address, AddressValueError
 
 
-from geogiant.clickhouse import CreateDNSMappingTable, GetDstPrefix, InsertFromCSV
+from geogiant.clickhouse import GetDstPrefix
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.ecs_mapping_init import resolve_vps_subnet
-from geogiant.evaluation.plot import plot_router_2ms
-from geogiant.evaluation.scores import get_scores
-from geogiant.ecs_geoloc_eval import (
+from geogiant.agent import retrieve_pings
+from geogiant.agent import run_dns_mapping
+from geogiant.evaluation.scores import main_score
+from geogiant.agent.ecs_geoloc_eval import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
@@ -28,7 +29,6 @@ from geogiant.common.queries import (
 )
 from geogiant.common.files_utils import (
     load_csv,
-    dump_csv,
     load_json,
     dump_json,
     load_json_iter,
@@ -40,37 +40,27 @@ path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 # INPUT TABLE
-PING_RIPE_IP_MAP_TABLE = "pings_ripe_ip_map"
+PING_RIPE_IP_MAP_TABLE = "pings_single_radius"
 
 # OUTPUT TABLES
 PING_END_TO_END_TABLE = "pings_end_to_end"
-ECS_TABLE = "end_to_end_mapping_ecs"
-VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
+ECS_TABLE = "end_to_end_ecs_mapping"
+VPS_ECS_MAPPING_TABLE = "vps_ecs_mapping"
 
 # FILE PATHS
 RIPE_IP_MAP_SUBNETS = path_settings.END_TO_END_DATASET / "ripe_ip_map_subnets.json"
 ROUTERS_SUBNETS = path_settings.END_TO_END_DATASET / "routers_subnets.json"
-END_TO_END_HOSTNAMES_PATH = (
-    path_settings.END_TO_END_DATASET / "end_to_end_hostnames.csv"
-)
+END_TO_END_HOSTNAMES_PATH = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
 filtered_end_to_end_targets_path = (
     path_settings.END_TO_END_DATASET / "filtered_end_to_end_targets.json"
 )
 end_to_end_targets_path = path_settings.END_TO_END_DATASET / "end_to_end_targets.json"
 END_TO_END_SUBNETS_PATH = path_settings.END_TO_END_DATASET / "end_to_end_subnets.json"
 VPS_SUBNET_PATH = path_settings.DATASET / "vps_subnet.json"
-SCORE_FILE = (
-    path_settings.RESULTS_PATH
-    / f"end_to_end_evaluation/scores__best_hostname_geo_score.pickle"
-)
-RESULT_FILE = (
-    path_settings.RESULTS_PATH
-    / f"end_to_end_evaluation/{'results' + str(SCORE_FILE).split('scores')[-1]}"
-)
+RESULT_FILE = path_settings.RESULTS_PATH / "end_to_end_evaluation/results.pickle"
 
 # CONSTANT PARAMETERS
 probing_budget = 50
-
 
 def generate_routers_targets_file() -> None:
     if not (end_to_end_targets_path).exists():
@@ -178,10 +168,6 @@ def load_hostnames() -> list[str]:
 
 async def resolve_subnets() -> None:
 
-    if not END_TO_END_HOSTNAMES_PATH.exists():
-        end_to_end_hostnames = load_hostnames()
-        dump_csv(end_to_end_hostnames, END_TO_END_HOSTNAMES_PATH)
-
     if not END_TO_END_SUBNETS_PATH.exists():
         ripe_ip_map_subnets = load_ripe_ip_map_subnets()
         routers_subnets = load_routers_2ms_subnets()
@@ -211,7 +197,7 @@ async def resolve_subnets() -> None:
 
     dump_json(list(target_subnets), END_TO_END_SUBNETS_PATH)
 
-    cached_subnets = get_subnets("end_to_end_mapping_ecs")
+    cached_subnets = get_subnets("end_to_end_ecs_mapping")
     remaining_subnets = list(set(target_subnets).difference(set(cached_subnets)))
 
     logger.info(f"Missing subnets:: {len(remaining_subnets)}")
@@ -221,60 +207,11 @@ async def resolve_subnets() -> None:
     )
 
     end_to_end_hostnames = load_csv(END_TO_END_HOSTNAMES_PATH)
-    await resolve_vps_subnet(
+    await run_dns_mapping(
         selected_hostnames=end_to_end_hostnames,
         input_file=path_settings.END_TO_END_DATASET / "missing_subnets.json",
         output_table=ECS_TABLE,
-        chunk_size=100,
     )
-
-
-def get_end_to_end_score() -> None:
-    for bgp_threshold in [20, 50, 10]:
-        for nb_hostname_per_ns_org in [3]:
-
-            selected_hostnames_per_cdn_per_ns = load_json(
-                path_settings.DATASET
-                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
-            )
-
-            selected_hostnames = set()
-            selected_hostnames_per_cdn = defaultdict(list)
-            for ns in selected_hostnames_per_cdn_per_ns:
-                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
-                    selected_hostnames.update(hostnames)
-                    selected_hostnames_per_cdn[org].extend(hostnames)
-
-            logger.info(
-                f"{bgp_threshold=}, {nb_hostname_per_ns_org}, {len(selected_hostnames)=}"
-            )
-
-            output_path = (
-                path_settings.RESULTS_PATH
-                / f"end_to_end_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
-            )
-
-            # some organizations do not have enought hostnames
-            if output_path.exists():
-                logger.info(
-                    f"Score for {bgp_threshold} BGP prefix threshold alredy exists"
-                )
-                continue
-
-            score_config = {
-                "targets_subnet_path": END_TO_END_SUBNETS_PATH,
-                "vps_subnet_path": VPS_SUBNET_PATH,
-                "hostname_per_cdn": selected_hostnames_per_cdn,
-                "selected_hostnames": selected_hostnames,
-                "targets_ecs_table": ECS_TABLE,
-                "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
-                "hostname_selection": "max_bgp_prefix",
-                "score_metric": ["jaccard"],
-                "answer_granularities": ["answer_subnets"],
-                "output_path": output_path,
-            }
-
-            get_scores(score_config)
 
 
 def get_end_to_end_schedule(
@@ -442,7 +379,7 @@ def get_measurement_schedule() -> dict[list]:
     return measurement_schedule
 
 
-async def ping_targets(ping_from_cache: bool = True) -> None:
+async def ping_targets(ping_from_cache: bool = True, tag: str = None) -> None:
     """perfrom geolocation based on score similarity function"""
     if not ping_from_cache:
         measurement_schedule = get_measurement_schedule()
@@ -458,7 +395,7 @@ async def ping_targets(ping_from_cache: bool = True) -> None:
 
         for schedule_file in RIPEAtlasAPI().settings.MEASUREMENTS_SCHEDULE.iterdir():
             filtered_schedule = []
-            if "ba1bc8e0-b28a-4184-87ad-1936777230c3" in schedule_file.name:
+            if tag in schedule_file.name:
                 logger.debug(f"Loading ping schedule:: {schedule_file.name}")
 
                 # load schedule
@@ -531,7 +468,6 @@ async def insert_measurements() -> None:
     for i in range(0, len(measurement_to_insert), batch_size):
         ids = measurement_to_insert[i : i + batch_size]
         await retrieve_pings(ids, PING_END_TO_END_TABLE)
-    # await retrieve_pings_from_tag(tag=config_uuid, output_table=PING_END_TO_END_TABLE)
 
 
 def evaluate() -> None:
@@ -554,23 +490,27 @@ async def main() -> None:
     calculate_score = False
     geolocate = False
     insert = True
-    evaluation = False
 
     if ecs_resoltion:
         await resolve_subnets()
 
     if calculate_score:
-        get_end_to_end_score()
+        main_score(
+            target_subnet_path=END_TO_END_SUBNETS_PATH,
+            vps_subnet_path=VPS_SUBNET_PATH,
+            ecs_table=ECS_TABLE,
+            vps_ecs_table=VPS_ECS_MAPPING_TABLE,
+            hostname_file_path=path_settings.HOSTNAME_FILES
+            / "hostnames_georesolver.csv",
+            output_path=path_settings.RESULTS_PATH / "scores.pickle",
+        )
 
     if geolocate:
-        await ping_targets()
+        latest_tag = "ba1bc8e0-b28a-4184-87ad-1936777230c3"
+        await ping_targets(ping_from_cache=True, latest_tag=latest_tag)
 
     if insert:
         await insert_measurements()
-
-    if evaluation:
-        geo_resolver_sp = evaluate()
-        plot_router_2ms(geo_resolver_sp, output_path="end_to_end_evaluation")
 
 
 if __name__ == "__main__":

@@ -641,106 +641,6 @@ def plot_end_to_end_results(
     plot_multiple_cdf(all_cdfs, output_path, metric_evaluated, False, legend_pos)
 
 
-def plot_d_error_vs_latency(
-    score_file: Path,
-    output_path: Path,
-    legend_outside: bool = False,
-    legend_pos: str = "lower right",
-) -> None:
-    """get all targets geolocation error and check the latency"""
-    eval: EvalResults = load_pickle(score_file)
-    logger.info(f"{score_file=} loaded")
-
-    score_config = eval.target_scores.score_config
-    hostname_per_cdn = score_config["hostname_per_cdn"]
-
-    total_hostnames = set()
-    for _, hostnames in hostname_per_cdn.items():
-        total_hostnames.update(hostnames)
-
-    all_cdfs = []
-    latency_thresholds = [(0, 1), (1, 2), (2, 4)]
-    for latency_threshold in latency_thresholds:
-        cdfs = distance_error_vs_latency(
-            results=eval.results_answer_subnets, latency_threshold=latency_threshold
-        )
-        all_cdfs.extend(cdfs)
-
-    plot_multiple_cdf(
-        all_cdfs,
-        output_path,
-        "d_error",
-        legend_outside,
-        legend_pos=legend_pos,
-        legend_size=10,
-        under_padding=22,
-    )
-
-
-def bgp_prefix_threshold(
-    eval_dir: Path,
-    output_path: Path,
-    metric_evaluated: str = "d_error",
-    plot_zp: bool = False,
-    legend_outside: bool = False,
-    legend_pos: str = "lower right",
-) -> None:
-
-    results_files = defaultdict(list)
-    for file in eval_dir.iterdir():
-        if "result" in file.name and "hostnames_per_org_ns" in file.name:
-            bgp_prefix_threshold = file.name.split("score_")[-1].split("_")[0]
-            nb_hostnames_per_org_ns = file.name.split("BGP_")[-1].split("_")[0]
-            results_files[int(bgp_prefix_threshold)].append(
-                (int(nb_hostnames_per_org_ns), file)
-            )
-
-    for bgp_prefix_threshold in results_files:
-        results_files[bgp_prefix_threshold] = sorted(
-            results_files[bgp_prefix_threshold], key=lambda x: x[0]
-        )
-    results_files = OrderedDict(sorted(results_files.items(), key=lambda x: x[0]))
-
-    all_cdfs = []
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-    for bgp_prefix_threshold in results_files:
-        for nb_hostnames_per_org_ns, file in results_files[bgp_prefix_threshold]:
-
-            if bgp_prefix_threshold in [20, 100]:
-                if nb_hostnames_per_org_ns in [3]:
-
-                    # if bgp_prefix_threshold in [5, 10, 20, 50, 100]:
-                    #     if nb_hostnames_per_org_ns in [3, 5, 10]:
-
-                    logger.info(f"{bgp_prefix_threshold=}")
-
-                    eval: EvalResults = load_pickle(file)
-
-                    logger.info(f"{file=} loaded")
-                    score_config = eval.target_scores.score_config
-                    hostname_per_cdn = score_config["hostname_per_cdn"]
-
-                    total_hostnames = set()
-                    for _, hostnames in hostname_per_cdn.items():
-                        total_hostnames.update(hostnames)
-
-                    cdfs = plot_ecs_shortest_ping(
-                        results=eval.results_answer_subnets,
-                        score_metrics=["jaccard"],
-                        metric_evaluated=metric_evaluated,
-                        label_hostnames=len(total_hostnames),
-                        label_bgp_prefix=bgp_prefix_threshold,
-                        label_nb_hostname_per_org_ns=nb_hostnames_per_org_ns,
-                        plot_zp=plot_zp,
-                    )
-                    all_cdfs.extend(cdfs)
-
-    plot_multiple_cdf(
-        all_cdfs, output_path, metric_evaluated, legend_outside, legend_pos=legend_pos
-    )
-
-
 def plot_routers(
     geo_resolver_sp: dict[list[tuple]],
     ref_sp: list[tuple],
@@ -886,29 +786,6 @@ def plot_internet_scale(
 
 
 if __name__ == "__main__":
-    # plot_end_to_end_results(
-    #     eval_dir=path_settings.RESULTS_PATH / "tier3_evaluation",
-    #     granularities=["answer_subnets"],
-    #     score_metrics=["jaccard"],
-    #     probing_budgets_evaluated=[10, 20, 50],
-    #     imc_nb_vps=[10],
-    #     metric_evaluated="d_error",
-    # )
-
-    # score_metrics_and_granularity(
-    #     eval_file=path_settings.RESULTS_PATH
-    #     / "tier3_evaluation/results__best_hostname_geo_score.pickle",
-    #     output_path="granularity_evaluation",
-    #     metric_evaluated="d_error",
-    #     score_metrics=["jaccard"],
-    #     granularities=[
-    #         "answers",
-    #         "answer_subnets",
-    #         "answer_bgp_prefixes",
-    #     ],
-    #     plot_zp=False,
-    # )
-
     plot_d_error_vs_latency(
         score_file=path_settings.RESULTS_PATH
         / "tier3_evaluation/results__best_hostname_geo_score.pickle",

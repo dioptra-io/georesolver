@@ -4,7 +4,7 @@ from loguru import logger
 from pyasn import pyasn
 from pathlib import Path
 
-from geogiant.hostname_selection import (
+from geogiant.evaluation.hostname import (
     select_hostname_per_org_per_ns,
     get_all_name_servers,
 )
@@ -25,7 +25,7 @@ from geogiant.evaluation.plot import (
     get_proportion_under,
     plot_multiple_cdf,
 )
-from geogiant.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.agent.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
@@ -85,8 +85,8 @@ def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
     targets_table = clickhouse_settings.VPS_FILTERED_TABLE
     vps_table = clickhouse_settings.VPS_FILTERED_TABLE
 
-    targets_ecs_table = "vps_mapping_ecs"
-    vps_ecs_table = "vps_mapping_ecs"
+    targets_ecs_table = "vps_ecs_mapping"
+    vps_ecs_table = "vps_ecs_mapping"
 
     selected_hostnames = set()
     for org, hostnames in hostnames_per_org.items():
@@ -103,7 +103,7 @@ def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
         "hostname_per_cdn": hostnames_per_org,
         "targets_ecs_table": targets_ecs_table,
         "vps_ecs_table": vps_ecs_table,
-        "hostname_selection": "max_bgp_prefix",
+        "hostname_/storage/hugo/geogiant/geogiant/tmpselection": "max_bgp_prefix",
         "score_metric": ["jaccard"],
         "answer_granularities": ["answer_subnets"],
         "output_path": output_path,
@@ -224,7 +224,6 @@ def plot(
 
     eval_files = [
         "results__all_orgs.pickle",
-        # "results__no_hg_orgs.pickle",
         "results__hg_orgs.pickle",
         "results__akamai.pickle",
     ]

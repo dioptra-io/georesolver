@@ -1,12 +1,12 @@
+"""EVALUATION:: """
+
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
 
-from geogiant.hostname_selection import (
+from geogiant.evaluation.hostname import (
     select_hostname_per_org_per_ns,
     get_all_name_servers,
-    parse_name_servers,
-    get_hostname_per_name_server,
 )
 from geogiant.common.queries import (
     get_pings_per_target,
@@ -16,11 +16,10 @@ from geogiant.common.queries import (
 )
 from geogiant.common.utils import (
     get_parsed_vps,
-    get_vps_country,
     EvalResults,
     TargetScores,
 )
-from geogiant.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.agent.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
@@ -50,10 +49,6 @@ def select_hostnames(
     tlds = load_csv(path_settings.DATASET / "tlds.csv")
     tlds = [t.lower() for t in tlds]
 
-    name_servers_per_hostname = parse_name_servers(name_servers_per_hostname, tlds)
-
-    hostname_per_name_servers = get_hostname_per_name_server(name_servers_per_hostname)
-
     selected_hostnames = select_hostname_per_org_per_ns(
         name_servers_per_hostname,
         tlds,
@@ -66,65 +61,70 @@ def select_hostnames(
     return selected_hostnames
 
 
-def get_ns_per_hostname() -> dict:
-    name_servers_per_hostname = get_all_name_servers()
-    tlds = load_csv(path_settings.DATASET / "tlds.csv")
-    tlds = [t.lower() for t in tlds]
-
-    name_servers_per_hostname = parse_name_servers(name_servers_per_hostname, tlds)
-    hostname_per_name_servers = get_hostname_per_name_server(name_servers_per_hostname)
-
-    ns_per_hostname = {}
-    for ns, hostnames in hostname_per_name_servers:
-        for hostname in hostnames:
-            ns_per_hostname[hostname] = ns
-
-    return ns_per_hostname
-
-
 def compute_score() -> None:
     """calculate score for each organization/ns pair"""
     targets_table = clickhouse_settings.VPS_FILTERED_TABLE
     vps_table = clickhouse_settings.VPS_FILTERED_TABLE
 
-    targets_ecs_table = "vps_mapping_ecs"
-    vps_ecs_table = "vps_mapping_ecs"
+    targets_ecs_table = "vps_ecs_mapping"
+    vps_ecs_table = "vps_ecs_mapping"
 
-    for bgp_threshold in [5, 10, 20, 50, 100]:
-        for nb_hostname_per_ns_org in [3, 5, 10]:
+    main_org_threshold = 0.8
+    bgp_prefixes_threshold = 2
 
-            selected_hostnames_per_cdn_per_ns = load_json(
-                path_settings.DATASET
-                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
-            )
+    # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
+    hostname_per_ns_per_org = load_json(
+        path_settings.DATASET / "best_hostnames_per_org_per_ns.json"
+    )
+
+    org_per_ns = {
+        "awsdns": "AMAZON",
+        "google": "GOOGLE",
+        "facebook": "FACEBOOK",
+        "akamai": "AKAMAI",
+        "impervadns": "INCAPSULA",
+        "bunny": "CDN77",
+        "dns-parking": "AS-HOSTINGER",
+    }
+
+    nb_hostnames_per_org = [1, 10, 100, 500]
+    for nb_hostnames in nb_hostnames_per_org:
+        logger.info(f"{nb_hostnames=}")
+        for evaluated_ns, evaluated_org in org_per_ns.items():
+
+            # extract hostname per cdn
+            selected_hostnames_per_cdn = defaultdict(list)
+            for ns in hostname_per_ns_per_org:
+                if ns != evaluated_ns:
+                    continue
+
+                for org, hostnames in hostname_per_ns_per_org[ns].items():
+                    if org != evaluated_org:
+                        continue
+
+                    selected_hostnames_per_cdn[org].extend(hostnames[:nb_hostnames])
 
             selected_hostnames = set()
-            selected_hostnames_per_cdn = defaultdict(list)
-            for ns in selected_hostnames_per_cdn_per_ns:
-                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
-                    selected_hostnames.update(hostnames)
-                    selected_hostnames_per_cdn[org].extend(hostnames)
-
-            logger.info(f"{len(selected_hostnames)=}")
+            for org, hostnames in selected_hostnames_per_cdn.items():
+                selected_hostnames.update(hostnames)
 
             output_path = (
                 path_settings.RESULTS_PATH
-                / f"tier4_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
+                / f"tier1_evaluation/scores__{len(selected_hostnames)}_hostname_{evaluated_org}_ns_{evaluated_ns}.pickle"
             )
 
             # some organizations do not have enought hostnames
             if output_path.exists():
-                logger.info(
-                    f"Score for {bgp_threshold} BGP prefix threshold alredy done"
-                )
                 continue
+
+            for org, hostnames in selected_hostnames_per_cdn.items():
+                logger.info(f"{org=}, {len(hostnames)=}")
 
             score_config = {
                 "targets_table": targets_table,
-                "main_org_threshold": 0.0,
-                "bgp_prefixes_threshold": 0.0,
+                "main_org_threshold": main_org_threshold,
+                "bgp_prefixes_threshold": bgp_prefixes_threshold,
                 "vps_table": vps_table,
-                "hostname_per_cdn_per_ns": selected_hostnames_per_cdn_per_ns,
                 "hostname_per_cdn": selected_hostnames_per_cdn,
                 "targets_ecs_table": targets_ecs_table,
                 "vps_ecs_table": vps_ecs_table,
@@ -139,7 +139,7 @@ def compute_score() -> None:
 
 def evaluate() -> None:
     """calculate distance error and latency for each score"""
-    probing_budgets = [50]
+    probing_budgets = [5, 10, 20, 30, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(
@@ -147,17 +147,16 @@ def evaluate() -> None:
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
     targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
-    vps_country = get_vps_country(vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 
-    score_dir = path_settings.RESULTS_PATH / "tier4_evaluation"
+    score_dir = path_settings.RESULTS_PATH / "tier1_evaluation"
 
     for score_file in score_dir.iterdir():
 
@@ -170,14 +169,27 @@ def evaluate() -> None:
 
         output_file = (
             path_settings.RESULTS_PATH
-            / f"tier4_evaluation/{'results' + str(score_file).split('scores')[-1]}"
+            / f"tier1_evaluation/{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        if "20_BGP_3" in score_file.name:
-            # if output_file.exists():
-            #     continue
+        if output_file.exists():
+            continue
 
-            results_answer_subnets = {}
+        results_answers = {}
+        results_answer_subnets = {}
+        results_answer_bgp_prefixes = {}
+        if "answers" in scores.score_config["answer_granularities"]:
+            results_answers = ecs_dns_vp_selection_eval(
+                targets=targets,
+                vps_per_subnet=vps_per_subnet,
+                subnet_scores=scores.score_answer_subnets,
+                ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
+                vps_coordinates=vps_coordinates,
+                probing_budgets=probing_budgets,
+            )
+
+        if "answer_subnets" in scores.score_config["answer_granularities"]:
             results_answer_subnets = ecs_dns_vp_selection_eval(
                 targets=targets,
                 vps_per_subnet=vps_per_subnet,
@@ -186,27 +198,37 @@ def evaluate() -> None:
                 last_mile_delay=last_mile_delay,
                 vps_coordinates=vps_coordinates,
                 probing_budgets=probing_budgets,
-                vps_country=vps_country,
             )
 
-            results = EvalResults(
-                target_scores=scores,
-                results_answers=None,
-                results_answer_subnets=results_answer_subnets,
-                results_answer_bgp_prefixes=None,
+        if "answer_bgp_prefixes" in scores.score_config["answer_granularities"]:
+            results_answer_bgp_prefixes = ecs_dns_vp_selection_eval(
+                targets=targets,
+                vps_per_subnet=vps_per_subnet,
+                subnet_scores=scores.score_answer_bgp_prefixes,
+                ping_vps_to_target=ping_vps_to_target,
+                last_mile_delay=last_mile_delay,
+                vps_coordinates=vps_coordinates,
+                probing_budgets=probing_budgets,
             )
 
-            logger.info(f"output file:: {output_file}")
+        results = EvalResults(
+            target_scores=scores,
+            results_answers=results_answers,
+            results_answer_subnets=results_answer_subnets,
+            results_answer_bgp_prefixes=results_answer_bgp_prefixes,
+        )
 
-            dump_pickle(
-                data=results,
-                output_file=output_file,
-            )
+        logger.info(f"output file:: {output_file}")
+
+        dump_pickle(
+            data=results,
+            output_file=output_file,
+        )
 
 
 if __name__ == "__main__":
     compute_scores = False
-    evaluation = True
+    evaluation = False
 
     if compute_scores:
         compute_score()

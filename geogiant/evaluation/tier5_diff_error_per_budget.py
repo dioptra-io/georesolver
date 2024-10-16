@@ -1,4 +1,3 @@
-import numpy as np
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
@@ -15,12 +14,10 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.common.geoloc import distance
 from geogiant.evaluation.plot import ecdf, plot_cdf, get_proportion_under
-from geogiant.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.agent.ecs_geoloc_eval import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
-from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
+from geogiant.common.files_utils import load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 
@@ -33,8 +30,8 @@ def compute_score() -> None:
     targets_table = clickhouse_settings.VPS_FILTERED_TABLE
     vps_table = clickhouse_settings.VPS_FILTERED_TABLE
 
-    targets_ecs_table = "vps_mapping_ecs"
-    vps_ecs_table = "vps_mapping_ecs"
+    targets_ecs_table = "vps_ecs_mapping"
+    vps_ecs_table = "vps_ecs_mapping"
 
     selected_hostnames_per_cdn_per_ns = load_json(
         path_settings.DATASET
@@ -73,7 +70,7 @@ def compute_score() -> None:
     get_scores(score_config)
 
 
-def get_diff_error_per_budget() -> tuple[dict, dict]:
+def plot_diff_error_per_budget() -> tuple[dict, dict]:
 
     eval: EvalResults = load_pickle(
         path_settings.RESULTS_PATH
@@ -124,13 +121,22 @@ def get_diff_error_per_budget() -> tuple[dict, dict]:
             f"Probing budget: {budget}, Number of target diff: {len(target_diff)} ({round(len(target_diff) / len(eval.results_answer_subnets) * 100, 2)})"
         )
 
-    return d_errors_per_budget, target_diff_per_budget
+    x, y = ecdf(d_errors_per_budget[50])
+    plot_cdf(
+        x=x,
+        y=y,
+        output_path="error_diff_wrongly_geolocated",
+        x_label="Geolocation error difference (km)",
+        y_label="CDF of targets",
+    )
 
 
-def get_first_vp_under_40() -> list:
+def plot_first_vp_under_40() -> list:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    last_mile_delay = get_min_rtt_per_vp(clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE)
+    last_mile_delay = get_min_rtt_per_vp(
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
+    )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
         clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
@@ -206,6 +212,16 @@ def get_first_vp_under_40() -> list:
                 geo_resolver_shortest_ping_index.append(ref_index)
             #     logger.info(f"{np.std(scores)}")
 
+    x, y = ecdf(geo_resolver_shortest_ping_index)
+    plot_cdf(
+        x=x,
+        y=y,
+        output_path="first_vp_index_under_40",
+        x_label="Shortest ping VP index (all VPs)",
+        y_label="CDF of targets",
+        x_lim=50,
+    )
+
     return geo_resolver_shortest_ping_index
 
 
@@ -219,7 +235,7 @@ def evaluate() -> None:
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
     targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
@@ -284,28 +300,5 @@ if __name__ == "__main__":
         evaluate()
 
     if make_figure:
-        # d_errors_per_budget, target_diff_per_budget = get_diff_error_per_budget()
-        # x, y = ecdf(d_errors_per_budget[50])
-        # plot_cdf(
-        #     x=x,
-        #     y=y,
-        #     output_path="error_diff_wrongly_geolocated",
-        #     x_label="Geolocation error difference (km)",
-        #     y_label="CDF of targets",
-        # )
-
-        geo_resolver_shortest_ping_index = get_first_vp_under_40()
-
-        x, y = ecdf(geo_resolver_shortest_ping_index)
-
-        proportion_under_500 = get_proportion_under(x, y, 500)
-        logger.info(f"{proportion_under_500=}")
-
-        plot_cdf(
-            x=x,
-            y=y,
-            output_path="first_vp_index_under_40",
-            x_label="Shortest ping VP index (all VPs)",
-            y_label="CDF of targets",
-            x_lim=50,
-        )
+        plot_diff_error_per_budget()
+        plot_first_vp_under_40()

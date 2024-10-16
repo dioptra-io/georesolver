@@ -51,26 +51,6 @@ def compute_correlation():
     print("Correlation", corr)
     marker_colors = [c[0] for c in colors_blind]
 
-    # fig, ax = plot_scatter_multiple(
-    #     [score_dist],
-    #     [rtt_dist],
-    #     xmin=0,
-    #     xmax=1,
-    #     ymin=0,
-    #     ymax=300,
-    #     xscale="linear",
-    #     yscale="log",
-    #     xlabel="Minimum redirection distance",
-    #     ylabel="RTT (ms)",
-    #     marker_size=[1],
-    #     markers=markers,
-    #     marker_colors=marker_colors,
-    # )
-
-    # homogenize_legend(ax, "lower right")
-    # ofile = path_settings.FIGURE_PATH / "rtt_score_correlation.pdf"
-    # plot_save(ofile, is_tight_layout=True)
-
     fig, ax = plot_scatter_multiple(
         [score_dist],
         [error_dist],

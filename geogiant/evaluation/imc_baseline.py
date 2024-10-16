@@ -18,6 +18,21 @@ path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 
+def imc_baseline_measurement_cost() -> None:
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+
+    imc_baseline_results = load_json(
+        path_settings.RESULTS_PATH / "round_based_algo_file.json"
+    )
+
+    imc_cost = sum([c[1] for c in imc_baseline_results[500]])
+
+    logger.info("Measurement cost:: ")
+    logger.info(f"All VPs: {len(vps) * len(targets)}")
+    logger.info(f"IMC Baseline: {imc_cost}")
+
+
 def greedy_selection_probes_impl(probe, distance_per_probe, selected_probes):
     distances_log = [
         math.log(distance_per_probe[p])

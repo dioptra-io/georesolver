@@ -473,3 +473,34 @@ def get_scores(score_config: dict) -> None:
         dump_pickle(data=score, output_file=Path(score_config["output_path"]))
 
     return score
+
+
+def main_score(
+    target_subnet_path: Path,
+    vps_subnet_path: Path,
+    ecs_table: str,
+    vps_ecs_table: str,
+    hostname_file_path: Path,
+    output_path: Path,
+) -> None:
+    """load necessary materials, upload results in output path"""
+    selected_hostnames = load_json(hostname_file_path)
+
+    # some organizations do not have enought hostnames
+    if output_path.exists():
+        logger.info(f"Score file already exists BGP prefix threshold alredy done")
+        return
+
+    score_config = {
+        "targets_subnet_path": target_subnet_path,
+        "vps_subnet_path": vps_subnet_path,
+        "selected_hostnames": selected_hostnames,
+        "targets_ecs_table": ecs_table,
+        "vps_ecs_table": vps_ecs_table,
+        "hostname_selection": "max_bgp_prefix",
+        "score_metric": ["jaccard"],
+        "answer_granularities": ["answer_subnets"],
+        "output_path": output_path,
+    }
+
+    get_scores(score_config)

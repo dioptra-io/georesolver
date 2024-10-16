@@ -8,9 +8,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from geogiant.prober.ripe_api import RIPEAtlasAPI
-from geogiant.evaluation.scores import get_scores
+from geogiant.evaluation.scores import main_score
 from geogiant.evaluation.plot import plot_ripe_ip_map
-from geogiant.ecs_geoloc_eval import get_shortest_ping_geo_resolver
+from geogiant.agent.ecs_geoloc_eval import get_shortest_ping_geo_resolver
 from geogiant.common.geoloc import rtt_to_km
 from geogiant.common.queries import get_pings_per_target, load_vps, get_measurement_ids
 from geogiant.common.utils import get_shortest_ping_all_vp, get_random_shortest_ping
@@ -27,13 +27,10 @@ path_settings = PathSettings()
 constant_settings = ConstantSettings()
 clickhouse_settings = ClickhouseSettings()
 
-# INPUT TABLE
-PING_RIPE_ATLAS_TABLE = "pings_ripe_altas"
-PING_RIPE_IP_MAP_TABLE = "pings_ripe_ip_map"
-
-# OUTPUT TABLES
-ECS_TABLE = "end_to_end_mapping_ecs"
-VPS_ECS_MAPPING_TABLE = "vps_mapping_ecs"
+# TABLES
+PING_RIPE_IP_MAP_TABLE = "pings_single_radius"
+ECS_TABLE = "end_to_end_ecs_mapping"
+VPS_ECS_MAPPING_TABLE = "vps_ecs_mapping"
 PING_END_TO_END_TABLE = "pings_end_to_end"
 
 # FILE PATHS
@@ -82,54 +79,6 @@ async def insert_results_from_tag() -> None:
     await RIPEAtlasAPI().get_results_from_tag(
         params=params, ping_table=PING_RIPE_IP_MAP_TABLE
     )
-
-
-def get_ripe_ip_map_score() -> None:
-    for bgp_threshold in [20, 50]:
-        for nb_hostname_per_ns_org in [3]:
-
-            selected_hostnames_per_cdn_per_ns = load_json(
-                path_settings.DATASET
-                / f"hostname_geo_score_selection_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.json"
-            )
-
-            selected_hostnames = set()
-            selected_hostnames_per_cdn = defaultdict(list)
-            for ns in selected_hostnames_per_cdn_per_ns:
-                for org, hostnames in selected_hostnames_per_cdn_per_ns[ns].items():
-                    selected_hostnames.update(hostnames)
-                    selected_hostnames_per_cdn[org].extend(hostnames)
-
-            logger.info(
-                f"{bgp_threshold=}, {nb_hostname_per_ns_org}, {len(selected_hostnames)=}"
-            )
-
-            output_path = (
-                path_settings.RESULTS_PATH
-                / f"ripe_ip_map_evaluation/scores__best_hostname_geo_score_{bgp_threshold}_BGP_{nb_hostname_per_ns_org}_hostnames_per_org_ns.pickle"
-            )
-
-            # some organizations do not have enought hostnames
-            if output_path.exists():
-                logger.info(
-                    f"Score for {bgp_threshold} BGP prefix threshold alredy done"
-                )
-                continue
-
-            score_config = {
-                "targets_subnet_path": RIPE_IP_MAP_SUBNETS_PATH,
-                "vps_subnet_path": VPS_SUBNET_PATH,
-                "hostname_per_cdn": selected_hostnames_per_cdn,
-                "selected_hostnames": selected_hostnames,
-                "targets_ecs_table": ECS_TABLE,
-                "vps_ecs_table": VPS_ECS_MAPPING_TABLE,
-                "hostname_selection": "max_bgp_prefix",
-                "score_metric": ["jaccard"],
-                "answer_granularities": ["answer_subnets"],
-                "output_path": output_path,
-            }
-
-            get_scores(score_config)
 
 
 def get_vps_pings(
@@ -210,36 +159,30 @@ def filter_on_latency(
     return filtered_geo_resolver_sp, filtered_ripe_ip_map_sp, ref_sp
 
 
-def evaluate() -> None:
+def evaluate(
+    score_file: Path,
+) -> None:
     """calculate distance error and latency for each score"""
 
     targets = load_json(RIPE_IP_MAP_TARGETS_PATH)
     vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
 
-    score_files = [
-        path_settings.RESULTS_PATH
-        / "ripe_ip_map_evaluation/scores__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle"
-    ]
-
     logger.info("RIPE IP MAP:: GeoResolver evaluation")
     geo_resolver_sp = {}
-    for score_file in score_files:
-        bgp_prefix_threshold = int(score_file.name.split("score_")[-1].split("_")[0])
-        nb_hostnames_per_org_ns = int(score_file.name.split("BGP_")[-1].split("_")[0])
 
-        shortest_ping_per_target = get_shortest_ping_geo_resolver(
-            targets=targets,
-            vps=vps,
-            score_file=score_file,
-            ping_table=PING_END_TO_END_TABLE,
-            removed_vps=removed_vps,
-            probing_budgets=[50, 100, 500],
-        )
+    shortest_ping_per_target = get_shortest_ping_geo_resolver(
+        targets=targets,
+        vps=vps,
+        score_file=score_file,
+        ping_table=PING_END_TO_END_TABLE,
+        removed_vps=removed_vps,
+        probing_budgets=[50, 100, 500],
+    )
 
-        geo_resolver_sp = shortest_ping_per_target
+    geo_resolver_sp = shortest_ping_per_target
 
-        targets = [target for target, _, _ in geo_resolver_sp[50]]
+    targets = [target for target, _, _ in geo_resolver_sp[50]]
 
     logger.info("RIPE IP MAP:: Single-radius evaluation")
     ripe_ip_map_sp = get_shortest_ping_all_vp(
@@ -251,8 +194,6 @@ def evaluate() -> None:
 
     logger.info("RIPE IP MAP:: Reference evaluation")
     ref_sp = get_shortest_ping_all_vp(targets, PING_END_TO_END_TABLE, removed_vps)
-
-    # filter_on_latency(geo_resolver_sp, ref_sp, ripe_ip_map_sp, 2)
 
     dump_pickle(
         (geo_resolver_sp, ripe_ip_map_sp, ref_sp, random_sp),
@@ -297,21 +238,94 @@ def get_measurement_overhead() -> None:
     )
 
 
+def check_country_proportion() -> None:
+    geo_resolver_sp, ripe_ip_map_sp, ref_sp, random_sp = load_pickle(
+        RIPE_IP_MAP_EVALUATION_PATH
+    )
+
+    targets = load_csv(
+        path_settings.END_TO_END_DATASET / "current_ripe_ip_map_targets.csv"
+    )
+    targets_country = {}
+    with RIPE_IP_MAP_GEO_INFO.open() as f:
+        for i, row in enumerate(f.readlines()):
+            row = json.loads(row)
+            target_addr = targets[i]
+            country = row["country"]
+            targets_country[target_addr] = country
+
+    countries = []
+    geo_resolver_cn_target_rtts = []
+    for target, _, min_rtt in geo_resolver_sp[50]:
+        try:
+            country = targets_country[target]
+        except KeyError:
+            continue
+
+        if country == "CN":
+            geo_resolver_cn_target_rtts.append(min_rtt)
+
+        countries.append(country)
+
+    ref_cn_target_rtts = []
+    for target, min_rtt in ref_sp:
+        try:
+            country = targets_country[target]
+        except KeyError:
+            continue
+
+        if country == "CN":
+            ref_cn_target_rtts.append(min_rtt)
+
+    percentage_per_country = calculate_percentage_of_occurrence(countries)
+    percentage_per_country = sorted(percentage_per_country.items(), key=lambda x: x[1])
+
+    logger.info("Percentage of occurrence for each value:")
+    for value, percentage in percentage_per_country:
+        logger.info(f"{value}: {percentage}%")
+
+    cn_proportiob_under = (
+        len([rtt for rtt in geo_resolver_cn_target_rtts if min_rtt <= 2])
+        / len(geo_resolver_sp)
+        * 100
+    )
+    logger.info(f"Geo resolver CN targets under 2ms:: {round(cn_proportiob_under, 2)}%")
+
+    cn_proportiob_under = (
+        len([rtt for rtt in ref_cn_target_rtts if min_rtt <= 2]) / len(ref_sp) * 100
+    )
+    logger.info(f"Ref CN targets under 2ms:: {round(cn_proportiob_under, 2)}%")
+
+
 async def main() -> None:
     retrieve_public_measurements = False
     calculate_score = False
     evaluation = False
     make_figures = False
+    check_country = False
     overhead = True
 
     if retrieve_public_measurements:
         await insert_results_from_tag()
 
     if calculate_score:
-        get_ripe_ip_map_score()
+        main_score(
+            target_subnet_path=RIPE_IP_MAP_SUBNETS_PATH,
+            vps_subnet_path=RIPE_IP_MAP_SUBNETS_PATH,
+            ecs_table=ECS_TABLE,
+            vps_ecs_table=VPS_ECS_MAPPING_TABLE,
+            hostname_file_path=path_settings.HOSTNAME_FILES
+            / "hostnames_georesolver.csv",
+            output_path=(
+                path_settings.RESULTS_PATH / f"ripe_ip_map_evaluation/score.pickle"
+            ),
+        )
 
     if evaluation:
-        evaluate()
+        evaluate(
+            score_file=path_settings.RESULTS_PATH
+            / "ripe_ip_map_evaluation/scores.pickle",
+        )
 
     if make_figures:
         geo_resolver_sp, ripe_ip_map_sp, ref_sp, random_sp = load_pickle(
@@ -325,63 +339,8 @@ async def main() -> None:
             output_path="ripe_ip_map_evaluation",
         )
 
-        # check country ip addresses
-        targets = load_csv(
-            path_settings.END_TO_END_DATASET / "current_ripe_ip_map_targets.csv"
-        )
-        targets_country = {}
-        with RIPE_IP_MAP_GEO_INFO.open() as f:
-            for i, row in enumerate(f.readlines()):
-                row = json.loads(row)
-                target_addr = targets[i]
-                country = row["country"]
-                targets_country[target_addr] = country
-
-        countries = []
-        geo_resolver_cn_target_rtts = []
-        for target, _, min_rtt in geo_resolver_sp[50]:
-            try:
-                country = targets_country[target]
-            except KeyError:
-                continue
-
-            if country == "CN":
-                geo_resolver_cn_target_rtts.append(min_rtt)
-
-            countries.append(country)
-
-        ref_cn_target_rtts = []
-        for target, min_rtt in ref_sp:
-            try:
-                country = targets_country[target]
-            except KeyError:
-                continue
-
-            if country == "CN":
-                ref_cn_target_rtts.append(min_rtt)
-
-        percentage_per_country = calculate_percentage_of_occurrence(countries)
-        percentage_per_country = sorted(
-            percentage_per_country.items(), key=lambda x: x[1]
-        )
-
-        logger.info("Percentage of occurrence for each value:")
-        for value, percentage in percentage_per_country:
-            logger.info(f"{value}: {percentage}%")
-
-        cn_proportiob_under = (
-            len([rtt for rtt in geo_resolver_cn_target_rtts if min_rtt <= 2])
-            / len(geo_resolver_sp)
-            * 100
-        )
-        logger.info(
-            f"Geo resolver CN targets under 2ms:: {round(cn_proportiob_under, 2)}%"
-        )
-
-        cn_proportiob_under = (
-            len([rtt for rtt in ref_cn_target_rtts if min_rtt <= 2]) / len(ref_sp) * 100
-        )
-        logger.info(f"Ref CN targets under 2ms:: {round(cn_proportiob_under, 2)}%")
+    if check_country:
+        check_country_proportion()
 
     if overhead:
         overhead = get_measurement_overhead()
