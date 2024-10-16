@@ -1,13 +1,60 @@
 from pathlib import Path
+from datetime import datetime
 from loguru import logger
 
-from geogiant.ecs_mapping_init import resolve_hostnames
+from geogiant.zdns import ZDNS
 from geogiant.common.queries import get_subnets
-from geogiant.common.files_utils import load_csv
+from geogiant.common.files_utils import load_csv, create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
+
+
+async def run_dns_mapping(
+    subnets: list,
+    hostname_file: Path,
+    chunk_size: int = 500,
+    output_file: Path = None,
+    output_table: str = None,
+    request_timout: float = 0.1,
+    request_type: str = "A",
+    output_logs: Path = None,
+) -> None:
+    """perform DNS mapping with zdns on VPs subnet"""
+
+    subnets = [subnet + "/24" for subnet in subnets]
+
+    with hostname_file.open("r") as f:
+        all_hostnames = f.readlines()
+
+        logger.info(
+            f"Resolving:: {len(all_hostnames)} hostnames on {len(subnets)} subnets"
+        )
+
+        # split file
+        for index in range(0, len(all_hostnames), chunk_size):
+            hostnames = all_hostnames[index : index + chunk_size]
+
+            tmp_hostname_file = create_tmp_csv_file(hostnames)
+
+            logger.info(
+                f"Starting to resolve hostnames {index} to {index + chunk_size} (total={len(all_hostnames)})"
+            )
+
+            zdns = ZDNS(
+                subnets=subnets,
+                hostname_file=tmp_hostname_file,
+                output_file=output_file,
+                output_table=output_table,
+                name_servers="8.8.8.8",
+                timeout=request_timout,
+                request_type=request_type,
+                output_logs=output_logs,
+            )
+            await zdns.main()
+
+            tmp_hostname_file.unlink()
 
 
 async def filter_ecs_subnets(subnets: list[str], ecs_mapping_table: str) -> list[str]:
@@ -52,7 +99,7 @@ async def ecs_task(
                 logger.info("Stopped ECS mapping process")
                 break
 
-            await resolve_hostnames(
+            await run_dns_mapping(
                 subnets=input_subnets,
                 hostname_file=hostname_file,
                 output_table=out_table,
