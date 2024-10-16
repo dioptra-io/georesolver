@@ -22,7 +22,7 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.agent.ecs_geoloc_eval import ecs_dns_vp_selection_eval
+from geogiant.evaluation.ecs_geoloc_utils import ecs_dns_vp_selection_eval
 from geogiant.evaluation.scores import get_scores
 from geogiant.evaluation.plot import (
     plot_ref,
@@ -30,6 +30,7 @@ from geogiant.evaluation.plot import (
     ecdf,
     plot_multiple_cdf,
     distance_error_vs_latency,
+    plot_end_to_end_results,
 )
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
@@ -514,3 +515,11 @@ if __name__ == "__main__":
         plot_per_scores_distance_scope()
         plot_per_vp_selection()
         plot_d_error_vs_latency()
+
+        plot_end_to_end_results(
+            score_file=path_settings.RESULTS_PATH
+            / "tier4_evaluation/results__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle",
+            output_path="end_to_end_results",
+            metric_evaluated="d_error",
+            legend_pos="lower right",
+        )

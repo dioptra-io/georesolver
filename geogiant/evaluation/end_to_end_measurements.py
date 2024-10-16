@@ -16,7 +16,7 @@ from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
 from geogiant.agent import retrieve_pings
 from geogiant.agent import run_dns_mapping
 from geogiant.evaluation.scores import main_score
-from geogiant.agent.ecs_geoloc_eval import (
+from geogiant.evaluation.ecs_geoloc_utils import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
@@ -61,6 +61,7 @@ RESULT_FILE = path_settings.RESULTS_PATH / "end_to_end_evaluation/results.pickle
 
 # CONSTANT PARAMETERS
 probing_budget = 50
+
 
 def generate_routers_targets_file() -> None:
     if not (end_to_end_targets_path).exists():
@@ -212,40 +213,6 @@ async def resolve_subnets() -> None:
         input_file=path_settings.END_TO_END_DATASET / "missing_subnets.json",
         output_table=ECS_TABLE,
     )
-
-
-def get_end_to_end_schedule(
-    targets: list[str],
-    subnet_scores: dict,
-    vps_per_subnet: dict,
-    last_mile_delay: dict,
-    vps_coordinates: dict,
-) -> dict:
-    """get all remaining measurments for ripe ip map evaluation"""
-    target_schedule = {}
-    for target in tqdm(targets):
-        target_subnet = get_prefix_from_ip(target)
-        target_scores = subnet_scores[target_subnet]
-
-        if not target_scores:
-            logger.error(f"{target_subnet} does not have score")
-        for _, target_score in target_scores.items():
-
-            # get vps, function of their subnet ecs score
-            ecs_vps = get_ecs_vps(
-                target_subnet, target_score, vps_per_subnet, last_mile_delay, 5_00
-            )
-
-            # remove vps that have a high last mile delay
-            ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
-
-            ecs_vps = select_one_vp_per_as_city(
-                ecs_vps, vps_coordinates, last_mile_delay
-            )[:probing_budget]
-
-            target_schedule[target] = [vp_addr for vp_addr, _ in ecs_vps]
-
-    return target_schedule
 
 
 def get_schedule_for_targets(
