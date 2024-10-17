@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from geogiant.main import main
+from geogiant.scheduler import create_agents
 from geogiant.evaluation.itdk_dataset import get_random_itdk_routers
 from geogiant.common.settings import PathSettings
 
@@ -13,27 +13,28 @@ DEMO_ECS_MAPPING_TABLE = "demo_ecs_mapping"
 DEMO_SCORE_TABLE = "demo_score"
 DEMO_PING_TABLE = "demo_ping"
 DEMO_GEOLOC_TABLE = "demo_geoloc"
-NB_ADDRS = 10_000
+NB_ADDRS = 100
 
-if __name__ == "__main__":
+
+def main_demo() -> None:
+    """run georesolver on a random subset of ITDK IP addresses"""
     # dump N random address in demo file
     logger.info(f"Generating {NB_ADDRS} random target file for demo")
-    random_router_interfaces = get_random_itdk_routers(
+    get_random_itdk_routers(
         NB_ADDRS,
         DEMO_TARGET_FILE,
         mode="w",
     )
     logger.info(f"File available at:: {DEMO_TARGET_FILE}")
 
-    measurement_uuid = "d63c1e12-7bc4-4914-a6c0-e86e1f311338"
-    main(
-        target_file=DEMO_TARGET_FILE,
-        hostname_file=path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv",
-        ecs_mapping_table=DEMO_ECS_MAPPING_TABLE,
-        score_table=DEMO_SCORE_TABLE,
-        ping_table=DEMO_PING_TABLE,
-        geoloc_table=DEMO_GEOLOC_TABLE,
-        log_path=path_settings.LOG_PATH / "demo",
-        measurement_uuid=measurement_uuid,
-        batch_size=1_000,
+    # debugging
+    config_path = (
+        path_settings.DEFAULT / "../experiment_config/config_local_example.json"
     )
+    agents = create_agents(config_path)
+    for agent in agents:
+        agent.run()
+
+
+if __name__ == "__main__":
+    main_demo()
