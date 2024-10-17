@@ -199,11 +199,11 @@ def filter_targets(
 
 
 async def insert_results(
+    targets: list[str],
     probing_type: str,
     probing_tag: str,
     measurement_table: str,
     geoloc_table: str,
-    nb_targets: int,
     wait_time: int = 60,
     output_logs: Path = None,
     batch_size: int = 1_000,
