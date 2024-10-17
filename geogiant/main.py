@@ -10,7 +10,7 @@ from multiprocessing import Process
 
 from geogiant.agent import ProcessNames
 from geogiant.agent.ripe_init import vps_init
-from geogiant.agent.ecs_mapping_init import resolve_hostnames
+from geogiant.agent.ecs_process import run_dns_mapping
 from geogiant.common.files_utils import load_csv, load_json
 from geogiant.common.queries import load_vp_subnets
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
@@ -77,7 +77,7 @@ def main(agent_config_path: Path) -> None:
 
         vps_subnets = load_vp_subnets(clickhouse_settings.VPS_RAW_TABLE)
         asyncio.run(
-            resolve_hostnames(
+            run_dns_mapping(
                 subnets=vps_subnets,
                 hostname_file=hostname_file,
                 output_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,

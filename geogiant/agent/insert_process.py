@@ -168,6 +168,36 @@ async def retrieve_traceroutes(
     await insert_traceroutes(csv_data, output_table)
 
 
+def filter_targets(
+    targets: list[str],
+    geolocated_targets: list[str],
+    score_table: str,
+    ping_table: str,
+    verbose: bool = False,
+) -> list[str]:
+    """return targets for which pings were not made"""
+    filtered_targets = []
+
+    # get cached target from table
+    cached_targets = load_cached_targets(ping_table)
+
+    # add targets that were geolocated but not inserted
+    cached_targets.extend(geolocated_targets)
+    # get remaining targets to geolocate
+    no_measured_target = set(targets).difference(set(cached_targets))
+
+    # remove targets for which we do not have scores ready
+    for target in no_measured_target:
+        target_subnet = get_prefix_from_ip(target)
+        if target_subnet in cached_score_subnets:
+            filtered_targets.append(target)
+
+    # remove targets for which a measurement was started but results not inserted yet
+    filtered_targets = set(filtered_targets).difference(set(geolocated_targets))
+
+    return filtered_targets, no_measured_target
+
+
 async def insert_results(
     probing_type: str,
     probing_tag: str,
@@ -179,10 +209,16 @@ async def insert_results(
     batch_size: int = 1_000,
 ) -> None:
     """insert ongoing measurements"""
-    inserted_measurements = get_measurement_ids(measurement_table)
+    cached_inserted_measurements = get_measurement_ids(measurement_table)
     current_time = datetime.timestamp(datetime.now() - timedelta(days=2))
+
     insert_done = False
     while not insert_done:
+
+        # load previously cached targets
+        cached_targets = load_cached_targets(targets)
+        # get targets that still have to be inserted
+        remaining_targets = set(targets).difference(set(cached_targets))
 
         # Get all stopped measurements
         stopped_measurement_ids = await RIPEAtlasAPI().get_stopped_measurement_ids(
@@ -192,7 +228,7 @@ async def insert_results(
 
         # Find stopped measurements that are not inserted yet
         measurement_to_insert = set(stopped_measurement_ids).difference(
-            set(inserted_measurements)
+            set(cached_inserted_measurements)
         )
 
         if not measurement_to_insert:
@@ -234,10 +270,10 @@ async def insert_results(
 
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
 
-        inserted_measurements.update(measurement_to_insert)
+        cached_inserted_measurements.update(measurement_to_insert)
 
         # stopping point for the insertion
-        if len(inserted_measurements) >= nb_targets:
+        if len(remaining_targets) == 0:
             insert_done = True
 
         await asyncio.sleep(wait_time)
@@ -266,23 +302,23 @@ async def insert_task(
 
     # remove targets for which a measurement was started but results not inserted yet
     targets = load_csv(target_file)
-    remaining_nb_targets = len(targets) - len(cached_targets)
+    remaining_targets = set(targets).difference(set(cached_targets))
 
-    if len(targets) == 0:
+    if len(remaining_targets) == 0:
         logger.info("All measurements done, insert results process stopped")
         return
     else:
-        logger.info(f"Remainning targets to geolocate:: {len(targets)}")
+        logger.info(f"Remainning targets to geolocate:: {len(remaining_targets)}")
 
     if dry_run:
         logger.info("Stopped insert results task")
 
     await insert_results(
+        targets=remaining_targets,
         probing_type="ping",
         probing_tag=experiment_uuid,
         measurement_table=in_table,
         geoloc_table=out_table,
-        nb_targets=remaining_nb_targets,
         output_logs=output_logs,
         batch_size=batch_size,
     )

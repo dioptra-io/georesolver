@@ -188,17 +188,11 @@ def create_agents(config_path: dict) -> list[Agent]:
             processes=config["processes"],
             batch_size=config["batch_size"],
             max_ongoing_pings=agent_max_ping,
-            gateway=agent_definition["gateway"],
+            gateway=(
+                agent_definition["gateway"] if "gateway" in agent_definition else None
+            ),
         )
 
         agents.append(agent)
 
     return agents
-
-
-# debugging
-if __name__ == "__main__":
-    config_path = path_settings.DEFAULT / "../experiment_config/config_example.json"
-    agents = create_agents(config_path)
-    for agent in agents:
-        agent.run()

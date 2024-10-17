@@ -1,11 +1,12 @@
 """define the agent class and functions"""
 
+import subprocess
+
 from pathlib import Path
 from loguru import logger
 from enum import Enum
-from pprint import pprint
 
-from geogiant.common.files_utils import load_json, dump_json
+from geogiant.common.files_utils import dump_json
 from geogiant.common.ssh_utils import ssh_run_cmd, ssh_run_cmds, ssh_upload_file
 from geogiant.common.settings import PathSettings, ClickhouseSettings, RIPEAtlasSettings
 
@@ -21,12 +22,12 @@ class ProcessNames(Enum):
     INSERT_PROC = "insert_process"
 
 
-def docker_run_agent_cmd(remote_dir: str, agent_config_path: Path) -> str:
+def docker_run_agent_cmd(mount_path: str, agent_config_path: Path) -> str:
     """define the docker run command for starting a georesolver docker agent"""
     return f"""
         docker run -d \
-        -v "{remote_dir}:{remote_dir}" \
-        -v "{remote_dir}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
+        -v "{mount_path}:{mount_path}" \
+        -v "{mount_path}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
         -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
         -e CLICKHOUSE_HOST={clickhouse_settings.CLICKHOUSE_HOST} \
         -e CLICKHOUSE_PORT={clickhouse_settings.CLICKHOUSE_PORT} \
@@ -36,7 +37,7 @@ def docker_run_agent_cmd(remote_dir: str, agent_config_path: Path) -> str:
         -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
         --network host \
         --entrypoint poetry \
-        ghcr.io/dioptra-io/geogiant:main run python geogiant/main.py {remote_dir}/{agent_config_path.name}
+        ghcr.io/dioptra-io/geogiant:main run python geogiant/main.py {mount_path}/{agent_config_path.name}
     """
 
 
@@ -81,34 +82,45 @@ class Agent:
         processes: list[dict],
         batch_size: int = 1_000,
         max_ongoing_pings: int = 1_00,
-        gateway: dict = {"user": None, "host": None},
+        gateway: dict = None,
     ) -> None:
 
         self.agent_uuid = agent_uuid
         self.user = user
         self.host = host
-        self.local_dir = Path(local_dir)
-        self.remote_dir = Path(remote_dir) / agent_uuid
-        self.target_file = Path(target_file)
-        self.hostname_file = Path(hostname_file)
+        self.local_dir = Path(local_dir).resolve()
+        self.remote_dir = Path(remote_dir).resolve() / agent_uuid
+        self.target_file = Path(target_file).resolve()
+        self.hostname_file = Path(hostname_file).resolve()
         self.processes = processes
         self.batch_size = batch_size
         self.max_ongoing_pings = max_ongoing_pings
-        self.gateway = gateway
+        # create null gateway if None was given
+        self.gateway = gateway if gateway else {"user": None, "host": None}
 
         # create remote agent config
         self.agent_config_path = self.create_agent_config()
 
     def create_agent_config(self) -> Path:
         """create remote agent config, necessary for starting docker image"""
-        agent_config = {
-            "agent_uuid": str(self.agent_uuid),
-            "target_file": str(self.remote_dir / self.target_file.name),
-            "hostname_file": str(self.remote_dir / self.hostname_file.name),
-            "batch_size": self.batch_size,
-            "processes": self.processes,
-            "log_path": str(self.remote_dir / "logs"),
-        }
+        if self.host not in ["localhost", "127.0.0.1"]:
+            agent_config = {
+                "agent_uuid": str(self.agent_uuid),
+                "target_file": str(self.remote_dir / self.target_file.name),
+                "hostname_file": str(self.remote_dir / self.hostname_file.name),
+                "batch_size": self.batch_size,
+                "processes": self.processes,
+                "log_path": str(self.remote_dir / "logs"),
+            }
+        else:
+            agent_config = {
+                "agent_uuid": str(self.agent_uuid),
+                "target_file": str(self.local_dir / self.target_file.name),
+                "hostname_file": str(self.local_dir / self.hostname_file.name),
+                "batch_size": self.batch_size,
+                "processes": self.processes,
+                "log_path": str(self.local_dir / "logs"),
+            }
 
         # upload config file in local dir
         output_path = self.local_dir / "config.json"
@@ -160,52 +172,82 @@ class Agent:
 
     def upload_target_files(self, files: list[Path]) -> None:
         """upload target and hostname files to"""
-        for file in files:
-            _ = ssh_upload_file(
-                in_file=file,
-                out_file=str(self.remote_dir / file.name),
+        if self.host not in ["localhost", "127.0.0.1"]:
+
+            for file in files:
+                _ = ssh_upload_file(
+                    in_file=file,
+                    out_file=str(self.remote_dir / file.name),
+                    user=self.user,
+                    host=self.host,
+                    gateway_user=self.gateway["user"],
+                    gateway_host=self.gateway["host"],
+                )
+            logger.info(f"Agent={self.user}@{self.host}:: {file.name} upload done")
+
+        else:
+            # just copy the RIB table
+            cmd = f"cp {path_settings.RIB_TABLE} {self.local_dir}"
+            ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+            if ps.stderr:
+                raise RuntimeError(f"Could not start local agent:: {ps.stderr}")
+
+    def pull_docker_image(self) -> None:
+        """pull georesolver docker image"""
+        # docker pull cmd common to local and remote
+        cmds = docker_pull_cmd()
+        if self.host not in ["localhost", "127.0.0.1"]:
+
+            _ = ssh_run_cmds(
+                cmds,
                 user=self.user,
                 host=self.host,
                 gateway_user=self.gateway["user"],
                 gateway_host=self.gateway["host"],
             )
-
-            logger.info(f"Agent={self.user}@{self.host}:: {file.name} upload done")
-
-    def pull_docker_image(self) -> None:
-        """pull georesolver docker image"""
-        cmds = docker_pull_cmd()
-        _ = ssh_run_cmds(
-            cmds,
-            user=self.user,
-            host=self.host,
-            gateway_user=self.gateway["user"],
-            gateway_host=self.gateway["host"],
-        )
+        else:
+            for cmd in cmds:
+                # TODO: general, better docker image management (terraform? kubernetes?)
+                _ = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
     def agent_start(self) -> None:
         """start georesolver on the remote server"""
-        cmd = docker_run_agent_cmd(self.remote_dir, self.agent_config_path)
-        pprint(cmd)
+        if self.host not in ["localhost", "127.0.0.1"]:
+            cmd = docker_run_agent_cmd(self.remote_dir, self.agent_config_path)
 
-        _ = ssh_run_cmd(
-            cmd,
-            self.user,
-            self.host,
-            self.gateway["user"],
-            self.gateway["host"],
-        )
+            logger.info(f"Starting remote agent :: {self.user}@{self.host}")
+            logger.debug(f"Docker cmd            :: {cmd}")
+
+            _ = ssh_run_cmd(
+                cmd,
+                self.user,
+                self.host,
+                self.gateway["user"],
+                self.gateway["host"],
+            )
+
+        else:
+            cmd = docker_run_agent_cmd(self.local_dir, self.agent_config_path)
+
+            logger.info(f"Starting local agent")
+            logger.debug(f"Docker cmd:: {cmd}")
+
+            ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+            if ps.stderr:
+                raise RuntimeError(f"Could not start local agent:: {ps.stderr}")
 
     def run(self) -> None:
         """start docker run on remote server (TODO: locally as well)"""
-        # check if remote connection is ok
-        self.check_connection()
-
-        # check agent config validity
         self.check_local_dir()
 
-        # create working dir remotely
-        self.create_remote_dir()
+        if self.host not in ["localhost", "127.0.0.1"]:
+            # check if remote connection is ok
+            self.check_connection()
+
+            # create working dir remotely
+            self.create_remote_dir()
 
         # upload target files
         # create remote agent config
