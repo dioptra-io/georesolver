@@ -160,7 +160,8 @@ def create_agents(config_path: dict) -> list[Agent]:
     config["start_time"] = str(datetime.now())
 
     # create experiement directory
-    experiment_path = create_experiment_path(config["experiment_uuid"])
+    experiment_path = config["experiment_name"] + config["experiment_uuid"]
+    experiment_path = create_experiment_path(experiment_path)
 
     # save general config in experiment path
     copy_to(config_path, experiment_path)
