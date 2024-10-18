@@ -127,6 +127,11 @@ def main(agent_config_path: Path) -> None:
         if name == ProcessNames.SCORE_PROC.value:
             func = score_task
             base_params.pop("experiment_uuid")
+            base_params["vps_ecs_table"] = (
+                process_definition["vps_ecs_table"]
+                if "vps_ecs_table" in process_definition
+                else clickhouse_settings.VPS_ECS_MAPPING_TABLE
+            )
         if name == ProcessNames.PING_PROC.value:
             func = ping_task
             base_params.pop("hostname_file")

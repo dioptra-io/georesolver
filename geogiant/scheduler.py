@@ -3,6 +3,7 @@
 from pathlib import Path
 from random import shuffle
 from loguru import logger
+from datetime import datetime
 
 from geogiant.agent import ProcessNames
 
@@ -155,9 +156,14 @@ def create_agents(config_path: dict) -> list[Agent]:
     # check config validity
     config = check_config(config_path)
 
+    # add config start time
+    config["start_time"] = str(datetime.now())
+
     # create experiement directory
     experiment_path = create_experiment_path(config["experiment_uuid"])
-    # copy hostname file to experiement path (common to all agents)
+
+    # save general config in experiment path
+    copy_to(config_path, experiment_path)
 
     # load targets from target file
     targets = load_csv(config["target_file"])

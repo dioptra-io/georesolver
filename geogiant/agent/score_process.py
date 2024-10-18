@@ -5,6 +5,7 @@ from tqdm import tqdm
 from numpy import mean
 from loguru import logger
 from pathlib import Path
+from pprint import pformat
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 
@@ -269,6 +270,7 @@ async def score_task(
     hostname_file: Path,
     in_table: str,
     out_table: str,
+    vps_ecs_table: str = clickhouse_settings.VPS_ECS_MAPPING_TABLE,
     wait_time: int = 30,
     batch_size: int = 1_000,
     verbose: bool = False,
@@ -283,6 +285,9 @@ async def score_task(
         setup_logger(output_logs)
     else:
         output_logs = None
+
+    params = {**locals()}
+    logger.info("process params :: \n{}", pformat(params))
 
     targets = load_csv(target_file, exit_on_failure=True)
     hostnames = load_csv(hostname_file, exit_on_failure=True)
@@ -324,7 +329,7 @@ async def score_task(
                     vp_subnets=vp_subnets,
                     hostnames=hostnames,
                     targets_ecs_table=in_table,
-                    vps_ecs_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
+                    vps_ecs_table=vps_ecs_table,
                     score_table=out_table,
                     nb_cpu=nb_cpu,
                     output_logs=output_logs,
