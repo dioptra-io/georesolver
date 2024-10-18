@@ -22,7 +22,7 @@ from geogiant.evaluation.ecs_geoloc_utils import (
     select_one_vp_per_as_city,
 )
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     load_vps,
     get_pings_per_target,
     get_subnets,

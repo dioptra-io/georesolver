@@ -22,7 +22,7 @@ from geogiant.clickhouse import (
     InsertCSV,
     GetMeasurementIds,
 )
-from geogiant.common.queries import load_vps
+from geogiant.clickhouse.queries import load_vps
 from geogiant.common.files_utils import create_tmp_csv_file, dump_pickle
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
 from geogiant.common.settings import RIPEAtlasSettings

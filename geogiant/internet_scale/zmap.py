@@ -7,7 +7,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     load_vps,
     get_pings_per_target,
 )

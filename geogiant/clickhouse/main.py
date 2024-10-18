@@ -102,7 +102,7 @@ class Query:
     def execute(
         self,
         client: ClickHouseClient,
-        table_name: str,
+        table_name: str = None,
         data: Any = None,
         limit=None,
         **kwargs,
@@ -117,7 +117,7 @@ class Query:
             subsets: Iterable of IP networks on which to execute the query independently.
         """
         rows = []
-        statement = self.statement(table_name, **kwargs)
+        statement = self.statement(table_name=table_name, **kwargs)
 
         logger.debug(f"query={self.name} table_name={table_name}  limit={limit}")
         settings = dict(

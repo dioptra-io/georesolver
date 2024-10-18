@@ -9,7 +9,7 @@ from pprint import pformat
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     insert_scores,
     get_subnets,
     load_vp_subnets,

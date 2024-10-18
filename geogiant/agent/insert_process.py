@@ -7,7 +7,7 @@ from loguru import logger
 from datetime import datetime, timedelta
 
 from geogiant.prober import RIPEAtlasAPI
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     load_cached_targets,
     get_measurement_ids,
     insert_geoloc,

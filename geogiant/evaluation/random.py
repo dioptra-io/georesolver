@@ -3,7 +3,7 @@ from pyasn import pyasn
 from tqdm import tqdm
 from loguru import logger
 
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_pings_per_target,
     load_targets,
     load_vps,

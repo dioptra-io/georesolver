@@ -12,7 +12,7 @@ from geogiant.agent import ProcessNames
 from geogiant.agent.ripe_init import vps_init
 from geogiant.agent.ecs_process import run_dns_mapping
 from geogiant.common.files_utils import load_csv, load_json
-from geogiant.common.queries import load_vp_subnets
+from geogiant.clickhouse.queries import load_vp_subnets
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.agent import (
     ecs_task,

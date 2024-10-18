@@ -7,7 +7,7 @@ from pathlib import Path
 
 from geogiant.common.files_utils import dump_pickle, load_json, load_pickle
 from geogiant.common.utils import TargetScores
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_subnets_mapping,
     load_target_subnets,
     load_vp_subnets,

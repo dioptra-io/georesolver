@@ -11,7 +11,7 @@ from pych_client.exceptions import ClickHouseException
 
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.clickhouse import CreateVPsTable, InsertFromCSV
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     load_vps,
     load_targets,
     get_vps_ids,

@@ -4,6 +4,7 @@ from pych_client import ClickHouseClient, AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
 from geogiant.clickhouse import (
+    GetTables,
     Query,
     GetVPs,
     GetVPsIds,
@@ -14,7 +15,6 @@ from geogiant.clickhouse import (
     GetDNSMappingPerHostnames,
     GetVPsSubnets,
     GetLastMileDelay,
-    InsertFromCSV,
     CreatePingTable,
     CreateScoreTable,
     CreateGeolocTable,
@@ -34,6 +34,18 @@ from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.settings import ClickhouseSettings
 
 clickhouse_settings = ClickhouseSettings()
+
+
+def get_tables() -> list[str]:
+    tables = []
+
+    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        resp = GetTables().execute(client=client, table_name="")
+
+    for row in resp:
+        tables.append(row["name"])
+
+    return tables
 
 
 def get_min_rtt_per_vp(table_name: str) -> dict:

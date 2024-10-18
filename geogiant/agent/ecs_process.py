@@ -3,7 +3,7 @@ from datetime import datetime
 from loguru import logger
 
 from geogiant.zdns import ZDNS
-from geogiant.common.queries import get_subnets
+from geogiant.clickhouse.queries import get_subnets
 from geogiant.common.files_utils import load_csv, create_tmp_csv_file
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger

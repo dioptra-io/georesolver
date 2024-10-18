@@ -2,7 +2,7 @@ from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
 
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
     load_targets,

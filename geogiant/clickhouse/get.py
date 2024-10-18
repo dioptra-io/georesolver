@@ -1,6 +1,18 @@
 from geogiant.clickhouse.main import Query
 
 
+class GetTables(Query):
+    def statement(self, **kwargs) -> str:
+        return f"""
+        SELECT
+            name
+        FROM
+            system.tables
+        WHERE
+            database == '{self.settings.CLICKHOUSE_DATABASE}'
+        """
+
+
 class GetCompleVPs(Query):
     def statement(self, table_name: str) -> str:
         return f"""

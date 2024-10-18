@@ -7,7 +7,7 @@ from loguru import logger
 from geogiant.evaluation.plot import plot_routers
 from geogiant.evaluation.scores import get_scores
 from geogiant.evaluation.ecs_geoloc_utils import get_shortest_ping_geo_resolver
-from geogiant.common.queries import load_vps
+from geogiant.clickhouse.queries import load_vps
 from geogiant.common.ip_addresses_utils import route_view_bgp_prefix
 from geogiant.common.utils import get_shortest_ping_all_vp, get_random_shortest_ping
 from geogiant.common.files_utils import load_json, dump_json, load_pickle, dump_pickle

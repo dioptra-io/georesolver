@@ -9,7 +9,7 @@ from collections import defaultdict, OrderedDict
 
 from geogiant.common.files_utils import load_pickle, load_countries_continent
 from geogiant.common.utils import EvalResults
-from geogiant.common.queries import load_targets
+from geogiant.clickhouse.queries import load_targets
 from geogiant.evaluation.plot import ecdf, get_proportion_under, plot_multiple_cdf
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 

@@ -15,7 +15,7 @@ from geogiant.common.files_utils import (
     load_json,
     dump_json,
 )
-from geogiant.common.queries import get_mapping_per_hostname
+from geogiant.clickhouse.queries import get_mapping_per_hostname
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 

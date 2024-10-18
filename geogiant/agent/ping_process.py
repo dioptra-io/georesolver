@@ -7,7 +7,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from geogiant.prober import RIPEAtlasProber
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_min_rtt_per_vp,
     load_vps,
     load_target_scores,

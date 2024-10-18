@@ -8,12 +8,10 @@ from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
 
+CONFIG_PATH = path_settings.DEFAULT / "../experiment_config/config_remote_example.json"
 DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
 DEMO_ECS_MAPPING_TABLE = "demo_ecs_mapping"
-DEMO_SCORE_TABLE = "demo_score"
-DEMO_PING_TABLE = "demo_ping"
-DEMO_GEOLOC_TABLE = "demo_geoloc"
-NB_ADDRS = 100
+NB_ADDRS = 10_000
 
 
 def main_demo() -> None:
@@ -28,10 +26,7 @@ def main_demo() -> None:
     logger.info(f"File available at:: {DEMO_TARGET_FILE}")
 
     # debugging
-    config_path = (
-        path_settings.DEFAULT / "../experiment_config/config_local_example.json"
-    )
-    agents = create_agents(config_path)
+    agents = create_agents(CONFIG_PATH)
     for agent in agents:
         agent.run()
 

@@ -5,7 +5,7 @@ from loguru import logger
 from pathlib import Path
 
 from geogiant.common.files_utils import load_json, dump_json
-from geogiant.common.queries import get_pings_per_src_dst, load_vps, load_targets
+from geogiant.clickhouse.queries import get_pings_per_src_dst, load_vps, load_targets
 from geogiant.common.geoloc import (
     select_best_guess_centroid,
     haversine,

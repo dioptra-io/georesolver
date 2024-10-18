@@ -15,7 +15,7 @@ from geogiant.evaluation.ecs_geoloc_utils import (
 from geogiant.evaluation.plot import plot_internet_scale
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.utils import TargetScores, get_parsed_vps
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_min_rtt_per_vp,
     load_vps,
     retrieve_pings,

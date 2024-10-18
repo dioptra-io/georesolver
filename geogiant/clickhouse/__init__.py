@@ -18,6 +18,7 @@ from .create_tables import (
 )
 from .dns_score import OverallScore, HostnameScore, CountRows
 from .get import (
+    GetTables,
     GetVPsSubnets,
     GetSubnets,
     GetDstPrefix,
@@ -57,6 +58,7 @@ from .get import (
 
 
 __all__ = (
+    "GetTables",
     "InsertFromInFile",
     "Query",
     "NativeQuery",

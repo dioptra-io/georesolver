@@ -12,7 +12,7 @@ from geogiant.evaluation.scores import main_score
 from geogiant.evaluation.plot import plot_ripe_ip_map
 from geogiant.evaluation.ecs_geoloc_utils import get_shortest_ping_geo_resolver
 from geogiant.common.geoloc import rtt_to_km
-from geogiant.common.queries import get_pings_per_target, load_vps, get_measurement_ids
+from geogiant.clickhouse.queries import get_pings_per_target, load_vps, get_measurement_ids
 from geogiant.common.utils import get_shortest_ping_all_vp, get_random_shortest_ping
 from geogiant.common.files_utils import (
     load_json,

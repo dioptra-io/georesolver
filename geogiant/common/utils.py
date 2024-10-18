@@ -10,7 +10,7 @@ from numpy import mean
 
 from geogiant.prober import RIPEAtlasAPI
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip, route_view_bgp_prefix
-from geogiant.common.queries import (
+from geogiant.clickhouse.queries import (
     get_pings_per_target,
     insert_pings,
     insert_traceroutes,
