@@ -1,12 +1,12 @@
 {
-    "target_file" : "/storage/hugo/geogiant/geogiant/datasets/test_targets.csv",
+    "target_file" : "/storage/hugo/geogiant/geogiant/datasets/demo_targets.csv",
     "hostname_file" : "/storage/hugo/geogiant/geogiant/datasets/hostname_files/hostnames_georesolver.csv",
-    "experiment_uuid" : "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f",
+    "experiment_uuid" : "290d94c8-4be8-43e7-a085-a4530c09a635",
     "processes" : [
-        {"name": "ecs_process", "in_table": "test_ecs", "out_table": "test_ecs"},
-        {"name": "score_process", "in_table": "test_ecs", "out_table": "test_score"},
-        {"name": "ping_process", "in_table": "test_score", "out_table": "test_ping"},
-        {"name": "insert_process", "in_table": "test_ping", "out_table": "test_geoloc"}
+        {"name": "ecs_process", "in_table": "demo_remote_ecs", "out_table": "demo_remote_ecs"},
+        {"name": "score_process", "in_table": "demo_remote_ecs", "out_table": "demo_remote_score"},
+        {"name": "ping_process", "in_table": "demo_remote_score", "out_table": "demo_remote_ping"},
+        {"name": "insert_process", "in_table": "demo_remote_ping", "out_table": "demo_remote_geoloc"}
     ],
     "agents": [
         {
