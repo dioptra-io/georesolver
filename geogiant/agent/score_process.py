@@ -213,6 +213,9 @@ async def score_calculate(
 
     # batch of subnets on each CPUs
     nb_cpu = cpu_count() - 1 if not nb_cpu else nb_cpu
+    if nb_cpu > 10:
+        nb_cpu = 7
+
     batch_size = (len(target_subnets) // nb_cpu) + 1
 
     logger.info(f"Target subnets    :: {len(target_subnets)}")

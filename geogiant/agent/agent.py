@@ -2,9 +2,11 @@
 
 import subprocess
 
+from enum import Enum
+from time import sleep
 from pathlib import Path
 from loguru import logger
-from enum import Enum
+from pprint import pformat
 
 from geogiant.common.files_utils import dump_json
 from geogiant.common.ssh_utils import ssh_run_cmd, ssh_run_cmds, ssh_upload_file
@@ -22,10 +24,15 @@ class ProcessNames(Enum):
     INSERT_PROC = "insert_process"
 
 
-def docker_run_agent_cmd(mount_path: str, agent_config_path: Path) -> str:
+def docker_run_agent_cmd(
+    mount_path: str,
+    agent_config_path: Path,
+    container_name: str,
+) -> str:
     """define the docker run command for starting a georesolver docker agent"""
     return f"""
         docker run -d \
+        --name {container_name} \
         -v "{mount_path}:{mount_path}" \
         -v "{mount_path}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
         -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
@@ -95,11 +102,15 @@ class Agent:
         self.processes = processes
         self.batch_size = batch_size
         self.max_ongoing_pings = max_ongoing_pings
+
         # create null gateway if None was given
         self.gateway = gateway if gateway else {"user": None, "host": None}
 
         # create remote agent config
         self.agent_config_path = self.create_agent_config()
+
+        # create docker container name
+        self.container_name = "georesolver__" + self.agent_uuid.replace("-", "_")
 
     def create_agent_config(self) -> Path:
         """create remote agent config, necessary for starting docker image"""
@@ -214,10 +225,13 @@ class Agent:
     def agent_start(self) -> None:
         """start georesolver on the remote server"""
         if self.host not in ["localhost", "127.0.0.1"]:
-            cmd = docker_run_agent_cmd(self.remote_dir, self.agent_config_path)
+            cmd = docker_run_agent_cmd(
+                self.remote_dir,
+                self.agent_config_path,
+                self.container_name,
+            )
 
             logger.info(f"Starting remote agent :: {self.user}@{self.host}")
-            logger.debug(f"Docker cmd            :: {cmd}")
 
             _ = ssh_run_cmd(
                 cmd,
@@ -228,15 +242,41 @@ class Agent:
             )
 
         else:
-            cmd = docker_run_agent_cmd(self.local_dir, self.agent_config_path)
+            cmd = docker_run_agent_cmd(
+                self.local_dir,
+                self.agent_config_path,
+                self.container_name,
+            )
 
             logger.info(f"Starting local agent")
-            logger.debug(f"Docker cmd:: {cmd}")
 
             ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
             if ps.stderr:
                 raise RuntimeError(f"Could not start local agent:: {ps.stderr}")
+
+        logger.debug("Docker cmd::\n{}", pformat(cmd))
+
+    def is_container_running(self):
+        cmd = f"docker ps --filter name={self.container_name} --format {{{{.Names}}}}"
+        try:
+            # Run the 'docker ps' command to list running containers and check if the given container name is present
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            # Check if the output contains the container name
+            running_containers = result.stdout.strip().split("\n")
+            return self.container_name in running_containers
+
+        except subprocess.CalledProcessError as e:
+            # Handle errors from the 'docker' command
+            logger.error(f"Error checking container status: {e}")
+            return False
 
     def run(self) -> None:
         """start docker run on remote server (TODO: locally as well)"""
@@ -264,3 +304,11 @@ class Agent:
 
         # start docker container with params
         self.agent_start()
+
+        # check docker running
+        container_running = True
+        while container_running:
+            container_running = self.is_container_running()
+            sleep(1)
+
+        logger.info("Container stopped, measurement done")
