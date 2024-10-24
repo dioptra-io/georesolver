@@ -35,59 +35,44 @@ def print_header(msg: str) -> None:
     logger.info("########################################")
 
 
-def load_datasets(target_file: Path, vps_subnet_file: Path) -> None:
-    """load ripe atlas anchors, vps subnets and output files in defined dirs"""
-    # generate ripe atlas anchors and vps subnet dataset
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    targets = [target["addr"] for target in targets][:2]
-    dump_csv(targets, target_file)
-
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
-    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps][:3]
-    dump_csv(vps_subnet, vps_subnet_file)
-
-    return targets, vps_subnet
-
-
-def update_config_uuids(config_path: Path) -> str:
-    """update the agent uuid of experiment config (to have conflict with older measurements)"""
-    config = load_json(config_path, exit_on_failure=True)
-
-    new_experiment_uuid = str(uuid4())
-    new_agent_uuid = str(uuid4())
-
-    # set new agent uuid
-    config["experiment_uuid"] = new_experiment_uuid
-    config["agents"][0]["agent_uuid"] = new_agent_uuid
-
-    # dump updated config, ok to override, scheduler create new config
-    dump_json(config, config_path)
-
-    return new_experiment_uuid
-
-
-def update_in_vps_ecs_table(
-    config_path: Path,
-    vps_ecs_table: str,
-) -> None:
-    """update score process in config to use the right VPs table"""
-    config = load_json(config_path)
-
-    for process_def in config["processes"]:
-        if process_def["name"] == ProcessNames.SCORE_PROC.value:
-            process_def["vps_ecs_table"] = vps_ecs_table
-
-    dump_json(config, config_path)
-
-
 def parse_uuid(uuid: str) -> str:
     """clickhouse only allow underscore for name tables"""
     return uuid.replace("-", "_")
 
 
-def update_out_target_tables(config_path: Path) -> None:
+def load_datasets(target_file: Path, vps_subnet_file: Path) -> None:
+    """load ripe atlas anchors, vps subnets and output files in defined dirs"""
+    # generate ripe atlas anchors and vps subnet dataset
+    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
+    targets = [target["addr"] for target in targets][:10]
+    dump_csv(targets, target_file)
+
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
+    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps][:50]
+    dump_csv(vps_subnet, vps_subnet_file)
+
+    return targets, vps_subnet
+
+
+def update_config_uuids(config: dict) -> str:
+    """update the agent uuid of experiment config (to have conflict with older measurements)"""
+    config["experiment_uuid"] = str(uuid4())
+    config["agents"][0]["agent_uuid"] = str(uuid4())
+
+    return config
+
+
+def update_in_vps_ecs_table(config: dict, vps_ecs_table: str) -> None:
     """update score process in config to use the right VPs table"""
-    config = load_json(config_path)
+    for process_def in config["processes"]:
+        if process_def["name"] == ProcessNames.SCORE_PROC.value:
+            process_def["vps_ecs_table"] = vps_ecs_table
+
+    return config
+
+
+def update_out_target_tables(config: dict) -> None:
+    """update score process in config to use the right VPs table"""
 
     for process_def in config["processes"]:
         if process_def["name"] == ProcessNames.ECS_PROC.value:
@@ -104,13 +89,13 @@ def update_out_target_tables(config_path: Path) -> None:
             prefix_out = "geoloc"
 
         process_def["in_table"] = (
-            EXPERIMENT_NAME + f"__{prefix_in}_{parse_uuid(config['experiment_uuid'])}"
+            EXPERIMENT_NAME + f"__{parse_uuid(config['experiment_uuid'])}_{prefix_in}"
         )
         process_def["out_table"] = (
-            EXPERIMENT_NAME + f"__{prefix_out}_{parse_uuid(config['experiment_uuid'])}"
+            EXPERIMENT_NAME + f"__{parse_uuid(config['experiment_uuid'])}_{prefix_out}"
         )
 
-    dump_json(config, config_path)
+    return config
 
 
 def update_config(
@@ -125,22 +110,24 @@ def update_config(
     # just in case, update target file
     config = load_json(config_path)
     config["target_file"] = str(TARGET_FILE.resolve())
-    dump_json(config, config_path)
 
     # update config
-    new_experiement_uuid = update_config_uuids(config_path)
+    config = update_config_uuids(config)
+    new_experiment_uuid = config["experiment_uuid"]
 
     # create new vps ecs table with experiment uuid
     if not vps_ecs_table:
-        vps_ecs_table = experiment_name + f"vps_ecs_{new_experiement_uuid}"
+        vps_ecs_table = experiment_name + f"__vps_ecs_{parse_uuid(new_experiment_uuid)}"
 
     # update config so score process use the right vps ecs table
-    update_in_vps_ecs_table(config_path, vps_ecs_table)
+    config = update_in_vps_ecs_table(config, vps_ecs_table)
 
     # update target output table
-    update_out_target_tables(config_path)
+    config = update_out_target_tables(config)
 
-    return vps_ecs_table
+    dump_json(config, config_path)
+
+    return config
 
 
 def table_exists(table_name: str) -> bool:
@@ -171,7 +158,6 @@ async def init_experiment(vps_subnet: list[str]) -> None:
 
     # run georesolver
     agents = create_agents(CONFIG_PATH)
-
     for agent in agents:
         agent.run()
 

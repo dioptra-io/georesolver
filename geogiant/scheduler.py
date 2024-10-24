@@ -5,14 +5,13 @@ from random import shuffle
 from loguru import logger
 from datetime import datetime
 
-from geogiant.agent import ProcessNames
-
-from geogiant.agent import Agent
+from geogiant.agent import Agent, ProcessNames
 from geogiant.common.ssh_utils import ssh_run_cmd
 from geogiant.common.files_utils import (
     load_csv,
-    load_json,
     dump_csv,
+    load_json,
+    dump_json,
     copy_to,
 )
 from geogiant.common.settings import PathSettings, RIPEAtlasSettings
@@ -118,11 +117,9 @@ def check_config(config_path: Path) -> None:
     assert "agents" in experiment_config
 
     # check if input files exist
-    experiment_config["target_file"] = Path(experiment_config["target_file"])
-    experiment_config["hostname_file"] = Path(experiment_config["hostname_file"])
     check_input_dirs(
-        experiment_config["target_file"],
-        experiment_config["hostname_file"],
+        Path(experiment_config["target_file"]),
+        Path(experiment_config["hostname_file"]),
     )
 
     # check agents definition
@@ -151,7 +148,7 @@ def create_agent_path(agent_host: str, experiment_path: Path) -> Path:
     return agent_dir
 
 
-def create_agents(config_path: dict) -> list[Agent]:
+def create_agents(config_path: Path) -> list[Agent]:
     """split experiment over each agents"""
     # check config validity
     config = check_config(config_path)
@@ -160,14 +157,14 @@ def create_agents(config_path: dict) -> list[Agent]:
     config["start_time"] = str(datetime.now())
 
     # create experiement directory
-    experiment_path = config["experiment_name"] + config["experiment_uuid"]
+    experiment_path = config["experiment_name"] + "__" + config["experiment_uuid"]
     experiment_path = create_experiment_path(experiment_path)
 
     # save general config in experiment path
-    copy_to(config_path, experiment_path)
+    dump_json(config, experiment_path / config_path.name)
 
     # load targets from target file
-    targets = load_csv(config["target_file"])
+    targets = load_csv(Path(config["target_file"]))
     shuffle(targets)
 
     # split measurement load equally among agents
@@ -190,7 +187,7 @@ def create_agents(config_path: dict) -> list[Agent]:
             local_dir=agent_dir,
             remote_dir=agent_definition["remote_dir"],
             target_file=agent_dir / "targets.csv",
-            hostname_file=agent_dir / config["hostname_file"].name,
+            hostname_file=agent_dir / Path(config["hostname_file"]).name,
             processes=config["processes"],
             batch_size=config["batch_size"],
             max_ongoing_pings=agent_max_ping,

@@ -194,7 +194,7 @@ class Agent:
                     gateway_user=self.gateway["user"],
                     gateway_host=self.gateway["host"],
                 )
-            logger.info(f"Agent={self.user}@{self.host}:: {file.name} upload done")
+                logger.info(f"Agent={self.user}@{self.host}:: {file.name} upload done")
 
         else:
             # just copy the RIB table
