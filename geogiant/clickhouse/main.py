@@ -119,7 +119,9 @@ class Query:
         rows = []
         statement = self.statement(table_name=table_name, **kwargs)
 
-        logger.debug(f"query={self.name} table_name={table_name}  limit={limit}")
+        logger.debug(
+            f"query={self.name}; database={client.config['database']}; table_name={table_name}  limit={limit}"
+        )
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
@@ -188,7 +190,9 @@ class Query:
         Execute the query and return each row as a dict, as they are received from the database.
         """
         statement = self.statement(table_name, **kwargs)
-        logger.debug(f"query={self.name} table_name={table_name} limit={limit}")
+        logger.debug(
+            f"query={self.name}; database={client.config['database']} table_name={table_name} limit={limit}"
+        )
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,

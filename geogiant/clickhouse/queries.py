@@ -33,13 +33,11 @@ from geogiant.clickhouse import (
 from geogiant.common.files_utils import create_tmp_csv_file
 from geogiant.common.settings import ClickhouseSettings
 
-clickhouse_settings = ClickhouseSettings()
-
 
 def get_tables() -> list[str]:
     tables = []
 
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetTables().execute(client=client, table_name="")
 
     for row in resp:
@@ -51,7 +49,7 @@ def get_tables() -> list[str]:
 def get_min_rtt_per_vp(table_name: str) -> dict:
     """get the minimum RTT per VP from 50 traceroutes samples"""
     last_mile_delay_per_vp = {}
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetLastMileDelay().execute(
             client=client,
             table_name=table_name,
@@ -71,7 +69,7 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
     ping_vps_to_target = {}
 
     try:
-        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             CreatePingTable().execute(client, table_name)
             resp = GetPingsPerTarget().execute(
                 client=client,
@@ -96,7 +94,7 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
 def load_geoloc(table_name: str) -> list[str]:
     """load all target for which the geoloc is already known"""
     targets_geoloc = []
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
 
         try:
             resp = GetGeolocatedTargets().execute_iter(
@@ -118,7 +116,7 @@ def load_target_geoloc(table_name: str) -> dict:
     return shortest ping results for all targets
     """
     targets_geoloc = {}
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetShortestPingResults().execute(
             client=client,
             table_name=table_name,
@@ -143,7 +141,7 @@ def get_pings_per_src_dst(
     ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
     """
     ping_vps_to_target = defaultdict(dict)
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetPingsPerSrcDst().execute(
             client=client,
             table_name=table_name,
@@ -159,7 +157,7 @@ def get_pings_per_src_dst(
 
 def load_vps(input_table: str) -> list:
     """retrieve all VPs from clickhouse"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         vps = GetVPs().execute(client=client, table_name=input_table)
 
     return vps
@@ -167,7 +165,7 @@ def load_vps(input_table: str) -> list:
 
 def load_targets(input_table: str) -> list:
     """load all targets (ripe atlas anchors) from clickhouse"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         targets = GetVPs().execute(
             client=client, table_name=input_table, is_anchor=True
         )
@@ -178,7 +176,7 @@ def load_targets(input_table: str) -> list:
 def load_cached_targets(table_name: str, filtered_targets: list[str] = []) -> list[str]:
     cached_targets = []
     try:
-        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             resp = GetCachedTargets().execute(
                 client=client,
                 table_name=table_name,
@@ -200,7 +198,7 @@ def load_cached_targets(table_name: str, filtered_targets: list[str] = []) -> li
 def get_measurement_ids(measurement_table: str) -> set:
     """return all the measurement ids that were saved"""
     measurement_ids = set()
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
 
         try:
             resp = GetMeasurementIds().execute(client, measurement_table)
@@ -217,7 +215,7 @@ def get_measurement_ids(measurement_table: str) -> set:
 def get_vps_ids(ping_table: str) -> set:
     """retrieve all VPs that participated to a measurement in the past"""
     vp_ids_per_target = {}
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetVPsIds().execute(client, ping_table)
 
         for row in resp:
@@ -234,7 +232,7 @@ def get_subnets_mapping(
     print_error: bool = True,
 ) -> dict:
     """get ecs-dns resolution per hostname for all input subnets"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetDNSMappingHostnames().execute_iter(
             client=client,
             table_name=dns_table,
@@ -276,7 +274,7 @@ def get_ecs_results(
     print_error: bool = True,
 ) -> dict:
     """get ecs-dns resolution per hostname for all input subnets"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetECSResults().execute_iter(
             client=client,
             table_name=dns_table,
@@ -311,7 +309,7 @@ def get_subnets(
     """retrieve all distinct /24 prefixes from table_name"""
     target_subnets = []
     try:
-        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             rows = GetSubnets().execute(
                 client=client, table_name=table_name, subnet_filter=[s for s in subnets]
             )
@@ -330,7 +328,7 @@ def get_subnets(
 
 def get_dst_prefix(ping_table: str) -> list[str]:
     """retrieve subnets from ping table"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         CreatePingTable().execute(client, ping_table)
         rows = GetDstPrefix().execute(
             client=client,
@@ -350,7 +348,7 @@ def get_mapping_per_hostname(
     hostname_filter: list[str] = None,
 ) -> dict:
     """get ecs-dns resolution per hostname for all input subnets"""
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetDNSMappingPerHostnames().execute_iter(
             client=client,
             table_name=dns_table,
@@ -370,7 +368,7 @@ def get_mapping_per_hostname(
 
 
 def load_target_subnets(dns_table: str) -> dict:
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         targets = GetVPsSubnets().execute(
             client=client, table_name=dns_table, is_anchor=True
         )
@@ -381,7 +379,7 @@ def load_target_subnets(dns_table: str) -> dict:
 
 
 def load_vp_subnets(dns_table: str) -> dict:
-    with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         vps = GetVPsSubnets().execute(
             client=client,
             table_name=dns_table,
@@ -396,7 +394,7 @@ def load_target_scores(score_table: str, subnets: list[str]) -> dict:
     target_score = {}
 
     try:
-        with ClickHouseClient(**clickhouse_settings.clickhouse) as client:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             resp = GetTargetScore().execute(
                 client=client,
                 table_name=score_table,
@@ -422,7 +420,7 @@ def insert_dns_answers(
 ) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         if request_type == "A":
             CreateDNSMappingTable().execute(client=client, table_name=output_table)
         elif request_type == "NS":
@@ -438,7 +436,7 @@ def insert_dns_answers(
 async def insert_pings(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         await CreatePingTable().aio_execute(client=client, table_name=output_table)
         Query().execute_insert(
             client=client,
@@ -452,7 +450,7 @@ async def insert_pings(csv_data: list[str], output_table: str) -> None:
 async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         await CreateTracerouteTable().aio_execute(
             client=client, table_name=output_table
         )
@@ -468,7 +466,7 @@ async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
 async def insert_scores(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         await CreateScoreTable().aio_execute(client=client, table_name=output_table)
         Query().execute_insert(
             client=client,
@@ -482,7 +480,7 @@ async def insert_scores(csv_data: list[str], output_table: str) -> None:
 async def insert_geoloc(csv_data: list[str], output_table: str) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         await CreateGeolocTable().aio_execute(client=client, table_name=output_table)
         Query().execute_insert(
             client=client,
@@ -495,7 +493,7 @@ async def insert_geoloc(csv_data: list[str], output_table: str) -> None:
 
 async def get_ping_measurement_ids(table_name: str) -> list[int]:
     """return all measurement ids that were already inserted within clickhouse"""
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = await GetMeasurementIds().aio_execute(client, table_name)
 
         measurement_ids = []
