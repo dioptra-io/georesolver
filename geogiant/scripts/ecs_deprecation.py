@@ -1,5 +1,6 @@
 """this script is meant to run periodically to test if the VPs' ECS resolution becomes stale throught time"""
 
+import os
 import asyncio
 
 from uuid import uuid4
@@ -15,11 +16,12 @@ from geogiant.common.files_utils import load_json, dump_json, dump_csv
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_ecs_deprecation"
 
 # input files paths
 EXPERIMENT_NAME = "ecs_deprecation"
-CONFIG_PATH = path_settings.DEFAULT / "../experiment_config/ecs_deprecation_config.json"
+CONFIG_PATH = path_settings.DATASET / "experiment_config/ecs_deprecation_config.json"
 TARGET_FILE = path_settings.DATASET / "ripe_atlas_anchors_targets.csv"
 VPS_SUBNET_PATH = path_settings.DATASET / "vps_subnet.csv"
 HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
@@ -43,12 +45,12 @@ def parse_uuid(uuid: str) -> str:
 def load_datasets(target_file: Path, vps_subnet_file: Path) -> None:
     """load ripe atlas anchors, vps subnets and output files in defined dirs"""
     # generate ripe atlas anchors and vps subnet dataset
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    targets = [target["addr"] for target in targets][:10]
+    targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
+    targets = [target["addr"] for target in targets][:2]
     dump_csv(targets, target_file)
 
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
-    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps][:50]
+    vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
+    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps][:4]
     dump_csv(vps_subnet, vps_subnet_file)
 
     return targets, vps_subnet
@@ -133,6 +135,8 @@ def update_config(
 def table_exists(table_name: str) -> bool:
     """check if a table exists"""
     tables = get_tables()
+
+    print(tables)
 
     if table_name in tables:
         return True

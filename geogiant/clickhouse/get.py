@@ -1,5 +1,7 @@
 from geogiant.clickhouse.main import Query
 
+from geogiant.common.settings import ClickhouseSettings
+
 
 class GetTables(Query):
     def statement(self, **kwargs) -> str:
@@ -9,7 +11,7 @@ class GetTables(Query):
         FROM
             system.tables
         WHERE
-            database == '{self.settings.CLICKHOUSE_DATABASE}'
+            database == '{ClickhouseSettings().CLICKHOUSE_DATABASE}'
         """
 
 
@@ -19,7 +21,7 @@ class GetCompleVPs(Query):
         SELECT
             *
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         """
 
 
@@ -41,7 +43,7 @@ class GetVPs(Query):
             id,
             is_anchor
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {anchor_statement}
         """
 
@@ -57,7 +59,7 @@ class GetVPsAndAnchors(Query):
             lat,
             lon
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         """
 
 
@@ -70,7 +72,7 @@ class GetTargets(Query):
             lat,
             lon
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             is_anchor == true
         """
@@ -90,7 +92,7 @@ class GetSubnets(Query):
         SELECT 
             DISTINCT toString(subnet) as subnet
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {subnet_filter}
         """
 
@@ -101,7 +103,7 @@ class GetAllResponsiveIP(Query):
         SELECT 
             DISTINCT toString(dst_addr) as dst_addr
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE min > -1
         """
 
@@ -112,7 +114,7 @@ class GetMetroIP(Query):
         SELECT 
             DISTINCT toString(dst_addr) as dst_addr
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE min > -1 AND min < 2
         """
 
@@ -128,7 +130,7 @@ class GetVPsSubnets(Query):
         SELECT 
             DISTINCT toString(subnet_v4) as subnet
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {anchor_statement}
         """
 
@@ -146,7 +148,7 @@ class GetTargetScore(Query):
             subnet, 
             arraySort(x -> -x.2, groupArray((vp_subnet, score))) AS vps_score
             FROM 
-                {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
             {subnet_filter}    
             GROUP BY 
                 subnet
@@ -164,7 +166,7 @@ class GetDstPrefix(Query):
         SELECT 
             DISTINCT toString(dst_prefix) as dst_prefix
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min > -1
             {latency_clause}
@@ -184,7 +186,7 @@ class GetVPSInfo(Query):
                 )
             )
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         GROUP BY
             toString(address_v4)
         """
@@ -204,7 +206,7 @@ class GetVPSInfoPerSubnet(Query):
                 )
             ) as vps
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         GROUP BY
             subnet
         """
@@ -228,7 +230,7 @@ class GetSubnetPerHostname(Query):
                 answer_bgp_prefix,
                 groupUniqArray(subnet) as subnets
             FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
             {anycast_filter}
             GROUP BY
                 (hostname, answer_bgp_prefix)
@@ -246,7 +248,7 @@ class GetVPsIds(Query):
             DISTINCT dst_addr,
             groupUniqArray(prb_id) as vp_ids
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         GROUP BY
             dst_addr
         """
@@ -270,7 +272,7 @@ class GetPingsPerTarget(Query):
             DISTINCT toString(dst_addr) as target,
             groupArray((toString(src_addr), min)) as pings
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min > -1 
             AND dst_addr != src_addr
@@ -293,7 +295,7 @@ class GetCachedTargets(Query):
         SELECT 
             DISTINCT toString(dst_addr) as target
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {target_filter}
         """
 
@@ -304,7 +306,7 @@ class GetGeolocatedTargets(Query):
         SELECT
             distinct addr
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         """
 
 
@@ -329,7 +331,7 @@ class GetShortestPingResults(Query):
                 groupUniqArray((src_addr, min, msm_id))
             ) AS min_rtt
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             min > -1
         GROUP BY 
@@ -344,7 +346,7 @@ class GetLastMileDelay(Query):
             toString(src_addr) as src_addr,
             arrayMin(groupArray(min)) as min_rtt
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min > -1 
             AND toString(dst_addr) != src_addr
@@ -373,7 +375,7 @@ class GetPingsPerSrcDst(Query):
             toString(dst_addr) as dst,
             min_rtt
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min > -1 
             AND dst_addr != src_addr
@@ -398,7 +400,7 @@ class GetPingsPerSubnet(Query):
             toString(dst_addr) as target,
             groupArray((toString(src_addr), min)) as ping_to_target
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min > -1 
             AND toString(dst_addr) != toString(src_addr)
@@ -424,7 +426,7 @@ class GetAvgRTTPerSubnet(Query):
                     toString(src_addr) as vp,
                     arrayAvg(groupArray(min)) as avg_rtt
                 FROM 
-                    {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+                    {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
                 WHERE 
                     min > -1 
                     AND toString(dst_addr) != vp
@@ -445,7 +447,7 @@ class GetAllNameServers(Query):
             hostname,
             groupUniqArray(name_server) as name_servers
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         GROUP BY
             hostname
         """
@@ -457,7 +459,7 @@ class GetHostnames(Query):
         SELECT 
             DISTINCT hostname as hostname
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         """
 
 
@@ -472,7 +474,7 @@ class GetAllDNSMapping(Query):
         SELECT 
             *
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {hostname_filter}
         """
 
@@ -489,7 +491,7 @@ class GetHostnamesAnswerSubnet(Query):
             hostname,
             groupUniqArray(toString(answer)) as answers
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {hostname_filter}
         GROUP BY hostname
         """
@@ -504,7 +506,7 @@ class GetDNSMapping(Query):
             toString(answer) as answer,
             toString(answer_bgp_prefix) as answer_bgp_prefix
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         """
 
 
@@ -528,7 +530,7 @@ class GetPoPInfo(Query):
             pop_country,
             pop_continent
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         {hostname_filter}
         """
 
@@ -546,7 +548,7 @@ class GetPoPPerHostname(Query):
             hostname,
             groupUniqArray((answer_subnet, pop_lat, pop_lon)) as pop
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         {hostname_filter}
         GROUP BY
             hostname
@@ -576,7 +578,7 @@ class GetDNSMappingHostnames(Query):
             groupUniqArray((answer_subnet)) as answer_subnets,
             groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
@@ -587,17 +589,17 @@ class GetDNSMappingHostnames(Query):
 
 class GetECSResults(Query):
     def statement(self, table_name: str, **kwargs) -> str:
-        if hostname_filter := kwargs.get("hostname_filter"):
-            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
-            hostname_filter = f"AND hostname IN ({hostname_filter})"
-        else:
-            hostname_filter = ""
-
         if subnet_filter := kwargs.get("subnet_filter"):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
             subnet_filter = f"subnet IN ({subnet_filter})"
         else:
             raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        if hostname_filter := kwargs.get("hostname_filter"):
+            hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
+            hostname_filter = f"AND hostname IN ({hostname_filter})"
+        else:
+            hostname_filter = ""
 
         return f"""
         SELECT
@@ -605,7 +607,7 @@ class GetECSResults(Query):
             hostname,
             groupUniqArray((answer_subnet)) as answer_subnets
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
@@ -631,7 +633,7 @@ class GetScorePerSubnet(Query):
             groupUniqArray((answer_subnet)) as answer_subnets,
             groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
@@ -660,7 +662,7 @@ class GetDNSMappingPerHostnames(Query):
             hostname,
             groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
@@ -694,7 +696,7 @@ class GetDNSMappingHostnamesNew(Query):
             hostname,
             groupUniqArray({answer_granularity}) as mapping
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             {subnet_filter}
             {hostname_filter}
@@ -711,7 +713,7 @@ class GetMeasurementIds(Query):
                 msm_id
             ) as msm_id
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         """
 
 
@@ -725,7 +727,7 @@ class GetDNSMappingOld(Query):
                 toString(answers) as answer
             ) as data
         FROM 
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name} 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
         """
 
 
@@ -742,7 +744,7 @@ class GetProbeConnectivity(Query):
                 dst_addr,
                 arraySort(x -> x.2, groupUniqArray((reply_addr, ttl, min)))[1].3 as first_reply_rtt
             FROM
-                {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
             GROUP BY
                 (src_addr, dst_addr)    
         )
@@ -760,7 +762,7 @@ class GetGeolocFromTraceroute(Query):
             toString(reply_addr) as reply_addr,
             arrayMin(groupArray(min)) as min_rtt
         FROM
-            {self.settings.CLICKHOUSE_DATABASE}.{table_name}
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
             min < {threshold}
         GROUP BY

@@ -61,8 +61,6 @@ class NativeQuery:
 class Query:
     """Base class for every query."""
 
-    settings = ClickhouseSettings()
-
     @property
     def name(self) -> str:
         return self.__class__.__name__
@@ -200,23 +198,21 @@ class Query:
         return client.iter_json(statement, data=data, settings=settings)
 
     def execute_insert(self, client: ClickHouseClient, table_name: str, in_file: Path):
-        with ClickHouseClient(**self.settings.clickhouse) as client:
-            query = f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            query = f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
             client.execute(query, data=in_file.read_bytes())
 
 
 @dataclass(frozen=True)
 class InsertCSV(Query):
     def statement(self, table_name: str) -> str:
-        return (
-            f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
-        )
+        return f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
 
 
 @dataclass(frozen=True)
 class DropTable(Query):
     def statement(self, table_name: str) -> str:
-        return f"DROP TABLE {self.settings.CLICKHOUSE_DATABASE}.{table_name}"
+        return f"DROP TABLE {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}"
 
 
 # clickhouse files cannot be sent directly from the server
@@ -225,7 +221,7 @@ class InsertFromInFile:
     settings = ClickhouseSettings()
 
     def statement(self, table_name: str, in_file: Path) -> str:
-        return f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
+        return f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
 
     async def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local file"""
@@ -249,13 +245,13 @@ class InsertFromCSV:
     settings = ClickhouseSettings()
 
     def statement(self, table_name: str, in_file: Path) -> str:
-        return f"INSERT INTO {self.settings.CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
+        return f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
 
     def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local csv file"""
         cmd = f"""clickhouse client \
-            --host {self.settings.CLICKHOUSE_HOST} \ 
-            --port {self.settings.CLICKHOUSE_PORT} \
+            --host {ClickhouseSettings().CLICKHOUSE_HOST} \ 
+            --port {ClickhouseSettings().CLICKHOUSE_PORT} \
             --protocol http \
             --query=\"{self.statement(table_name, in_file)}\"
         """
