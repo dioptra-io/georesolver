@@ -32,22 +32,6 @@ constant_settings = ConstantSettings()
 BATCH_SIZE = 1_000
 
 
-def filter_vps_last_mile_delay(
-    ecs_vps: list[tuple], last_mile_delay: dict, rtt_thresholdd: int = 4
-) -> list[tuple]:
-    """remove vps that have a high last mile delay"""
-    filtered_vps = []
-    for vp_addr, score in ecs_vps:
-        try:
-            min_rtt = last_mile_delay[vp_addr]
-            if min_rtt < rtt_thresholdd:
-                filtered_vps.append((vp_addr, score))
-        except KeyError:
-            continue
-
-    return filtered_vps
-
-
 def select_one_vp_per_as_city(
     raw_vp_selection: list,
     vp_coordinates: dict,
@@ -162,9 +146,6 @@ def get_geo_resolver_schedule(
             target_subnet, target_scores, vps_per_subnet, last_mile_delay, 5_00
         )
 
-        # remove vps that have a high last mile delay
-        ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
-
         ecs_vps = select_one_vp_per_as_city(ecs_vps, vps_coordinates, last_mile_delay)[
             : constant_settings.PROBING_BUDGET
         ]
@@ -196,7 +177,7 @@ def get_measurement_schedule(
 ) -> dict[list]:
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(
         clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE

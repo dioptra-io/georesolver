@@ -20,7 +20,7 @@ from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
 
 
 def score_jaccard(target_mapping: set, vp_mapping: set) -> float:
@@ -273,7 +273,7 @@ async def score_task(
     hostname_file: Path,
     in_table: str,
     out_table: str,
-    vps_ecs_table: str = clickhouse_settings.VPS_ECS_MAPPING_TABLE,
+    vps_ecs_table: str = ch_settings.VPS_ECS_MAPPING_TABLE,
     wait_time: int = 30,
     batch_size: int = 1_000,
     verbose: bool = False,
@@ -294,7 +294,7 @@ async def score_task(
 
     targets = load_csv(target_file, exit_on_failure=True)
     hostnames = load_csv(hostname_file, exit_on_failure=True)
-    vp_subnets = load_vp_subnets(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
+    vp_subnets = load_vp_subnets(ch_settings.VPS_FILTERED_FINAL_TABLE)
     subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
 
     while True:

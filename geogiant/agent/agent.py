@@ -6,14 +6,12 @@ from enum import Enum
 from time import sleep
 from pathlib import Path
 from loguru import logger
-from pprint import pformat
 
 from geogiant.common.files_utils import dump_json
 from geogiant.common.ssh_utils import ssh_run_cmd, ssh_run_cmds, ssh_upload_file
 from geogiant.common.settings import PathSettings, ClickhouseSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
-clickhouse_settings = RIPEAtlasSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
 
 
@@ -36,11 +34,11 @@ def docker_run_agent_cmd(
         -v "{mount_path}:{mount_path}" \
         -v "{mount_path}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
         -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
-        -e CLICKHOUSE_HOST={clickhouse_settings.CLICKHOUSE_HOST} \
-        -e CLICKHOUSE_PORT={clickhouse_settings.CLICKHOUSE_PORT} \
-        -e CLICKHOUSE_DATABASE={clickhouse_settings.CLICKHOUSE_DATABASE} \
-        -e CLICKHOUSE_USERNAME={clickhouse_settings.CLICKHOUSE_USERNAME} \
-        -e CLICKHOUSE_PASSWORD={clickhouse_settings.CLICKHOUSE_PASSWORD} \
+        -e CLICKHOUSE_HOST={ClickhouseSettings().CLICKHOUSE_HOST} \
+        -e CLICKHOUSE_PORT={ClickhouseSettings().CLICKHOUSE_PORT} \
+        -e CLICKHOUSE_DATABASE={ClickhouseSettings().CLICKHOUSE_DATABASE} \
+        -e CLICKHOUSE_USERNAME={ClickhouseSettings().CLICKHOUSE_USERNAME} \
+        -e CLICKHOUSE_PASSWORD={ClickhouseSettings().CLICKHOUSE_PASSWORD} \
         -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
         --network host \
         --entrypoint poetry \
@@ -53,6 +51,15 @@ def docker_pull_cmd() -> list[str]:
         f"echo {path_settings.GITHUB_TOKEN} | docker login ghcr.io -u {path_settings.DOCKER_USERNAME} --password-stdin",
         f"docker pull ghcr.io/dioptra-io/geogiant:main",
     ]
+
+
+def print_docker_cmd(cmd: str) -> None:
+    """print nicely the docker command that was executed"""
+    cmd = cmd.split("  ")
+    for row in cmd:
+        if row:
+            row = row.strip("\n").strip(" ")
+            logger.debug(f"{row}")
 
 
 def get_running_images(agent_config: dict) -> str:
@@ -255,12 +262,12 @@ class Agent:
             if ps.stderr:
                 raise RuntimeError(f"Could not start local agent:: {ps.stderr}")
 
-        logger.debug("Docker cmd::\n{}", pformat(cmd))
+        logger.debug("Docker cmd::")
+        print_docker_cmd(cmd)
 
-    def is_container_running(self):
+    def is_container_running(self) -> None:
         cmd = f"docker ps --filter name={self.container_name} --format {{{{.Names}}}}"
         try:
-            # Run the 'docker ps' command to list running containers and check if the given container name is present
             result = subprocess.run(
                 cmd,
                 shell=True,
@@ -274,9 +281,17 @@ class Agent:
             return self.container_name in running_containers
 
         except subprocess.CalledProcessError as e:
-            # Handle errors from the 'docker' command
             logger.error(f"Error checking container status: {e}")
             return False
+
+    def monitor(self, wait_time: int = 30) -> None:
+        # check docker running
+        container_running = True
+        while container_running:
+            container_running = self.is_container_running()
+            sleep(wait_time)
+
+        logger.info("Container stopped, measurement done")
 
     def run(self) -> None:
         """start docker run on remote server (TODO: locally as well)"""
@@ -305,10 +320,5 @@ class Agent:
         # start docker container with params
         self.agent_start()
 
-        # check docker running
-        container_running = True
-        while container_running:
-            container_running = self.is_container_running()
-            sleep(1)
-
-        logger.info("Container stopped, measurement done")
+        # monitor container execution
+        self.monitor()
