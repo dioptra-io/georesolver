@@ -169,6 +169,7 @@ def load_targets(input_table: str) -> list:
         targets = GetVPs().execute(
             client=client, table_name=input_table, is_anchor=True
         )
+        targets = list(set(targets))
 
     return targets
 
