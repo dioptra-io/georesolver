@@ -8,9 +8,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from geogiant.prober.ripe_api import RIPEAtlasAPI
-from geogiant.evaluation.scores import main_score
-from geogiant.evaluation.plot import plot_ripe_ip_map
-from geogiant.evaluation.ecs_geoloc_utils import get_shortest_ping_geo_resolver
+from geogiant.evaluation.evaluation_score_functions import main_score
+from geogiant.evaluation.evaluation_plot_functions import plot_ripe_ip_map
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import get_shortest_ping_geo_resolver
 from geogiant.common.geoloc import rtt_to_km
 from geogiant.clickhouse.queries import get_pings_per_target, load_vps, get_measurement_ids
 from geogiant.common.utils import get_shortest_ping_all_vp, get_random_shortest_ping

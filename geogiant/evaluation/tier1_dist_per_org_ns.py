@@ -1,4 +1,4 @@
-"""EVALUATION:: """
+import os
 
 from collections import defaultdict
 from loguru import logger
@@ -19,13 +19,14 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.evaluation.ecs_geoloc_utils import ecs_dns_vp_selection_eval
-from geogiant.evaluation.scores import get_scores
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import ecs_dns_vp_selection_eval
+from geogiant.evaluation.evaluation_score_functions import get_scores
 from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def get_bgp_prefixes_per_hostname(cdn_per_hostname: dict) -> dict:
@@ -63,18 +64,17 @@ def select_hostnames(
 
 def compute_score() -> None:
     """calculate score for each organization/ns pair"""
-    targets_table = clickhouse_settings.VPS_FILTERED_TABLE
-    vps_table = clickhouse_settings.VPS_FILTERED_TABLE
-
-    targets_ecs_table = "vps_ecs_mapping"
-    vps_ecs_table = "vps_ecs_mapping"
+    targets_table = ch_settings.VPS_FILTERED_TABLE
+    vps_table = ch_settings.VPS_FILTERED_TABLE
+    targets_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
+    vps_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
 
     main_org_threshold = 0.8
     bgp_prefixes_threshold = 2
 
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
     hostname_per_ns_per_org = load_json(
-        path_settings.DATASET / "best_hostnames_per_org_per_ns.json"
+        path_settings.HOSTNAME_FILES / "best_hostnames_per_org_per_ns.json"
     )
 
     org_per_ns = {
@@ -142,17 +142,14 @@ def evaluate() -> None:
     probing_budgets = [5, 10, 20, 30, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
-
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
 
     logger.info("BGP prefix score geoloc evaluation")
 

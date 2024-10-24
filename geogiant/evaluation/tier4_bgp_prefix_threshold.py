@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 from pathlib import Path
@@ -23,9 +24,9 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.evaluation.ecs_geoloc_utils import ecs_dns_vp_selection_eval
-from geogiant.evaluation.scores import get_scores
-from geogiant.evaluation.plot import (
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import ecs_dns_vp_selection_eval
+from geogiant.evaluation.evaluation_score_functions import get_scores
+from geogiant.evaluation.evaluation_plot_functions import (
     plot_multiple_cdf,
     plot_ecs_shortest_ping,
     plot_ref,
@@ -36,7 +37,8 @@ from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_p
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def get_bgp_prefixes_per_hostname(cdn_per_hostname: dict) -> dict:
@@ -94,8 +96,8 @@ def get_ns_per_hostname() -> dict:
 
 def compute_score() -> None:
     """calculate score for each organization/ns pair"""
-    targets_table = clickhouse_settings.VPS_FILTERED_TABLE
-    vps_table = clickhouse_settings.VPS_FILTERED_TABLE
+    targets_table = ch_settings.VPS_FILTERED_TABLE
+    vps_table = ch_settings.VPS_FILTERED_TABLE
 
     targets_ecs_table = "vps_ecs_mapping"
     vps_ecs_table = "vps_ecs_mapping"
@@ -153,14 +155,14 @@ def evaluate() -> None:
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
+        ch_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        ch_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
     )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     vps_country = get_vps_country(vps)

@@ -14,7 +14,6 @@ from geogiant.agent.ping_process import (
     filter_vps_last_mile_delay,
 )
 from geogiant.common.utils import (
-    filter_vps_last_mile_delay,
     get_parsed_vps,
     shortest_ping,
     get_vp_info,
@@ -22,7 +21,6 @@ from geogiant.common.utils import (
     TargetScores,
 )
 from geogiant.common.files_utils import load_pickle
-from geogiant.common.geoloc import distance
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 

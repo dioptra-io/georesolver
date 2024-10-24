@@ -9,7 +9,7 @@ from loguru import logger
 from pych_client import ClickHouseClient
 
 from geogiant.clickhouse import GetAllNameServers
-from geogiant.evaluation.plot import plot_cdf, ecdf
+from geogiant.evaluation.evaluation_plot_functions import plot_cdf, ecdf
 from geogiant.common.files_utils import (
     load_csv,
     load_json,

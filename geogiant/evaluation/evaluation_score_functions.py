@@ -327,12 +327,7 @@ def get_hostname_score(args) -> None:
     target_score_subnet = defaultdict(dict)
     target_score_bgp_prefix = defaultdict(dict)
 
-    if "output_logs" in score_config:
-        if score_config["output_logs"]:
-            output_file = open(score_config["output_logs"], "a")
-        else:
-            output_file = None
-    for target_subnet in tqdm(target_subnets, file=output_file):
+    for target_subnet in tqdm(target_subnets):
 
         vps_score_answer, vps_score_subnet, vps_score_bgp_prefix = (
             get_vps_score_per_hostname(
@@ -356,9 +351,6 @@ def get_hostname_score(args) -> None:
             target_score_bgp_prefix[target_subnet] = get_sorted_score(
                 vps_score=vps_score_bgp_prefix,
             )
-
-    if output_file:
-        output_file.close()
 
     return target_score_answer, target_score_subnet, target_score_bgp_prefix
 

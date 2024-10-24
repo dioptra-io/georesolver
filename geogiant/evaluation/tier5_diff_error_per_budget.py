@@ -1,3 +1,5 @@
+import os
+
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
@@ -14,27 +16,27 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.evaluation.plot import ecdf, plot_cdf, get_proportion_under
-from geogiant.evaluation.ecs_geoloc_utils import ecs_dns_vp_selection_eval
-from geogiant.evaluation.scores import get_scores
+from geogiant.evaluation.evaluation_plot_functions import ecdf, plot_cdf, get_proportion_under
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import ecs_dns_vp_selection_eval
+from geogiant.evaluation.evaluation_score_functions import get_scores
 from geogiant.common.files_utils import load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def compute_score() -> None:
     """calculate score for each organization/ns pair"""
-    targets_table = clickhouse_settings.VPS_FILTERED_TABLE
-    vps_table = clickhouse_settings.VPS_FILTERED_TABLE
-
-    targets_ecs_table = "vps_ecs_mapping"
-    vps_ecs_table = "vps_ecs_mapping"
+    targets_table = ch_settings.VPS_FILTERED_TABLE
+    vps_table = ch_settings.VPS_FILTERED_TABLE
+    targets_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
+    vps_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
 
     selected_hostnames_per_cdn_per_ns = load_json(
-        path_settings.DATASET
+        path_settings.HOSTNAME_FILES
         / f"hostname_geo_score_selection_20_BGP_3_hostnames_per_org_ns.json"
     )
 
@@ -131,114 +133,18 @@ def plot_diff_error_per_budget() -> tuple[dict, dict]:
     )
 
 
-def plot_first_vp_under_40() -> list:
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
-    removed_vps = load_json(path_settings.REMOVED_VPS)
-    ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    target_coordinates = {}
-    for target in targets:
-        target_coordinates[target["addr"]] = (target["lat"], target["lon"])
-
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
-
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
-
-    geo_resolver_shortest_ping_index = []
-    ref_shortest_ping_index = defaultdict(list)
-
-    eval: EvalResults = load_pickle(
-        path_settings.RESULTS_PATH
-        / "tier5_evaluation/results__best_hostname_geo_score.pickle"
-    )
-
-    ref_shortest_ping_results = load_pickle(
-        path_settings.RESULTS_PATH / "results_ref_shortest_ping.pickle"
-    )
-
-    for target_addr, results_per_metric in eval.results_answer_subnets.items():
-        # get ref info
-        try:
-            ref_shortest_ping_vp = ref_shortest_ping_results[target_addr][
-                "ref_shortest_ping_vp"
-            ]
-        except KeyError:
-            continue
-        # ref_shortest_ping_index.append(ref_shortest_ping_vp["index"])
-
-        # only consider ip addresses above 40 km in ref
-        if ref_shortest_ping_vp["d_error"] > 40:
-            continue
-
-        # get target results
-        target_lat, target_lon = target_coordinates[target_addr]
-        for _, target_results in results_per_metric["result_per_metric"].items():
-            ecs_vps = target_results["ecs_vps"]
-
-            d_error = target_results["ecs_shortest_ping_vp_per_budget"][50]["d_error"]
-            if not d_error > 40:
-                continue
-
-            ref_index = 0
-            scores = []
-            for index, (vp, score) in enumerate(ecs_vps):
-                scores.append(score)
-
-                if vp == ref_shortest_ping_vp["addr"]:
-                    ref_index = index
-                    break
-
-                # target_subnet = get_prefix_from_ip(target_addr)
-                # vp_subnet = get_prefix_from_ip(vp)
-
-                # if vp_subnet == target_subnet:
-                #     continue
-                # vp_lat, vp_lon, _ = vps_coordinates[vp]
-                # d = distance(target_lat, vp_lat, target_lon, vp_lon)
-
-                # if d < 40:
-                #     break
-
-            if ref_index:
-                #     logger.info(f"{ref_shortest_ping_vp['index']=}")
-                #     logger.info(f"{ref_index=}")
-                #     logger.info(f"{ecs_vps[:ref_index]=}\n")
-                geo_resolver_shortest_ping_index.append(ref_index)
-            #     logger.info(f"{np.std(scores)}")
-
-    x, y = ecdf(geo_resolver_shortest_ping_index)
-    plot_cdf(
-        x=x,
-        y=y,
-        output_path="first_vp_index_under_40",
-        x_label="Shortest ping VP index (all VPs)",
-        y_label="CDF of targets",
-        x_lim=50,
-    )
-
-    return geo_resolver_shortest_ping_index
-
-
 def evaluate() -> None:
     """calculate distance error and latency for each score"""
     probing_budgets = [50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
+    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
 
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     vps_country = get_vps_country(vps)
@@ -301,4 +207,3 @@ if __name__ == "__main__":
 
     if make_figure:
         plot_diff_error_per_budget()
-        plot_first_vp_under_40()

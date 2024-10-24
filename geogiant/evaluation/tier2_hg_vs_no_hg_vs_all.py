@@ -1,13 +1,10 @@
-import numpy as np
+import os
+
 from collections import defaultdict
 from loguru import logger
 from pyasn import pyasn
 from pathlib import Path
 
-from geogiant.evaluation.hostname import (
-    select_hostname_per_org_per_ns,
-    get_all_name_servers,
-)
 from geogiant.clickhouse.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
@@ -19,25 +16,25 @@ from geogiant.common.utils import (
     EvalResults,
     TargetScores,
 )
-from geogiant.evaluation.plot import (
+from geogiant.evaluation.evaluation_plot_functions import (
     plot_ref,
     geo_resolver_cdfs,
-    get_proportion_under,
     plot_multiple_cdf,
 )
-from geogiant.evaluation.ecs_geoloc_utils import ecs_dns_vp_selection_eval
-from geogiant.evaluation.scores import get_scores
-from geogiant.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import ecs_dns_vp_selection_eval
+from geogiant.evaluation.evaluation_score_functions import get_scores
+from geogiant.common.files_utils import load_json, load_pickle, dump_pickle
 from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def load_hostnames() -> tuple[dict]:
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
     best_hostnames_per_org_per_ns = load_json(
-        path_settings.DATASET
+        path_settings.HOSTNAME_FILES
         / "hostname_geo_score_selection_20_BGP_3_hostnames_per_org_ns.json",
     )
 
@@ -82,11 +79,10 @@ def load_hostnames() -> tuple[dict]:
 
 
 def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
-    targets_table = clickhouse_settings.VPS_FILTERED_TABLE
-    vps_table = clickhouse_settings.VPS_FILTERED_TABLE
-
-    targets_ecs_table = "vps_ecs_mapping"
-    vps_ecs_table = "vps_ecs_mapping"
+    targets_table = ch_settings.VPS_FILTERED_TABLE
+    vps_table = ch_settings.VPS_FILTERED_TABLE
+    targets_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
+    vps_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
 
     selected_hostnames = set()
     for org, hostnames in hostnames_per_org.items():
@@ -124,7 +120,7 @@ def compute_score() -> None:
     output_path = (
         path_settings.RESULTS_PATH / f"tier2_evaluation/scores__hg_orgs.pickle"
     )
-    if not output_path.exists():
+    if output_path.exists():
         score_per_config(hg_hostnames, output_path)
 
     ##############################################################################################################################
@@ -155,17 +151,15 @@ def evaluate() -> None:
     probing_budgets = [5, 10, 20, 30, 50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
-    ping_vps_to_target = get_pings_per_target(
-        clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
-    )
-    targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(clickhouse_settings.VPS_FILTERED_TABLE)
-
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
+    ping_vps_to_target = get_pings_per_target(
+        ch_settings.VPS_MESHED_PINGS_TABLE,
+        removed_vps,
+    )
 
     logger.info("BGP prefix score geoloc evaluation")
 
@@ -261,8 +255,8 @@ def plot(
 
 
 if __name__ == "__main__":
-    compute_scores = False
-    evaluation = False
+    compute_scores = True
+    evaluation = True
     make_figure = True
 
     if compute_scores:

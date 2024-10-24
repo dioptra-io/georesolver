@@ -4,9 +4,9 @@ from pyasn import pyasn
 from collections import defaultdict
 from loguru import logger
 
-from geogiant.evaluation.plot import plot_routers
-from geogiant.evaluation.scores import get_scores
-from geogiant.evaluation.ecs_geoloc_utils import get_shortest_ping_geo_resolver
+from geogiant.evaluation.evaluation_plot_functions import plot_routers
+from geogiant.evaluation.evaluation_score_functions import get_scores
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import get_shortest_ping_geo_resolver
 from geogiant.clickhouse.queries import load_vps
 from geogiant.common.ip_addresses_utils import route_view_bgp_prefix
 from geogiant.common.utils import get_shortest_ping_all_vp, get_random_shortest_ping

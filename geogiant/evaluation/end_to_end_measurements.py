@@ -15,8 +15,8 @@ from geogiant.clickhouse import GetDstPrefix
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
 from geogiant.agent import retrieve_pings
 from geogiant.agent import run_dns_mapping
-from geogiant.evaluation.scores import main_score
-from geogiant.evaluation.ecs_geoloc_utils import (
+from geogiant.evaluation.evaluation_score_functions import main_score
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
