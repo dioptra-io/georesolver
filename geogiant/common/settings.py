@@ -86,6 +86,7 @@ class ClickhouseSettings(BaseSettings):
     CLICKHOUSE_HOST: str = "localhost"
     CLICKHOUSE_PORT: int = 8123
     CLICKHOUSE_DATABASE: str = "GeoResolver"
+    CLICKHOUSE_DATABASE_EVAL: str = "GeoResolver_evaluation"
 
     CLICKHOUSE_USERNAME: str = "default"
     CLICKHOUSE_PASSWORD: str = ""

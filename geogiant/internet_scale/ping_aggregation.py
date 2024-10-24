@@ -9,13 +9,13 @@ from tqdm import tqdm
 from pathlib import Path
 
 from geogiant.prober import RIPEAtlasAPI, RIPEAtlasProber
-from geogiant.evaluation.ecs_geoloc_utils import (
+from geogiant.evaluation.evaluation_ecs_geoloc_functions import (
     get_ecs_vps,
     filter_vps_last_mile_delay,
     select_one_vp_per_as_city,
 )
 from geogiant.internet_scale.zmap import zmap, get_shortest_ping_vps
-from geogiant.evaluation.plot import plot_internet_scale
+from geogiant.evaluation.evaluation_plot_functions import plot_internet_scale
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.utils import TargetScores, get_parsed_vps
 from geogiant.clickhouse.queries import (
