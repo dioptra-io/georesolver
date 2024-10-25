@@ -157,19 +157,34 @@ def get_pings_per_src_dst(
 
 def load_vps(input_table: str) -> list:
     """retrieve all VPs from clickhouse"""
+    vps = []
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        vps = GetVPs().execute(client=client, table_name=input_table)
+        rows = GetVPs().execute(client=client, table_name=input_table)
+
+    vps_addrs = set()
+    for row in rows:
+        if row["addr"] in vps_addrs:
+            continue
+        else:
+            vps.append(row)
+            vps_addrs.add(row["addr"])
 
     return vps
 
 
 def load_targets(input_table: str) -> list:
     """load all targets (ripe atlas anchors) from clickhouse"""
+    targets = []
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        targets = GetVPs().execute(
-            client=client, table_name=input_table, is_anchor=True
-        )
-        targets = list(set(targets))
+        rows = GetVPs().execute(client=client, table_name=input_table, is_anchor=True)
+
+        target_addrs = set()
+        for row in rows:
+            if row["addr"] in target_addrs:
+                continue
+            else:
+                targets.append(row)
+                target_addrs.add(row["addr"])
 
     return targets
 
