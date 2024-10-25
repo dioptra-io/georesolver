@@ -1,5 +1,7 @@
 """general tool settings"""
 
+import sys
+
 from loguru import logger
 from pathlib import Path
 from dotenv import load_dotenv
@@ -150,6 +152,22 @@ class ZDNSSettings(PathSettings, ClickhouseSettings):
     RECORD_TYPE: str = "A"
 
 
-def setup_logger(log_file_path: Path) -> None:
+def setup_logger(
+    log_file_path: Path,
+    verbose: bool = False,
+    to_stdout: bool = False,
+) -> None:
+    """setup logging with output file and stdout if required, define log level"""
     logger.remove()
-    logger.add(log_file_path, level="INFO")
+
+    # get log level
+    if verbose:
+        log_level = "DEBUG"
+    else:
+        log_level = "INFO"
+
+    logger.add(log_file_path, level=log_level)
+
+    # in case we want to keep logs to stdout
+    if to_stdout:
+        logger.add(sys.stdout, level=log_level)

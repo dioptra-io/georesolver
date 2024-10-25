@@ -20,7 +20,7 @@ from geogiant.agent import (
     ping_task,
     insert_task,
 )
-from geogiant.common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
@@ -57,13 +57,12 @@ def main(agent_config_path: Path) -> None:
     if not log_path.exists():
         log_path.mkdir(parents=True)
 
-    # log level chack
-    if agent_config.get("verbose"):
-        logger.remove()
-        logger.add(sys.stdout, level="DEBUG")
-    else:
-        logger.remove()
-        logger.add(sys.stdout, level="INFO")
+    # setup logging, both file and stdout
+    setup_logger(
+        log_path / "main.log",
+        verbose=agent_config.get("verbose"),
+        to_stdout=True,
+    )
 
     # optional init steps
     if agent_config.get("init_vps"):
@@ -102,6 +101,7 @@ def main(agent_config_path: Path) -> None:
     logger.info("# Output dirs and table")
     logger.info("##########################################")
 
+    # agent process definition
     processes = []
     for process_definition in process_definitions:
         name = process_definition["name"]
