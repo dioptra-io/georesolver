@@ -113,7 +113,7 @@ class RIPEAtlasAPI:
                 "status__in": "Specified,Scheduled,Ongoing",
                 "tags": [tag],
                 "mine": True,
-                "key": self.settings.RIPE_ATLAS_SECRET_KEY,
+                "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY,
             }
 
             try:
@@ -134,7 +134,7 @@ class RIPEAtlasAPI:
     async def stop_measurement(self, id: int) -> None:
         """stop an ongoing measurement"""
         async with httpx.AsyncClient() as client:
-            params = {"id": id, "key": self.settings.RIPE_ATLAS_SECRET_KEY}
+            params = {"id": id, "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}
 
             try:
                 resp = await client.delete(
@@ -160,7 +160,7 @@ class RIPEAtlasAPI:
             "stop_time__gte": start_time,
             "tags": [str(tag) for tag in tags],
             "mine": True,
-            "key": self.settings.RIPE_ATLAS_SECRET_KEY,
+            "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY,
         }
 
         async with httpx.AsyncClient() as client:
@@ -289,7 +289,7 @@ class RIPEAtlasAPI:
         self, ip_addr: int, params: dict = {"engine": "single-radius"}
     ) -> int:
         ripe_ip_map_url = f"https://ipmap-api.ripe.net/v1/locate/{ip_addr}/best"
-        ripe_ip_map_url += f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+        ripe_ip_map_url += f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
 
         with httpx.Client() as client:
             resp = client.get(url=ripe_ip_map_url, params=params)
@@ -447,7 +447,7 @@ class RIPEAtlasAPI:
         """get results from ping measurement id"""
         url = (
             f"{self.measurement_url}/{id}/results/"
-            + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+            + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
         )
         async with httpx.AsyncClient(timeout=timeout) as client:
             for i in range(max_retry):
@@ -467,7 +467,7 @@ class RIPEAtlasAPI:
     def get_probe_requested(self, id: int) -> int:
         url = (
             f"{self.measurement_url}/{id}/"
-            + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}"
+            + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
         )
         with httpx.Client() as client:
             resp = client.get(url, timeout=30)
@@ -681,7 +681,7 @@ class RIPEAtlasAPI:
                 try:
                     resp = await client.post(
                         self.measurement_url
-                        + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
+                        + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}",
                         json=self.get_ping_config(target, vp_ids, probing_tag),
                         timeout=timeout,
                     )
@@ -720,7 +720,7 @@ class RIPEAtlasAPI:
             for _ in range(max_retry):
                 resp = await client.post(
                     self.measurement_url
-                    + f"/?key={self.settings.RIPE_ATLAS_SECRET_KEY}",
+                    + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}",
                     json=self.get_traceroute_config(target, vp_ids, probing_tag),
                     timeout=60,
                 )

@@ -128,6 +128,7 @@ class RIPEAtlasSettings(PathSettings, ClickhouseSettings):
     # credentials
     RIPE_ATLAS_USERNAME: str = ""
     RIPE_ATLAS_SECRET_KEY: str = ""
+    RIPE_ATLAS_SECRET_KEY_SECONDARY: str = ""
     IP_VERSION: int = 4
 
     # RIPE Atlas parameters

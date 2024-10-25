@@ -1,6 +1,7 @@
 """this script is meant to run periodically to test if the VPs' ECS resolution becomes stale throught time"""
 
 import os
+import sys
 import asyncio
 
 from uuid import uuid4
@@ -13,11 +14,16 @@ from geogiant.agent import run_dns_mapping, ProcessNames
 from geogiant.clickhouse.queries import load_targets, load_vps, get_tables
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
 from geogiant.common.files_utils import load_json, dump_json, dump_csv
-from geogiant.common.settings import PathSettings, ClickhouseSettings
+from geogiant.common.settings import PathSettings, ClickhouseSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
+# overwrite clickhouse settings
 os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_ecs_deprecation"
+# override api key if needed, comment if not
+os.environ["RIPE_ATLAS_SECRET_KEY"] = (
+    RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY_SECONDARY
+)
 
 # input files paths
 EXPERIMENT_NAME = "ecs_deprecation"
@@ -28,6 +34,10 @@ HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
 
 # clickhouse tables experiments
 VPS_INIT_ECS_TABLE = EXPERIMENT_NAME + "__vps_init_ecs"
+
+# comment if debug needed
+logger.remove()
+logger.add(sys.stdout, level="INFO")
 
 
 def print_header(msg: str) -> None:
@@ -46,11 +56,11 @@ def load_datasets(target_file: Path, vps_subnet_file: Path) -> None:
     """load ripe atlas anchors, vps subnets and output files in defined dirs"""
     # generate ripe atlas anchors and vps subnet dataset
     targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
-    targets = [target["addr"] for target in targets][:2]
+    targets = [target["addr"] for target in targets]
     dump_csv(targets, target_file)
 
     vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
-    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps][:4]
+    vps_subnet = [get_prefix_from_ip(v["subnet"]) for v in vps]
     dump_csv(vps_subnet, vps_subnet_file)
 
     return targets, vps_subnet
@@ -109,7 +119,6 @@ def update_config(
     update the experiment config (uuids, vps ecs table and out tables) between each round
     override is ok because scheduler output newly created config to experiement path
     """
-    # just in case, update target file
     config = load_json(config_path)
     config["target_file"] = str(TARGET_FILE.resolve())
 
@@ -119,7 +128,7 @@ def update_config(
 
     # create new vps ecs table with experiment uuid
     if not vps_ecs_table:
-        vps_ecs_table = experiment_name + f"__vps_ecs_{parse_uuid(new_experiment_uuid)}"
+        vps_ecs_table = experiment_name + f"__{parse_uuid(new_experiment_uuid)}_vps_ecs"
 
     # update config so score process use the right vps ecs table
     config = update_in_vps_ecs_table(config, vps_ecs_table)
@@ -135,8 +144,6 @@ def update_config(
 def table_exists(table_name: str) -> bool:
     """check if a table exists"""
     tables = get_tables()
-
-    print(tables)
 
     if table_name in tables:
         return True
@@ -190,7 +197,7 @@ async def run_experiment(vps_subnet: list[str]) -> None:
     )
 
     print_header("GeoResolver:: new VPs mapping")
-    logger.info("Running new experiment round with config::\n{}", pformat(new_config))
+    logger.debug("Running new experiment round with config::\n{}", pformat(new_config))
 
     # extract vps ecs table from newly created config
     vps_ecs_table = [
@@ -227,15 +234,15 @@ async def main() -> None:
 
     targets, vps_subnet = load_datasets(TARGET_FILE, VPS_SUBNET_PATH)
 
-    print_header("ECS deprecation experiment")
-    logger.info(f"Nb targets     :: {len(targets)}")
-    logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
-
     if not table_exists(VPS_INIT_ECS_TABLE):
-        logger.info(f"Running init experiment")
+        print_header("ECS deprecation:: init experiment")
+        logger.info(f"Nb targets     :: {len(targets)}")
+        logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
         await init_experiment(vps_subnet)
     else:
-        logger.info(f"Running deprecation experiment")
+        print_header("ECS deprecation:: running experiment round")
+        logger.info(f"Nb targets     :: {len(targets)}")
+        logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
         await run_experiment(vps_subnet)
 
 

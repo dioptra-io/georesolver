@@ -8,11 +8,10 @@ from geogiant.common.settings import PathSettings
 
 path_settings = PathSettings()
 
-CONFIG_PATH = path_settings.DEFAULT / "../experiment_config/remote_example_config.json"
+CONFIG_PATH = path_settings.DATASET / "experiment_config/remote_example_config.json"
 DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
-DEMO_ECS_MAPPING_TABLE = "demo_ecs_mapping"
-REGENERATE_FILE = False
-NB_ADDRS = 10_000
+REGENERATE_FILE = True
+NB_ADDRS = 10
 
 
 def main_demo() -> None:
