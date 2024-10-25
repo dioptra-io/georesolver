@@ -212,7 +212,7 @@ async def score_calculate(
 ) -> None:
 
     # batch of subnets on each CPUs
-    nb_cpu = cpu_count() - 1 if not nb_cpu else nb_cpu
+    nb_cpu = cpu_count() - 2 if not nb_cpu else nb_cpu
     if nb_cpu > 10:
         nb_cpu = 7
 

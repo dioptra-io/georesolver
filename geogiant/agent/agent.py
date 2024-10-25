@@ -266,29 +266,67 @@ class Agent:
         print_docker_cmd(cmd)
 
     def is_container_running(self) -> None:
+        """get docker ps output and check if docker is running or not"""
         cmd = f"docker ps --filter name={self.container_name} --format {{{{.Names}}}}"
-        try:
-            result = subprocess.run(
+        if self.host not in ["localhost", "127.0.0.1"]:
+            result = ssh_run_cmd(
                 cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=True,
+                self.user,
+                self.host,
+                self.gateway["user"],
+                self.gateway["host"],
             )
+        else:
 
-            # Check if the output contains the container name
-            running_containers = result.stdout.strip().split("\n")
-            return self.container_name in running_containers
+            try:
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
 
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error checking container status: {e}")
-            return False
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Error checking container status: {e}")
+                return False
+
+        # Check if the output contains the container name
+        running_containers = result.stdout.strip().split("\n")
+        return self.container_name in running_containers
+
+    def sync_log_files(self) -> None:
+        """rsync log file for remote agents"""
+        if self.host not in ["localhost", "127.0.0.1"]:
+            if self.gateway["user"]:
+                cmd = f"rsync -e 'ssh -A -J {self.user}@{self.host}' {self.gateway['user']}@{self.gateway['host']}:{self.remote_dir}/logs {self.local_dir}/logs/"
+            else:
+                cmd = f"rsync -e {self.user}@{self.host}:{self.remote_dir}/logs {self.local_dir}/logs/"
+
+            try:
+                logger.debug(f"File synchornization:: {cmd}")
+
+                _ = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Error synchronizing files: {e};{cmd=}")
+        else:
+            pass
 
     def monitor(self, wait_time: int = 30) -> None:
         # check docker running
         container_running = True
         while container_running:
             container_running = self.is_container_running()
+
+            # self.sync_log_files()
+
             sleep(wait_time)
 
         logger.info("Container stopped, measurement done")
