@@ -39,7 +39,7 @@ def main(agent_config_path: Path) -> None:
 
     # load input path from config
     try:
-        experiment_uuid = agent_config["agent_uuid"]
+        agent_uuid = agent_config["agent_uuid"]
         target_file = Path(agent_config["target_file"])
         hostname_file = Path(agent_config["hostname_file"])
         batch_size = agent_config["batch_size"]
@@ -92,7 +92,7 @@ def main(agent_config_path: Path) -> None:
     logger.info("##########################################")
     logger.info(f"# Starting geolocation")
     logger.info("##########################################")
-    logger.info(f"Experiment uuid     :: {experiment_uuid}")
+    logger.info(f"Experiment uuid     :: {agent_uuid}")
     logger.info(f"Number of targets   :: {len(targets)}")
     logger.info(f"Number of subnets   :: {len(subnets)}")
     logger.info(f"Number of hostnames :: {len(hostnames)}")
@@ -114,7 +114,7 @@ def main(agent_config_path: Path) -> None:
             "hostname_file": hostname_file,
             "in_table": in_table,
             "out_table": out_table,
-            "experiment_uuid": experiment_uuid,
+            "agent_uuid": agent_uuid,
             "log_path": log_path,
             "batch_size": batch_size,
             "dry_run": dry_run,
@@ -123,10 +123,10 @@ def main(agent_config_path: Path) -> None:
         # get process associated task and modify parameters if needed
         if name == ProcessNames.ECS_PROC.value:
             func = ecs_task
-            base_params.pop("experiment_uuid")
+            base_params.pop("agent_uuid")
         if name == ProcessNames.SCORE_PROC.value:
             func = score_task
-            base_params.pop("experiment_uuid")
+            base_params.pop("agent_uuid")
             base_params["vps_ecs_table"] = (
                 process_definition["vps_ecs_table"]
                 if "vps_ecs_table" in process_definition
@@ -163,7 +163,7 @@ def main(agent_config_path: Path) -> None:
         # join and wait all processes
         process.join()
 
-    logger.info(f"Experiment {experiment_uuid} succesfully executed")
+    logger.info(f"Agent experiment {agent_uuid} succesfully executed")
 
 
 if __name__ == "__main__":

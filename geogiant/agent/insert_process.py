@@ -257,7 +257,7 @@ async def insert_task(
     target_file: Path,
     in_table: str,
     out_table: str,
-    experiment_uuid: str,
+    agent_uuid: str,
     log_path: Path = path_settings.LOG_PATH,
     output_logs: str = "insert_task.log",
     dry_run: bool = False,
@@ -288,7 +288,7 @@ async def insert_task(
     await insert_results(
         targets=remaining_targets,
         probing_type="ping",
-        probing_tag=experiment_uuid,
+        probing_tag=agent_uuid,
         ping_table=in_table,
         geoloc_table=out_table,
         output_logs=output_logs,
@@ -306,7 +306,7 @@ if __name__ == "__main__":
             target_file=path_settings.DATASET / "demo_targets.csv",
             in_table="test_ping",
             out_table="test_geoloc",
-            experiment_uuid="6d4b3d4f-9b21-41e1-8e00-d556a1a107e8",
+            agent_uuid="6d4b3d4f-9b21-41e1-8e00-d556a1a107e8",
             output_logs=None,
         )
     )
