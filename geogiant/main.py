@@ -127,24 +127,24 @@ def main(agent_config_path: Path) -> None:
 
         logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")
 
-    # logger.info("##########################################")
-    # logger.info("# Starting processes")
-    # logger.info("##########################################")
-    # process: Process = None
-    # for name, process in processes:
-    #     # Start all processes
-    #     logger.info(f"Starting {name} process")
-    #     process.start()
+    logger.info("##########################################")
+    logger.info("# Starting processes")
+    logger.info("##########################################")
+    process: Process = None
+    for name, process in processes:
+        # Start all processes
+        logger.info(f"Starting {name} process")
+        process.start()
 
-    # logger.info("##########################################")
-    # logger.info("# Waiting for process to finish")
-    # logger.info("##########################################")
-    # process: Process = None
-    # for name, process in processes:
-    #     # join and wait all processes
-    #     process.join()
+    logger.info("##########################################")
+    logger.info("# Waiting for process to finish")
+    logger.info("##########################################")
+    process: Process = None
+    for name, process in processes:
+        # join and wait all processes
+        process.join()
 
-    # logger.info(f"Agent experiment {agent_uuid} succesfully executed")
+    logger.info(f"Agent experiment {agent_uuid} succesfully executed")
 
 
 if __name__ == "__main__":
