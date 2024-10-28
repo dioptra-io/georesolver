@@ -21,6 +21,7 @@ from geogiant.clickhouse import (
     CreateDNSMappingTable,
     CreateTracerouteTable,
     CreateNameServerTable,
+    ChangeTableName,
     GetSubnets,
     GetDstPrefix,
     GetTargetScore,
@@ -517,3 +518,13 @@ async def get_ping_measurement_ids(table_name: str) -> list[int]:
             measurement_ids.append(row["msm_id"])
 
         return measurement_ids
+
+
+def change_table_name(table_name: str, new_table_name: str) -> None:
+    """execute change table name query"""
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        ChangeTableName().execute(
+            client=client,
+            table_name=table_name,
+            new_table_name=new_table_name,
+        )

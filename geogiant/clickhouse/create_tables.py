@@ -2,6 +2,18 @@ from geogiant.clickhouse.main import Query
 from geogiant.common.settings import ClickhouseSettings
 
 
+class ChangeTableName(Query):
+    """change table name, utile when updating tables (ex: vps_mapping_ecs)"""
+
+    def statement(self, table_name: str, new_table_name: str) -> str:
+        return f"""
+        RENAME TABLE 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
+            TO 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{new_table_name}
+        """
+
+
 class CreateVPsTable(Query):
     def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""

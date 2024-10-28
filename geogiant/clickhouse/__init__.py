@@ -15,6 +15,7 @@ from .create_tables import (
     CreateDNSMappingWithMetadataTable,
     CreateGeolocTable,
     CreateScoreTable,
+    ChangeTableName,
 )
 from .dns_score import OverallScore, HostnameScore, CountRows
 from .get import (
