@@ -298,7 +298,7 @@ def plot_imc(
 def plot_ref(metric_evaluated: str) -> None:
 
     ref_shortest_ping_results = load_pickle(
-        path_settings.RESULTS_PATH / "results_ref_shortest_ping.pickle"
+        path_settings.RESULTS_PATH / "results__ref_shortest_ping.pickle"
     )
 
     x, y = ecdf(

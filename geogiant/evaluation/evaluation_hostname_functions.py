@@ -23,59 +23,6 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
-def plot_bgp_prefix_per_hostname_cdf() -> None:
-    best_hostnames_per_org_per_ns = load_json(
-        path_settings.DATASET
-        / "hostname_geo_score_selection_20_BGP_3_hostnames_per_org_ns.json",
-    )
-
-    cdn_per_hostname = load_json(
-        path_settings.DATASET / "ecs_hostnames_organization.json"
-    )
-
-    bgp_prefix_per_hostname = defaultdict(set)
-    for hostname, bgp_prefixes_per_cdn in cdn_per_hostname.items():
-        for bgp_prefixes in bgp_prefixes_per_cdn.values():
-            bgp_prefix_per_hostname[hostname].update(bgp_prefixes)
-
-    bgp_prefixes_per_hostname = {}
-    hostnames_len_bgp_prefixes = []
-
-    nb_hostnames = set()
-    for ns in best_hostnames_per_org_per_ns:
-        for org, hostnames in best_hostnames_per_org_per_ns[ns].items():
-            for hostname in hostnames:
-                len_bgp_prefixes = len(bgp_prefix_per_hostname[hostname])
-
-                bgp_prefixes_per_hostname[hostname] = (len_bgp_prefixes, org)
-                hostnames_len_bgp_prefixes.append(len_bgp_prefixes)
-                nb_hostnames.add(hostname)
-
-    bgp_prefixes_per_hostname = sorted(
-        bgp_prefixes_per_hostname.items(), key=lambda x: x[1][0], reverse=True
-    )
-
-    i = 0
-    for hostname, (len_bgp_prefixes, org) in bgp_prefixes_per_hostname:
-        print(f"{hostname}, {len_bgp_prefixes=}, {org=}")
-
-        i += 1
-        if i > 10:
-            break
-
-    logger.info(f"{len(nb_hostnames)} total hostnames")
-    logger.info(f"{len(hostnames_len_bgp_prefixes)=}")
-    x, y = ecdf(hostnames_len_bgp_prefixes)
-
-    plot_cdf(
-        x=x,
-        y=y,
-        output_path="hostnames_bgp_prefix_len_cdf",
-        x_label="Number of BGP prefixes",
-        y_label="Proportion of hostnames",
-        x_lim=10,
-    )
-
 
 def get_all_name_servers(name_servers_table: str) -> dict:
     """retrieve all unparsed name servers"""
@@ -590,6 +537,10 @@ def get_hostname_geo_score(nb_vps: int, bgp_prefix_per_hostname: dict[list]) -> 
     compute redirection similarity over the N vps
     if high similarity, hostname does not provide usefull geo info
     """
+    # get hostnames geo score (inverse of georesolver)
+    hostname_geo_score_path = path_settings.RESULTS_PATH / "hostname_geo_score.json"
+    if (hostname_geo_score_path).exists():
+        return load_json(hostname_geo_score_path)
 
     hostnames = [
         h for h, bgp_pref in bgp_prefix_per_hostname.items() if len(bgp_pref) > 1
@@ -637,20 +588,15 @@ def get_hostname_geo_score(nb_vps: int, bgp_prefix_per_hostname: dict[list]) -> 
         hostname_similarity_score.items(), key=lambda x: x[-1]
     )
 
+    dump_json(hostname_similarity_score, hostname_geo_score_path)
+
     return hostname_similarity_score
 
 
-async def main() -> None:
+def get_bpg_prefix_per_hostnames(cdn_per_hostname: dict) -> dict:
+    """get all bgp prefixes per hostnames,
+    filter hostnames for which we only have one bgp prefix
     """
-    based on ECS resolution on RIPE Atlas VPs, generate CSV files following different methodology:
-    1) select greedy bgp prefixes (maximize coverage of bgp prefix)
-    2) select greedy bgp prefixes per CDN (same but maximize bgp prefix coverage PER CDN)
-    3) select hostnames that returned the maximum number of BGP prefixes, per CDN
-    """
-    cdn_per_hostname = load_json(
-        path_settings.DATASET / "ecs_hostnames_organization.json"
-    )
-
     bgp_prefix_per_hostname = defaultdict(set)
     for hostname, bgp_prefixes_per_cdn in cdn_per_hostname.items():
         for bgp_prefixes in bgp_prefixes_per_cdn.values():
@@ -672,77 +618,103 @@ async def main() -> None:
         f"Removed:: {count_1}/{len(bgp_prefix_per_hostname)}/{round(count_1 * 100 / len(bgp_prefix_per_hostname),2)} hostname with less than 1"
     )
 
-    hostname_per_cdn = defaultdict(dict)
-    for hostname in cdn_per_hostname:
-        for org, bgp_prefixes in cdn_per_hostname[hostname].items():
-            hostname_per_cdn[org][hostname] = bgp_prefixes
+    return bgp_prefix_per_hostname
 
+
+def get_best_hostnames_per_org(
+    hostname_geo_score: list,
+    cdn_per_hostname: dict,
+    bgp_prefix_per_hostnames: dict,
+    ns_per_hostname: dict,
+) -> tuple[dict, dict]:
+    """for each organization get the best set of hostnames"""
+    best_hostnames_per_org_path = path_settings.DATASET / "best_hostnames_per_org.json"
+    best_hostnames_per_org_per_ns_path = (
+        path_settings.DATASET / "best_hostnames_per_org_per_ns.json"
+    )
+
+    # get the best hostnames per organization
+    if best_hostnames_per_org_path.exists():
+        best_hostnames_per_org = load_json(best_hostnames_per_org_path)
+    else:
+        best_hostnames_per_org = defaultdict(list)
+        for index, (hostname, score) in enumerate(hostname_geo_score):
+            if score > 0:
+                bgp_prefixes_per_org = cdn_per_hostname[hostname]
+                main_org, _ = max(
+                    bgp_prefixes_per_org.items(), key=lambda x: len(x[-1])
+                )
+
+                main_org = merge_main_orgs(main_org)
+                hostname_bgp_prefixes = bgp_prefix_per_hostnames[hostname]
+
+                best_hostnames_per_org[main_org].append(
+                    (index, hostname, score, len(hostname_bgp_prefixes))
+                )
+
+        dump_json(best_hostnames_per_org, best_hostnames_per_org_path)
+
+    if best_hostnames_per_org_per_ns_path.exists():
+        best_hostnames_per_org_per_ns = load_json(best_hostnames_per_org_per_ns_path)
+    else:
+        # get the best hostnames per organization AND per NS
+        best_hostnames_per_org_per_ns = defaultdict(dict)
+        for org, hostnames in best_hostnames_per_org.items():
+            for i, hostname, score, nb_hostnames_bgp_prefixes in hostnames:
+                try:
+                    name_server = ns_per_hostname[hostname]
+                except KeyError:
+                    continue
+
+                try:
+                    best_hostnames_per_org_per_ns[name_server][org].append(
+                        (i, hostname, score, nb_hostnames_bgp_prefixes)
+                    )
+                except KeyError:
+                    best_hostnames_per_org_per_ns[name_server][org] = [
+                        (i, hostname, score, nb_hostnames_bgp_prefixes)
+                    ]
+
+        dump_json(best_hostnames_per_org_per_ns, best_hostnames_per_org_per_ns_path)
+
+    return best_hostnames_per_org, best_hostnames_per_org_per_ns_path
+
+
+async def main() -> None:
+    """
+    based on ECS resolution on RIPE Atlas VPs, generate CSV files following different methodology:
+    1) select greedy bgp prefixes (maximize coverage of bgp prefix)
+    2) select greedy bgp prefixes per CDN (same but maximize bgp prefix coverage PER CDN)
+    3) select hostnames that returned the maximum number of BGP prefixes, per CDN
+    """
+    cdn_per_hostname = load_json(
+        path_settings.DATASET / "ecs_hostnames_organization.json"
+    )
+    bgp_prefix_per_hostnames = get_bpg_prefix_per_hostnames(cdn_per_hostname)
     name_servers_per_hostname = get_all_name_servers("name_servers")
     missing_name_servers_per_hostname = get_all_name_servers("name_servers_end_to_end")
     name_servers_per_hostname.update(missing_name_servers_per_hostname)
+    hostname_geo_score = get_hostname_geo_score(1_000, bgp_prefix_per_hostnames)
 
+    # select hostnames based on their name server and organisation
     tlds = load_csv(path_settings.DATASET / "tlds.csv")
     tlds = [t.lower() for t in tlds]
     selected_hostnames, ns_per_hostname = select_hostname_per_org_per_ns(
-        name_servers_per_hostname,
-        tlds,
-        cdn_per_hostname,
-        bgp_prefix_per_hostname,
-        0.01,
-        2,
+        name_servers_per_hostname=name_servers_per_hostname,
+        tlds=tlds,
+        bgp_per_cdn_per_hostname=cdn_per_hostname,
+        bgp_prefix_per_hostname=bgp_prefix_per_hostnames,
+        main_org_threshold=0.01,
+        bgp_prefix_threshold=2,
     )
 
-    hostname_geo_score_path = path_settings.RESULTS_PATH / "hostname_geo_score.json"
-    if not (hostname_geo_score_path).exists():
-        hostname_geo_score = get_hostname_geo_score(1_000, bgp_prefix_per_hostname)
-        dump_json(hostname_geo_score, hostname_geo_score_path)
-    else:
-        hostname_geo_score = load_json(hostname_geo_score_path)
-
-    best_hostnames_per_org = defaultdict(list)
-    for index, (hostname, score) in enumerate(hostname_geo_score):
-        if score > 0:
-            bgp_prefixes_per_org = cdn_per_hostname[hostname]
-            main_org, bgp_prefixes = max(
-                bgp_prefixes_per_org.items(), key=lambda x: len(x[-1])
-            )
-
-            main_org = merge_main_orgs(main_org)
-            hostname_bgp_prefixes = bgp_prefix_per_hostname[hostname]
-
-            best_hostnames_per_org[main_org].append(
-                (index, hostname, score, len(hostname_bgp_prefixes))
-            )
-
-    best_hostnames_per_org_per_ns = defaultdict(dict)
-    for org, hostnames in best_hostnames_per_org.items():
-        for i, hostname, score, nb_hostnames_bgp_prefixes in hostnames:
-            try:
-                name_server = ns_per_hostname[hostname]
-            except KeyError:
-                continue
-
-            try:
-                best_hostnames_per_org_per_ns[name_server][org].append(
-                    (i, hostname, score, nb_hostnames_bgp_prefixes)
-                )
-            except KeyError:
-                best_hostnames_per_org_per_ns[name_server][org] = [
-                    (i, hostname, score, nb_hostnames_bgp_prefixes)
-                ]
-
-    dump_json(
-        best_hostnames_per_org_per_ns,
-        path_settings.DATASET / "best_hostnames_per_org_per_ns.json",
+    # save files
+    _, best_hostnames_per_org_per_ns = get_best_hostnames_per_org(
+        hostname_geo_score=hostname_geo_score,
+        cdn_per_hostname=cdn_per_hostname,
+        bgp_prefix_per_hostnames=bgp_prefix_per_hostnames,
+        ns_per_hostname=ns_per_hostname,
     )
-    dump_json(
-        best_hostnames_per_org,
-        path_settings.DATASET / "best_hostnames_per_org.json",
-    )
-
-    hostname_per_ns = defaultdict(set)
-    for hostname, ns in ns_per_hostname.items():
-        hostname_per_ns[ns].add(hostname)
 
     for nb_hostname_per_ns_org in [3]:
         for bgp_threshold in [20]:

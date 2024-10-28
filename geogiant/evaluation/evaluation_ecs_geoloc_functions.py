@@ -11,7 +11,6 @@ from geogiant.clickhouse.queries import (
 from geogiant.agent.ping_process import (
     get_ecs_vps,
     select_one_vp_per_as_city,
-    filter_vps_last_mile_delay,
 )
 from geogiant.common.utils import (
     get_parsed_vps,
@@ -26,6 +25,24 @@ from geogiant.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+def filter_vps_last_mile_delay(
+    ecs_vps: list[tuple],
+    last_mile_delay: dict,
+    rtt_thresholdd: int = 4,
+) -> list[tuple]:
+    """remove vps that have a high last mile delay"""
+    filtered_vps = []
+    for vp_addr, score in ecs_vps:
+        try:
+            min_rtt = last_mile_delay[vp_addr]
+            if min_rtt < rtt_thresholdd:
+                filtered_vps.append((vp_addr, score))
+        except KeyError:
+            continue
+
+    return filtered_vps
 
 
 def get_no_ping_vp(
@@ -48,7 +65,11 @@ def get_no_ping_vp(
             break
 
     return get_vp_info(
-        target, target_score, vp_addr, vps_coordinates, major_country=major_country
+        target,
+        target_score,
+        vp_addr,
+        vps_coordinates,
+        major_country=major_country,
     )
 
 
@@ -90,9 +111,17 @@ def ecs_dns_vp_selection_eval(
             # TODO: select function of the last mile delay
             ecs_vps_per_budget = {}
             for budget in probing_budgets:
-                ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
-                    ecs_vps, vps_coordinates, last_mile_delay
-                )[:budget]
+                if type(budget) != tuple:
+                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )[:budget]
+                # select VPs between two range (tier 5)
+                else:
+                    selected_vps = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )
+                    # careful, in that case, budget is a tuple
+                    ecs_vps_per_budget[budget] = selected_vps[budget[0] : budget[-1]]
 
             country_no_ping = []
             if vps_country:

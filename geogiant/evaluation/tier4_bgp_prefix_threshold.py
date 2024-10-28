@@ -6,7 +6,7 @@ from collections import defaultdict, OrderedDict
 from loguru import logger
 from pyasn import pyasn
 
-from geogiant.evaluation.hostname import (
+from geogiant.evaluation.evaluation_hostname_functions import (
     select_hostname_per_org_per_ns,
     get_all_name_servers,
     parse_name_servers,
