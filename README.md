@@ -1,1 +1,1 @@
-# geogiant
+# georesolver

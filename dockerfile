@@ -32,28 +32,28 @@ RUN apt-get update && apt-get install --yes clickhouse-client
 WORKDIR /app
 
 # copy necessary scripts
-RUN mkdir -p geogiant
+RUN mkdir -p georesolver
 RUN mkdir -p logs
-RUN mkdir -p geogiant/experiments
-RUN mkdir -p geogiant/datasets
+RUN mkdir -p georesolver/experiments
+RUN mkdir -p georesolver/datasets
 
 COPY pyproject.toml pyproject.toml
 COPY poetry.lock poetry.lock
 
-COPY geogiant/zdns geogiant/zdns
-COPY geogiant/prober geogiant/prober
-COPY geogiant/common geogiant/common
-COPY geogiant/agent/ geogiant/agent
-COPY geogiant/clickhouse geogiant/clickhouse
+COPY georesolver/zdns georesolver/zdns
+COPY georesolver/prober georesolver/prober
+COPY georesolver/common georesolver/common
+COPY georesolver/agent/ georesolver/agent
+COPY georesolver/clickhouse georesolver/clickhouse
 
-COPY geogiant/main.py geogiant/main.py
+COPY georesolver/main.py georesolver/main.py
 
 COPY README.md README.md
 
 # install zdns
 RUN git clone https://github.com/zmap/zdns.git
 RUN cd zdns && go build && cd -
-RUN cp zdns/zdns geogiant/zdns/zdns_binary && rm -rf zdns/
+RUN cp zdns/zdns georesolver/zdns/zdns_binary && rm -rf zdns/
 
 # install dependencies
 RUN pip3 install --no-cache-dir poetry

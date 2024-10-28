@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "geogiant"
+name = "georesolver"
 version = "0.1.0"
 description = "Internet scale IP address geolocation tool"
 authors = ["hrimlinger <hugo.rimlinger@sorbonne-universite.fr>"]
 readme = "README.md"
 packages = [
-    {include = "geogiant"},
+    {include = "georesolver"},
 ]
 
 [tool.poetry.dependencies]
