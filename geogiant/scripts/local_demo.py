@@ -1,5 +1,6 @@
 """run GeoResolver geolocation on a set of demo targets"""
 
+import os
 from loguru import logger
 
 from geogiant.main import main
@@ -9,6 +10,12 @@ from geogiant.common.settings import PathSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
+
+# override api key if needed, comment if not
+os.environ["RIPE_ATLAS_SECRET_KEY"] = (
+    RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY_SECONDARY
+)
+
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
@@ -37,6 +44,7 @@ if __name__ == "__main__":
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": 1000,
+        "init_ecs_mapping": True,
         "processes": [
             {
                 "name": "ecs_process",

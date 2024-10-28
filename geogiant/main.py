@@ -1,6 +1,5 @@
 """define the main function of a single agent, also entry point of docker image"""
 
-import sys
 import typer
 import asyncio
 
@@ -10,16 +9,9 @@ from multiprocessing import Process
 
 from geogiant.agent import ProcessNames
 from geogiant.agent.ripe_init import vps_init
-from geogiant.agent.ecs_process import run_dns_mapping
 from geogiant.common.files_utils import load_csv, load_json
-from geogiant.clickhouse.queries import load_vp_subnets
 from geogiant.common.ip_addresses_utils import get_prefix_from_ip
-from geogiant.agent import (
-    ecs_task,
-    score_task,
-    ping_task,
-    insert_task,
-)
+from geogiant.agent import ecs_task, score_task, ping_task, insert_task, ecs_init
 from geogiant.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -70,18 +62,7 @@ def main(agent_config_path: Path) -> None:
         asyncio.run(vps_init(True, True))
 
     if agent_config.get("init_ecs_mapping"):
-        logger.info(
-            f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING_TABLE}"
-        )
-
-        vps_subnets = load_vp_subnets(clickhouse_settings.VPS_RAW_TABLE)
-        asyncio.run(
-            run_dns_mapping(
-                subnets=vps_subnets,
-                hostname_file=hostname_file,
-                output_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
-            )
-        )
+        asyncio.run(ecs_init(hostname_file))
 
     # load targets, subnets and hostnames
     targets = load_csv(target_file, exit_on_failure=True)
@@ -146,24 +127,24 @@ def main(agent_config_path: Path) -> None:
 
         logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")
 
-    logger.info("##########################################")
-    logger.info("# Starting processes")
-    logger.info("##########################################")
-    process: Process = None
-    for name, process in processes:
-        # Start all processes
-        logger.info(f"Starting {name} process")
-        process.start()
+    # logger.info("##########################################")
+    # logger.info("# Starting processes")
+    # logger.info("##########################################")
+    # process: Process = None
+    # for name, process in processes:
+    #     # Start all processes
+    #     logger.info(f"Starting {name} process")
+    #     process.start()
 
-    logger.info("##########################################")
-    logger.info("# Waiting for process to finish")
-    logger.info("##########################################")
-    process: Process = None
-    for name, process in processes:
-        # join and wait all processes
-        process.join()
+    # logger.info("##########################################")
+    # logger.info("# Waiting for process to finish")
+    # logger.info("##########################################")
+    # process: Process = None
+    # for name, process in processes:
+    #     # join and wait all processes
+    #     process.join()
 
-    logger.info(f"Agent experiment {agent_uuid} succesfully executed")
+    # logger.info(f"Agent experiment {agent_uuid} succesfully executed")
 
 
 if __name__ == "__main__":
