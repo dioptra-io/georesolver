@@ -6,6 +6,7 @@ import asyncio
 from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
+from datetime import datetime
 from collections import defaultdict
 from pych_client import AsyncClickHouseClient
 
@@ -14,6 +15,7 @@ from geogiant.clickhouse import (
     GetDNSMapping,
     GetHostnamesAnswerSubnet,
 )
+from geogiant.clickhouse.queries import load_vp_subnets, change_table_name, get_tables
 from geogiant.common.ip_addresses_utils import (
     get_prefix_from_ip,
     get_host_ip_addr,
@@ -183,6 +185,48 @@ async def main() -> None:
         selected_hostnames_file=path_settings.DATASET
         / "hostname_1M_max_bgp_prefix_per_cdn.csv",
         output_table="time_of_day_evaluation",
+    )
+
+
+async def ecs_init(hostname_file: Path) -> None:
+    """update vps ECS mapping"""
+    logger.info(
+        f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING_TABLE}"
+    )
+
+    vps_subnets = load_vp_subnets(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
+
+    # first change name
+    tables_name = get_tables()
+    new_table_name = (
+        clickhouse_settings.VPS_ECS_MAPPING_TABLE
+        + f"__{str(datetime.now()).split(' ')[0].replace('-', '_')}"
+    )
+    if (
+        new_table_name in tables_name
+        and clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
+    ):
+        logger.info("VPs ECS table should not be updated every day, skipping step")
+        return
+    elif (
+        new_table_name in tables_name
+        and not clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
+    ):
+        logger.warning("Prev vps mapping table exists but not current one")
+    elif (
+        new_table_name not in tables_name
+        and not clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
+    ):
+        logger.info("Runnin VPs ECS mapping for the first time")
+    else:
+        logger.info("Renewing VPS ECS mapping table")
+        change_table_name(clickhouse_settings.VPS_ECS_MAPPING_TABLE, new_table_name)
+
+    # finally run ECS mapping and output to default table
+    await run_dns_mapping(
+        subnets=vps_subnets,
+        hostname_file=hostname_file,
+        output_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
     )
 
 

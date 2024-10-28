@@ -12,7 +12,6 @@ from geogiant.common.ssh_utils import ssh_run_cmd, ssh_run_cmds, ssh_upload_file
 from geogiant.common.settings import PathSettings, ClickhouseSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
-ripe_atlas_settings = RIPEAtlasSettings()
 
 
 class ProcessNames(Enum):
@@ -33,13 +32,13 @@ def docker_run_agent_cmd(
         --name {container_name} \
         -v "{mount_path}:{mount_path}" \
         -v "{mount_path}/rib_table.dat:/app/geogiant/datasets/static_files/rib_table.dat"  \
-        -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
+        -e RIPE_ATLAS_SECRET_KEY={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY} \
         -e CLICKHOUSE_HOST={ClickhouseSettings().CLICKHOUSE_HOST} \
         -e CLICKHOUSE_PORT={ClickhouseSettings().CLICKHOUSE_PORT} \
         -e CLICKHOUSE_DATABASE={ClickhouseSettings().CLICKHOUSE_DATABASE} \
         -e CLICKHOUSE_USERNAME={ClickhouseSettings().CLICKHOUSE_USERNAME} \
         -e CLICKHOUSE_PASSWORD={ClickhouseSettings().CLICKHOUSE_PASSWORD} \
-        -e RIPE_ATLAS_SECRET_KEY={ripe_atlas_settings.RIPE_ATLAS_SECRET_KEY} \
+        -e RIPE_ATLAS_SECRET_KEY={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY} \
         --network host \
         --entrypoint poetry \
         ghcr.io/dioptra-io/geogiant:main run python geogiant/main.py {mount_path}/{agent_config_path.name}

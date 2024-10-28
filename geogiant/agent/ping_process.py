@@ -22,6 +22,7 @@ from geogiant.common.settings import (
     PathSettings,
     ClickhouseSettings,
     ConstantSettings,
+    RIPEAtlasSettings,
     setup_logger,
 )
 
@@ -278,6 +279,9 @@ async def ping_task(
         output_table=out_table,
         output_logs=output_logs,
     )
+
+    print(RIPEAtlasSettings())
+
     while True:
 
         # Retrieve target with no geolocation for which we have a score
@@ -334,14 +338,15 @@ async def ping_task(
 if __name__ == "__main__":
 
     targets = load_csv(path_settings.DATASET / "demo_targets.csv")
+    targets = targets[:2]
     subnets = [get_prefix_from_ip(addr) for addr in targets]
     hostnames = load_csv(path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv")
 
     asyncio.run(
         ping_task(
-            targets=targets,
-            score_table="demo_score",
-            ping_table="demo_ping",
+            target_file=path_settings.DATASET / "demo_targets.csv",
+            in_table="demo_remote_score",
+            out_table="demo_remote_ping",
             agent_uuid="d63c1e12-7bc4-4914-a6c0-e86e1f311338",
             output_logs=None,
         )
