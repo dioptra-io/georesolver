@@ -166,6 +166,8 @@ class Agent:
 
     def check_local_dir(self) -> None:
         """check that the input file exists"""
+        logger.info(f"Agent {self.host}:: checking local dirs")
+
         if not self.target_file.exists():
             raise RuntimeError(
                 f"Agent={self.user}@{self.host}:: {self.target_file} does not exists"
@@ -193,6 +195,8 @@ class Agent:
 
     def upload_target_files(self, files: list[Path]) -> None:
         """upload target and hostname files to"""
+        logger.info(f"Agent {self.host}:: target file updload")
+
         if self.host not in ["localhost", "127.0.0.1"]:
 
             for file in files:
@@ -217,6 +221,8 @@ class Agent:
     def pull_docker_image(self) -> None:
         """pull georesolver docker image"""
         # docker pull cmd common to local and remote
+        logger.info(f"Agent {self.host}:: pull docker image")
+
         cmds = docker_pull_cmd()
         if self.host not in ["localhost", "127.0.0.1"]:
 
@@ -234,14 +240,14 @@ class Agent:
 
     def agent_start(self) -> None:
         """start georesolver on the remote server"""
+        logger.info(f"Agent {self.host}:: start agent experiment")
+
         if self.host not in ["localhost", "127.0.0.1"]:
             cmd = docker_run_agent_cmd(
                 self.remote_dir,
                 self.agent_config_path,
                 self.container_name,
             )
-
-            logger.info(f"Starting remote agent :: {self.user}@{self.host}")
 
             _ = ssh_run_cmd(
                 cmd,
@@ -257,8 +263,6 @@ class Agent:
                 self.agent_config_path,
                 self.container_name,
             )
-
-            logger.info(f"Starting local agent")
 
             ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
@@ -323,7 +327,10 @@ class Agent:
             pass
 
     def monitor(self, wait_time: int = 30) -> None:
+        """monitor agent experiment execution"""
         # check docker running
+        logger.info(f"Agent {self.host}:: monitor agent experiment")
+
         container_running = True
         while container_running:
             container_running = self.is_container_running()
