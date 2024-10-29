@@ -11,7 +11,14 @@ from georesolver.agent import ProcessNames
 from georesolver.agent.ripe_init import vps_init
 from georesolver.common.files_utils import load_csv, load_json
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
-from georesolver.agent import ecs_task, score_task, ping_task, insert_task, ecs_init
+from georesolver.agent import (
+    ecs_task,
+    score_task,
+    ping_task,
+    insert_task,
+    insert_results,
+    ecs_init,
+)
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -70,7 +77,7 @@ def main(agent_config_path: Path) -> None:
     subnets = list(set([get_prefix_from_ip(ip) for ip in targets]))
 
     logger.info("##########################################")
-    logger.info(f"# Starting geolocation")
+    logger.info(f"# Starting georesolver agent")
     logger.info("##########################################")
     logger.info(f"Experiment uuid     :: {agent_uuid}")
     logger.info(f"Number of targets   :: {len(targets)}")
@@ -121,30 +128,44 @@ def main(agent_config_path: Path) -> None:
             func = insert_task
             base_params.pop("hostname_file")
 
+            # check if program crashed, insert measurements if any found
+            logger.info("Checking previous measurements insertion (avoid dupplication)")
+            asyncio.run(
+                insert_results(
+                    targets=targets,
+                    probing_type="ping",
+                    probing_tag=agent_uuid,
+                    ping_table=in_table,
+                    geoloc_table=out_table,
+                    output_logs=log_path / "insert_cache.log",
+                    batch_size=batch_size,
+                )
+            )
+
         # create process object
         process = Process(target=main_processes, args=(func, base_params))
         processes.append((name, process))
 
         logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")
 
-    logger.info("##########################################")
-    logger.info("# Starting processes")
-    logger.info("##########################################")
-    process: Process = None
-    for name, process in processes:
-        # Start all processes
-        logger.info(f"Starting {name} process")
-        process.start()
+    # logger.info("##########################################")
+    # logger.info("# Starting processes")
+    # logger.info("##########################################")
+    # process: Process = None
+    # for name, process in processes:
+    #     # Start all processes
+    #     logger.info(f"Starting {name} process")
+    #     process.start()
 
-    logger.info("##########################################")
-    logger.info("# Waiting for process to finish")
-    logger.info("##########################################")
-    process: Process = None
-    for name, process in processes:
-        # join and wait all processes
-        process.join()
+    # logger.info("##########################################")
+    # logger.info("# Waiting for process to finish")
+    # logger.info("##########################################")
+    # process: Process = None
+    # for name, process in processes:
+    #     # join and wait all processes
+    #     process.join()
 
-    logger.info(f"Agent experiment {agent_uuid} succesfully executed")
+    # logger.info(f"Agent experiment {agent_uuid} succesfully executed")
 
 
 if __name__ == "__main__":

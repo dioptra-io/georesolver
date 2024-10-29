@@ -180,8 +180,10 @@ async def insert_results(
     wait_time: int = 60,
     output_logs: Path = None,
     batch_size: int = 1_000,
+    restart: bool = False,
 ) -> None:
     """insert ongoing measurements"""
+    logger.info("Loading cached measurement ids")
     cached_inserted_measurements = get_measurement_ids(ping_table)
     current_time = datetime.timestamp(datetime.now() - timedelta(days=2))
 
@@ -189,6 +191,7 @@ async def insert_results(
     while not insert_done:
 
         # load previously cached targets
+        logger.info("Loading cached targets")
         cached_targets = load_cached_targets(ping_table)
         # get targets that still have to be inserted
         remaining_targets = set(targets).difference(set(cached_targets))
@@ -247,6 +250,10 @@ async def insert_results(
             else:
                 raise RuntimeError(f"{probing_type} not supported")
 
+        # only insert latest measurements that were not yet inserted
+        if restart:
+            insert_done = True
+
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
 
         cached_inserted_measurements.update(measurement_to_insert)
@@ -273,6 +280,7 @@ async def insert_task(
         output_logs = None
 
     # remove targets for which we already made measurements
+    logger.info("Loading cached targets...")
     cached_targets = load_cached_targets(in_table)
 
     # remove targets for which a measurement was started but results not inserted yet
@@ -313,3 +321,4 @@ if __name__ == "__main__":
             output_logs=None,
         )
     )
+ 
