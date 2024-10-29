@@ -674,7 +674,7 @@ class RIPEAtlasAPI:
         probing_tag: str,
         max_retry: int = 3,
         timeout: int = 60 * 5,
-        wait_time: int = 60,
+        wait_time: int = 60 * 5,
     ) -> int:
         """start ping measurement towards target from vps, return Atlas measurement id"""
 
@@ -697,7 +697,11 @@ class RIPEAtlasAPI:
                     await asyncio.sleep(wait_time)
                     continue
                 except json.decoder.JSONDecodeError as e:
-                    logger.info(f"Cannot parse response:: {e}, {resp}")
+                    logger.error(f"Cannot parse response:: {e}, {resp}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                except Exception as e:
+                    logger.error(f"Unsuported error:: {e}")
                     await asyncio.sleep(wait_time)
                     continue
 
