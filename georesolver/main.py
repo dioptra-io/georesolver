@@ -129,18 +129,19 @@ def main(agent_config_path: Path) -> None:
             base_params.pop("hostname_file")
 
             # check if program crashed, insert measurements if any found
-            logger.info("Checking previous measurements insertion (avoid dupplication)")
-            asyncio.run(
-                insert_results(
-                    targets=targets,
-                    probing_type="ping",
-                    probing_tag=agent_uuid,
-                    ping_table=in_table,
-                    geoloc_table=out_table,
-                    output_logs=log_path / "insert_cache.log",
-                    batch_size=batch_size,
-                )
-            )
+            # logger.info("Checking previous measurements insertion (avoid dupplication)")
+            # asyncio.run(
+            #     insert_results(
+            #         targets=targets,
+            #         probing_type="ping",
+            #         probing_tag=agent_uuid,
+            #         ping_table=in_table,
+            #         geoloc_table=out_table,
+            #         output_logs=log_path / "insert_cache.log",
+            #         batch_size=batch_size,
+            #         restart=True,
+            #     )
+            # )
 
         # create process object
         process = Process(target=main_processes, args=(func, base_params))
