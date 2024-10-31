@@ -1,5 +1,6 @@
 """plot results for subnet aggregation experiments"""
 
+from numpy import median
 from random import sample
 from collections import defaultdict
 
@@ -38,7 +39,7 @@ def get_proportion_per_subnet(pings_per_subnet: dict[list]) -> list:
 
         # get the shortest ping per target
         for _, pings in pings_per_target:
-            shortest_ping = min([ping[-1] for ping in pings])
+            _, shortest_ping = min(pings, key=lambda x: x[-1])
             shortest_pings_per_ip.append(shortest_ping)
 
         # get the proportion under 2 ms
@@ -50,15 +51,37 @@ def get_proportion_per_subnet(pings_per_subnet: dict[list]) -> list:
     return under_2_ms_per_subnet
 
 
-def get_subnet_vps(representatives: list) -> dict:
-    """get the 10 VPs with the lowest median latency to the representatives IP addrs"""
+def get_latencies_per_vp(representatives: list) -> dict[list]:
+    """return a dictionnary with each VPs shortest ping to 3 representative targets"""
     latencies_per_vp = defaultdict(list)
     for _, pings in representatives:
-        for ping in pings:
-            pass  # TODO
+        for vp_addr, min_rtt in pings:
+            latencies_per_vp[vp_addr].append(min_rtt)
+
+    return latencies_per_vp
 
 
-def reduced_georesolver_evaluation(pings_per_subnet: dict[list]) -> list:
+def get_reduced_vps(representatives: list, nb_vps: int = 10) -> dict:
+    """get the 10 VPs with the lowest median latency to the representatives IP addrs"""
+    latencies_per_vp = get_latencies_per_vp(representatives)
+
+    # get median rtt per VP
+    median_latencies_per_vp = []
+    for vp_addr, rtts in latencies_per_vp.items():
+        median_latencies_per_vp.append((vp_addr, median(rtts)))
+
+    # order by median RTT
+    median_latencies_per_vp = sorted(median_latencies_per_vp, key=lambda x: x[-1])
+
+    # take the N VPs with the lowest median latency
+    reduced_vps = [vp for vp, _ in median_latencies_per_vp[:nb_vps]]
+
+    return reduced_vps
+
+
+def get_reduced_results(
+    pings_per_subnet: dict[list], nb_representatives: int = 3, nb_vps: int = 10
+) -> list:
     """
     evaluate the million scale paper results:
         - take three random representative IP addresses per subnet
@@ -66,15 +89,39 @@ def reduced_georesolver_evaluation(pings_per_subnet: dict[list]) -> list:
         - get the results for the rest of the IP addresses
         - compare the results
     """
+    georesolver_results = defaultdict(list)
+    reduced_results = defaultdict(list)
     for subnet, pings_per_target in pings_per_subnet.items():
         if not len(pings_per_target) > 3:
             continue
 
-        # extract three random targets
-        representatives = sample(pings_per_target, 3)
+        # extract N random targets from subnet results
+        representatives = sample(pings_per_target, nb_representatives)
+        representatives_addr = [target for target, _ in representatives]
 
         # get median latency per vps
-        subnet_vps = get_subnet_vps()
+        reduced_vps = get_reduced_vps(representatives, nb_vps)
+
+        # get min RTT for the rest of the targets
+        reduced_pings = []
+        for target_addr, pings in pings_per_target:
+            if target_addr in representatives_addr:
+                continue
+
+            for vp_addr, min_rtt in pings:
+                if not vp_addr in reduced_vps:
+                    continue
+
+                reduced_pings.append((vp_addr, min_rtt))
+
+            georesolver_geoloc = min(pings_per_target, key=lambda x: x[-1])
+            reduced_geoloc = min(reduced_pings, key=lambda x: x[-1])
+
+            # get georesolver and reduced vps selection results
+            georesolver_results[subnet].append(target_addr, georesolver_geoloc)
+            reduced_results[subnet].append(target_addr, reduced_geoloc)
+
+    return georesolver_results, reduced_results
 
 
 def main() -> None:
@@ -85,10 +132,24 @@ def main() -> None:
         2. Evaluate the same metric but for each AS type (as we did for continental geoloc)
         3. Re-evaluate the results described in the Million scale paper
     """
-    vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
+    do_fraction_subnet_eval: bool = True
+    do_per_AS_eval: bool = True
+    do_reduced_eval: bool = True
 
+    vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
     pings_per_subnet = load_pings_per_subnet()
-    under_2_ms_per_subnet = get_proportion_per_subnet(pings_per_subnet)
+
+    if do_fraction_subnet_eval:
+        under_2_ms_per_subnet = get_proportion_per_subnet(pings_per_subnet)
+
+    if do_per_AS_eval:
+        pass  # TODO
+
+    if do_reduced_eval:
+        georesolver_results, reduced_results = get_reduced_results(
+            pings_per_subnet, 3, 10
+        )
+        # TODO: latency diff between georesolver and reduced
 
     # TODO: get ecdf and plot
 

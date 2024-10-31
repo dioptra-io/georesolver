@@ -18,7 +18,7 @@ path_settings = PathSettings()
 os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_ecs_deprecation"
 ch_settings = ClickhouseSettings()
 
-EXPERIMENT_NAME = "ecs_test_deprecation"
+EXPERIMENT_NAME = "ecs_deprecation"
 
 
 def get_init_measurement(measurements: dict[dict]) -> None:
@@ -82,9 +82,10 @@ def get_geoloc_results(
     measurement_table: str, vps_per_addr: dict, target_per_addr: dict
 ) -> None:
     """return the number of IP addresses with a geolocation result under threshold"""
-    geoloc = load_target_geoloc(measurement_table)
     d_error = []
     rtts = []
+
+    geoloc = load_target_geoloc(measurement_table)
     for target_addr, geoloc in geoloc.items():
         try:
             vp_addr = geoloc[0]
@@ -127,6 +128,7 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
     init_results = []
     round_results = []
     ref_results = []
+
     # load data
     vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
     targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
