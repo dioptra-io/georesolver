@@ -200,6 +200,7 @@ class Agent:
         if self.host not in ["localhost", "127.0.0.1"]:
 
             for file in files:
+                print(file)
                 _ = ssh_upload_file(
                     in_file=file,
                     out_file=str(self.remote_dir / file.name),
@@ -359,9 +360,9 @@ class Agent:
             self.agent_config_path,
             self.target_file,
             self.hostname_file,
-            path_settings.RIB_TABLE,
+            path_settings.RIB_TABLE.resolve(),
         ]
-        self.upload_target_files(target_files)
+        # self.upload_target_files(target_files)
 
         # pull docker image
         self.pull_docker_image()
@@ -370,4 +371,4 @@ class Agent:
         self.agent_start()
 
         # monitor container execution
-        self.monitor()
+        # self.monitor()

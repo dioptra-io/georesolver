@@ -108,7 +108,7 @@ class RIPEAtlasAPI:
                 return True
         return False
 
-    async def get_ongoing_measurements(self, tag: str) -> int:
+    async def get_ongoing_measurements(self, tag: str, wait_time: int = 30) -> int:
         """return the number of measurements which have the status Ongoing"""
         async with httpx.AsyncClient() as client:
             params = {
@@ -125,6 +125,11 @@ class RIPEAtlasAPI:
                 )
                 resp = resp.json()
             except httpx.ReadTimeout:
+                await asyncio.sleep(wait_time)
+                return None
+            except Exception as e:
+                logger.error(f"Unsuported error:: {e}")
+                await asyncio.sleep(wait_time)
                 return None
         try:
             ongoing_measurements = resp["count"]
@@ -153,7 +158,10 @@ class RIPEAtlasAPI:
             return id
 
     async def get_stopped_measurement_ids(
-        self, start_time: str, tags: list[str]
+        self,
+        start_time: str,
+        tags: list[str],
+        wait_time: int = 30,
     ) -> list[int]:
         """return all measurements with a status stopped"""
 
@@ -167,11 +175,17 @@ class RIPEAtlasAPI:
         }
 
         async with httpx.AsyncClient() as client:
-            resp = await client.get(self.measurement_url, params=params)
-            if resp.status_code != 200:
-                logger.error(f"Error:: {resp.json()}")
+            try:
+                resp = await client.get(self.measurement_url, params=params)
+                if resp.status_code != 200:
+                    logger.error(f"Error:: {resp.json()}")
 
-            resp = resp.json()
+                resp = resp.json()
+            except httpx.ReadTimeout:
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                logger.error(f"Unsuported error:: {e}")
+                await asyncio.sleep(wait_time)
 
         stopped_measurements = [m["id"] for m in resp["results"]]
 
@@ -182,7 +196,10 @@ class RIPEAtlasAPI:
                         resp = await client.get(resp["next"], params=params)
                         break
                     except httpx.ReadTimeout:
-                        await asyncio.sleep(60)
+                        await asyncio.sleep(wait_time)
+                    except Exception as e:
+                        logger.error(f"Unsuported error:: {e}")
+                        await asyncio.sleep(wait_time)
 
                 resp = resp.json()
 
@@ -463,6 +480,9 @@ class RIPEAtlasAPI:
                 except httpx.ReadTimeout as e:
                     logger.error(f"{e}")
                     logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
+                    await asyncio.sleep(wait_time)
+                except Exception as e:
+                    logger.error(f"Unsuported error:: {e}")
                     await asyncio.sleep(wait_time)
 
         return ping_results

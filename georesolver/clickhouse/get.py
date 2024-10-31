@@ -319,16 +319,16 @@ class GetShortestPingResults(Query):
                 'argMin', 
                 arrayMap(
                     x -> (x.1, x.3), 
-                    groupUniqArray((src_addr, min, msm_id))
+                    groupUniqArray((src_addr, min, msm_id, prb_id))
                 ), 
                 arrayMap(
                     x -> (x.2), 
-                    groupUniqArray((src_addr, min, msm_id))
+                    groupUniqArray((src_addr, min, msm_id, prb_id))
                 )
             ) AS shortest_ping,
             arrayMin(
                 x -> (x.2), 
-                groupUniqArray((src_addr, min, msm_id))
+                groupUniqArray((src_addr, min, msm_id, prb_id))
             ) AS min_rtt
         FROM
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}

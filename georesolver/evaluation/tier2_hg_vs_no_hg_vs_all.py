@@ -25,7 +25,12 @@ from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
     ecs_dns_vp_selection_eval,
 )
 from georesolver.evaluation.evaluation_score_functions import get_scores
-from georesolver.common.files_utils import load_json, load_pickle, dump_pickle
+from georesolver.common.files_utils import (
+    load_json,
+    dump_json,
+    load_pickle,
+    dump_pickle,
+)
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -122,7 +127,7 @@ def compute_score() -> None:
     output_path = (
         path_settings.RESULTS_PATH / f"tier2_evaluation/scores__hg_orgs.pickle"
     )
-    if output_path.exists():
+    if not output_path.exists():
         score_per_config(hg_hostnames, output_path)
 
     ##############################################################################################################################
@@ -140,6 +145,50 @@ def compute_score() -> None:
     )
     if not output_path.exists():
         score_per_config(all_orgs_hostnames, output_path)
+
+    #############################################################################################################################
+    hostname_configs = []
+    ordered_hg_to_remove = [
+        "AKAMAI",
+        "AMAZON",
+        "GOOGLE",
+        "APPLE",
+    ]
+
+    # create a list of hostname selection (remove one new org each time)
+    for i, hg in enumerate(ordered_hg_to_remove):
+        new_config_hostnames = {}
+        for hg in ordered_hg_to_remove[: (i + 1)]:
+            # remove the n first hg
+            for org, hostnames in all_orgs_hostnames.items():
+                if org == hg:
+                    continue
+                new_config_hostnames[org] = hostnames
+
+        # add config for score calculation
+        hostname_configs.append(new_config_hostnames)
+
+        # save config for checking
+        removed_hg = "_".join([ordered_hg_to_remove[j] for j in range(0, i + 1)])
+
+        output_path = (
+            path_settings.RESULTS_PATH
+            / f"tier2_evaluation/hostnames__georesolver_minus_{removed_hg}.json"
+        )
+        dump_json(new_config_hostnames, output_path)
+
+    for i, hostname_config in enumerate(hostname_configs):
+        removed_hg = "_".join([ordered_hg_to_remove[j] for j in range(0, i + 1)])
+
+        logger.info(f"Georesolver minus {removed_hg}:: {len(hostname_config)} orgs")
+
+        output_path = (
+            path_settings.RESULTS_PATH
+            / f"tier2_evaluation/scores__georesolver_minus_{removed_hg}.pickle"
+        )
+
+        if not output_path.exists():
+            score_per_config(hostname_config, output_path)
 
     #############################################################################################################################
     logger.info(f"AKAMAI hostnames:: {len(akamai_hostnames)} orgs")
@@ -258,8 +307,8 @@ def plot(
 
 if __name__ == "__main__":
     compute_scores = True
-    evaluation = True
-    make_figure = True
+    evaluation = False
+    make_figure = False
 
     if compute_scores:
         compute_score()
