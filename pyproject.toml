@@ -33,6 +33,7 @@ fabric = "^3.2.0"
 folium = "0.0.0"
 shapely = "^2.0.0"
 sklearn = "0.0"
+pandas = "^2.0.0"
 
 
 [tool.poetry.dev-dependencies]
