@@ -260,6 +260,7 @@ def plot_multiple_cdf(
     plt.show()
 
 
+
 def plot_imc(
     metric_evaluated: str = "d_error",
     imc_nb_vps: int = [5_00],

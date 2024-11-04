@@ -10,12 +10,13 @@ from collections import defaultdict
 from georesolver.agent import ProcessNames
 from georesolver.clickhouse.queries import load_targets, load_vps, load_target_geoloc
 from georesolver.evaluation.evaluation_plot_functions import get_proportion_under, ecdf
+from georesolver.evaluation.evaluation_plot_functions import plot_multiple_cdf
 from georesolver.common.geoloc import distance
 from georesolver.common.files_utils import load_json
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
-path_settings = PathSettings()
 os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_ecs_deprecation"
+path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 
 EXPERIMENT_NAME = "ecs_deprecation"
@@ -118,16 +119,16 @@ def get_geoloc_results(
 def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
     """
     compare the results between::
-        1. new ping with init vps mapping vs. init pings
-        2. new ping with round vps mapping vs. init pings
-        3. new ping with round vps mapping vs. new ping with init vps mapping
+        1. init pings (reference)
+        2. new ping with init vps mapping
+        3. new ping with round vps mapping
     metric compared::
         1. proportion of IP addresses under 40km
         2. proportion of IP addresses under 2ms
     """
+    ref_results = []
     init_results = []
     round_results = []
-    ref_results = []
 
     # load data
     vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
@@ -150,9 +151,10 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
     )
 
     # get results for each round of measurements
-    for start_time, measurement in measurements:
-        init_mapping_measurement_table = measurement["init_vps_mapping"]
-        round_mapping_measurement_table = measurement["round_vps_mapping"]
+    for start_time, measurement in measurements.items():
+        logger.info(f"Evaluating measurements of:: {str(start_time)}")
+        init_mapping_measurement_table = measurement["init_vps_mapping"]["ping_table"]
+        round_mapping_measurement_table = measurement["round_vps_mapping"]["ping_table"]
 
         init_under_40_km, init_under_2_ms = get_geoloc_results(
             measurement_table=init_mapping_measurement_table,
@@ -166,14 +168,51 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
             target_per_addr=target_per_addr,
         )
 
+        ref_results.append(start_time, (ref_under_40_km, ref_under_2_ms))
         init_results.append(start_time, (init_under_40_km, init_under_2_ms))
         round_results.append(start_time, (round_under_40_km, round_under_2_ms))
-        ref_results.append(start_time, (ref_under_40_km, ref_under_2_ms))
+
+    # sort by start time
+    ref_results.sort(ref_results, key=lambda x: x[0])
+    init_results.sort(init_results, key=lambda x: x[0])
+    round_results.sort(round_results, key=lambda x: x[0])
+
+    return ref_results, init_results, round_results
 
 
-def plot_results() -> None:
+def plot_results(
+    ref_results: list,
+    init_results: list,
+    round_results: list,
+) -> None:
     """plot each results"""
-    pass  # wip
+    subplots = []
+
+    # plot distance error results
+    ref_plot = (
+        [r[0] for r in ref_results],
+        [r[1][0] for r in ref_results],
+        "reference",
+    )
+    init_plot = (
+        [r[0] for r in init_results],
+        [r[1][0] for r in init_results],
+        "init vps mapping",
+    )
+    round_plot = (
+        [r[0] for r in round_results],
+        [r[1][0] for r in round_results],
+        "round vps mapping",
+    )
+
+    subplots = [ref_plot, init_plot, round_plot]
+
+    plot_multiple_cdf(
+        cdfs=subplots,
+        output_path=path_settings.FIGURE_PATH / "ecs_deprecation_d_error",
+        metric_evaluated="d_error",
+        legend_pos="lower right",
+    )
 
 
 def main() -> None:
@@ -185,7 +224,11 @@ def main() -> None:
     logger.info("Init measurement::")
     logger.info("{}", pformat(init_measurement))
 
-    evaluation(measurements, init_measurement)
+    ref_results, init_results, round_results = evaluation(
+        measurements, init_measurement
+    )
+
+    plot_results(ref_results, init_results, round_results)
 
 
 if __name__ == "__main__":
