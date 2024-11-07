@@ -24,7 +24,7 @@ path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 # overwrite clickhouse settings
 os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_ecs_deprecation"
-# override api key if needed, comment if not
+# override api  key if needed, comment if not
 os.environ["RIPE_ATLAS_SECRET_KEY"] = (
     RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY_SECONDARY
 )
@@ -243,11 +243,11 @@ async def main() -> None:
         logger.info(f"Nb targets     :: {len(targets)}")
         logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
         await init_experiment(vps_subnet)
-    else:
-        print_header("ECS deprecation:: running experiment round")
-        logger.info(f"Nb targets     :: {len(targets)}")
-        logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
-        await run_experiment(vps_subnet)
+
+    print_header("ECS deprecation:: running experiment round")
+    logger.info(f"Nb targets     :: {len(targets)}")
+    logger.info(f"Nb VPs subnets :: {len(vps_subnet)}")
+    await run_experiment(vps_subnet)
 
 
 if __name__ == "__main__":
