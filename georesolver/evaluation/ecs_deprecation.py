@@ -1,6 +1,7 @@
 """ECS deprecation evaluation script: compare and evaluate how long before VPS ECS mapping become stale"""
 
 import os
+import httpx
 
 from loguru import logger
 from pprint import pformat
@@ -39,7 +40,7 @@ def get_init_measurement(measurements: dict[dict]) -> None:
             assert len(measurement) == 2
             round_measurements[date] = measurement
 
-    return measurements, init_measurement
+    return round_measurements, init_measurement
 
 
 def load_measurements() -> None:
@@ -86,14 +87,18 @@ def get_geoloc_results(
     d_error = []
     rtts = []
 
-    geoloc = load_target_geoloc(measurement_table)
-    for target_addr, geoloc in geoloc.items():
+    targets_geoloc = load_target_geoloc(measurement_table)
+
+    if not targets_geoloc:
+        return None, None
+
+    for target_addr, geoloc in targets_geoloc.items():
         try:
             vp_addr = geoloc[0]
             vp = vps_per_addr[vp_addr]
             vp_lat, vp_lon = vp["lat"], vp["lon"]
         except KeyError:
-            logger.error(f"Cannot find geolocation for target addr:: {target_addr}")
+            # logger.error(f"Cannot find geolocation for target addr:: {target_addr}")
             continue
 
         target = target_per_addr[target_addr]
@@ -151,6 +156,7 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
     )
 
     # get results for each round of measurements
+    missing_days = set()
     for start_time, measurement in measurements.items():
         logger.info(f"Evaluating measurements of:: {str(start_time)}")
         init_mapping_measurement_table = measurement["init_vps_mapping"]["ping_table"]
@@ -168,14 +174,26 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
             target_per_addr=target_per_addr,
         )
 
+        if not init_under_40_km:
+            logger.error("Init measurement missing")
+            missing_days.add(start_time)
+            continue
+
+        if not round_under_40_km:
+            logger.error("Round measurement missing")
+            missing_days.add(start_time)
+            continue
+
         ref_results.append(start_time, (ref_under_40_km, ref_under_2_ms))
         init_results.append(start_time, (init_under_40_km, init_under_2_ms))
         round_results.append(start_time, (round_under_40_km, round_under_2_ms))
 
     # sort by start time
-    ref_results.sort(ref_results, key=lambda x: x[0])
-    init_results.sort(init_results, key=lambda x: x[0])
-    round_results.sort(round_results, key=lambda x: x[0])
+    ref_results = sorted(ref_results, key=lambda x: x[0])
+    init_results = sorted(init_results, key=lambda x: x[0])
+    round_results = sorted(round_results, key=lambda x: x[0])
+
+    logger.debug(f"Missing days:: {len(missing_days)} over {len(measurements)}")
 
     return ref_results, init_results, round_results
 

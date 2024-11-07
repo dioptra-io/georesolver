@@ -326,7 +326,6 @@ def get_hostname_score(args) -> None:
     target_score_answer = defaultdict(dict)
     target_score_subnet = defaultdict(dict)
     target_score_bgp_prefix = defaultdict(dict)
-
     for target_subnet in tqdm(target_subnets):
 
         vps_score_answer, vps_score_subnet, vps_score_bgp_prefix = (
@@ -367,8 +366,10 @@ def load_hostnames(hostname_per_cdn: dict) -> list[str]:
 
 
 def get_scores(score_config: dict) -> None:
+
     try:
-        hostnames, _ = load_hostnames(score_config["hostname_per_cdn"])
+        hostname_per_cdn = score_config["hostname_per_cdn"]
+        hostnames, cdns = load_hostnames(hostname_per_cdn)
     except KeyError:
         hostnames = score_config["selected_hostnames"]
 
@@ -461,38 +462,9 @@ def get_scores(score_config: dict) -> None:
         score_answer_bgp_prefixes=target_score_bgp_prefix,
     )
 
-    if "output_path" in score_config:
-        dump_pickle(data=score, output_file=Path(score_config["output_path"]))
-
-    return score
+    dump_pickle(data=score, output_file=Path(score_config["output_path"]))
 
 
-def main_score(
-    target_subnet_path: Path,
-    vps_subnet_path: Path,
-    ecs_table: str,
-    vps_ecs_table: str,
-    hostname_file_path: Path,
-    output_path: Path,
-) -> None:
-    """load necessary materials, upload results in output path"""
-    selected_hostnames = load_json(hostname_file_path)
-
-    # some organizations do not have enought hostnames
-    if output_path.exists():
-        logger.info(f"Score file already exists BGP prefix threshold alredy done")
-        return
-
-    score_config = {
-        "targets_subnet_path": target_subnet_path,
-        "vps_subnet_path": vps_subnet_path,
-        "selected_hostnames": selected_hostnames,
-        "targets_ecs_table": ecs_table,
-        "vps_ecs_table": vps_ecs_table,
-        "hostname_selection": "max_bgp_prefix",
-        "score_metric": ["jaccard"],
-        "answer_granularities": ["answer_subnets"],
-        "output_path": output_path,
-    }
-
+if __name__ == "__main__":
+    score_config = load_json(path_settings.DATASET / "score_config.json")
     get_scores(score_config)

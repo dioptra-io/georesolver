@@ -79,55 +79,71 @@ def compute_score() -> None:
         path_settings.HOSTNAME_FILES / "best_hostnames_per_org_per_ns.json"
     )
 
-    org_per_ns = {
-        "awsdns": "AMAZON",
-        "google": "GOOGLE",
-        "facebook": "FACEBOOK",
-        "akamai": "AKAMAI",
-        "impervadns": "INCAPSULA",
-        "bunny": "CDN77",
-        "dns-parking": "AS-HOSTINGER",
-    }
+    # org_per_ns = {
+    #     "awsdns": "AMAZON",
+    #     "google": "GOOGLE",
+    #     "facebook": "FACEBOOK",
+    #     "akamai": "AKAMAI",
+    #     "impervadns": "INCAPSULA",
+    #     "bunny": "CDN77",
+    #     "dns-parking": "AS-HOSTINGER",
+    # }
 
-    nb_hostnames_per_org = [1, 10, 100, 500]
+    hg_orgs = [
+        "AMAZON",
+        "GOOGLE",
+        "FACEBOOK",
+        "AKAMAI",
+        "ALIBABA-CN-NET",
+        "TWITTER",
+        "MICROSOFT",
+        "OVH",
+        "CDNNETWORKS",
+        "APPLE",
+        "CDN77",
+        "INCAPSULA",
+        "FASTLY",
+    ]
+
+    nb_hostnames_per_org = [10, 100]
     for nb_hostnames in nb_hostnames_per_org:
         logger.info(f"{nb_hostnames=}")
-        for evaluated_ns, evaluated_org in org_per_ns.items():
+        for hg in hg_orgs:
 
             # extract hostname per cdn
-            selected_hostnames_per_cdn = defaultdict(list)
+            selected_hostnames_per_orgs = defaultdict(set)
             for ns in hostname_per_ns_per_org:
-                if ns != evaluated_ns:
-                    continue
 
                 for org, hostnames in hostname_per_ns_per_org[ns].items():
-                    if org != evaluated_org:
+                    if (
+                        org != hg
+                        or len(selected_hostnames_per_orgs[hg]) >= nb_hostnames
+                    ):
                         continue
 
-                    selected_hostnames_per_cdn[org].extend(hostnames[:nb_hostnames])
+                    selected_hostnames_per_orgs[hg].update(
+                        [h[1] for h in hostnames[:nb_hostnames]]
+                    )
 
             selected_hostnames = set()
-            for org, hostnames in selected_hostnames_per_cdn.items():
+            for org, hostnames in selected_hostnames_per_orgs.items():
                 selected_hostnames.update(hostnames)
 
             output_path = (
                 path_settings.RESULTS_PATH
-                / f"tier1_evaluation/scores__{len(selected_hostnames)}_hostname_{evaluated_org}_ns_{evaluated_ns}.pickle"
+                / f"tier1_evaluation/scores__{len(selected_hostnames)}_hostname_{hg}.pickle"
             )
 
             # some organizations do not have enought hostnames
             if output_path.exists():
                 continue
 
-            for org, hostnames in selected_hostnames_per_cdn.items():
-                logger.info(f"{org=}, {len(hostnames)=}")
-
             score_config = {
                 "targets_table": targets_table,
                 "main_org_threshold": main_org_threshold,
                 "bgp_prefixes_threshold": bgp_prefixes_threshold,
                 "vps_table": vps_table,
-                "hostname_per_cdn": selected_hostnames_per_cdn,
+                "selected_hostnames": selected_hostnames,
                 "targets_ecs_table": targets_ecs_table,
                 "vps_ecs_table": vps_ecs_table,
                 "hostname_selection": "max_bgp_prefix",
@@ -141,7 +157,7 @@ def compute_score() -> None:
 
 def evaluate() -> None:
     """calculate distance error and latency for each score"""
-    probing_budgets = [5, 10, 20, 30, 50]
+    probing_budgets = [50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
@@ -226,7 +242,7 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = False
+    compute_scores = True
     evaluation = False
 
     if compute_scores:

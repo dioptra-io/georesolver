@@ -8,10 +8,7 @@ from georesolver.clickhouse.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
 )
-from georesolver.agent.ping_process import (
-    get_ecs_vps,
-    select_one_vp_per_as_city,
-)
+from georesolver.agent.ping_process import get_ecs_vps
 from georesolver.common.utils import (
     get_parsed_vps,
     shortest_ping,
@@ -19,6 +16,7 @@ from georesolver.common.utils import (
     parse_target,
     TargetScores,
 )
+from georesolver.common.geoloc import distance
 from georesolver.common.files_utils import load_pickle
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.settings import PathSettings, ClickhouseSettings
@@ -27,17 +25,64 @@ path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
 
+def select_one_vp_per_as_city(
+    raw_vp_selection: list,
+    vp_coordinates: dict,
+    last_mile_delay: dict,
+    threshold: int = 40,
+) -> list:
+    """from a list of VP, select one per AS and per city"""
+    filtered_vp_selection = []
+    vps_per_as = defaultdict(list)
+    for vp_addr, score in raw_vp_selection:
+        _, _, _, vp_asn = vp_coordinates[vp_addr]
+        try:
+            last_mile_delay_vp = last_mile_delay[vp_addr]
+        except KeyError:
+            continue
+
+        vps_per_as[vp_asn].append((vp_addr, last_mile_delay_vp, score))
+
+    # select one VP per AS, take maximum VP score in AS
+    selected_vps_per_as = defaultdict(list)
+    for asn, vps in vps_per_as.items():
+        vps_per_as[asn] = sorted(vps, key=lambda x: x[-1], reverse=True)
+        for vp_i, last_mile_delay, score in vps_per_as[asn]:
+            vp_i_lat, vp_i_lon, _, _ = vp_coordinates[vp_i]
+
+            if not selected_vps_per_as[asn]:
+                selected_vps_per_as[asn].append((vp_i, score))
+                filtered_vp_selection.append((vp_i, score))
+            else:
+                already_found = False
+                for vp_j, score in selected_vps_per_as[asn]:
+
+                    vp_j_lat, vp_j_lon, _, _ = vp_coordinates[vp_j]
+
+                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+
+                    if d < threshold:
+                        already_found = True
+                        break
+
+                if not already_found:
+                    selected_vps_per_as[asn].append((vp_i, score))
+                    filtered_vp_selection.append((vp_i, score))
+
+    return filtered_vp_selection
+
+
 def filter_vps_last_mile_delay(
     ecs_vps: list[tuple],
     last_mile_delay: dict,
-    rtt_thresholdd: int = 4,
+    rtt_threshold: int = 4,
 ) -> list[tuple]:
     """remove vps that have a high last mile delay"""
     filtered_vps = []
     for vp_addr, score in ecs_vps:
         try:
             min_rtt = last_mile_delay[vp_addr]
-            if min_rtt < rtt_thresholdd:
+            if min_rtt < rtt_threshold:
                 filtered_vps.append((vp_addr, score))
         except KeyError:
             continue
@@ -111,17 +156,9 @@ def ecs_dns_vp_selection_eval(
             # TODO: select function of the last mile delay
             ecs_vps_per_budget = {}
             for budget in probing_budgets:
-                if type(budget) != tuple:
-                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
-                        ecs_vps, vps_coordinates, last_mile_delay
-                    )[:budget]
-                # select VPs between two range (tier 5)
-                else:
-                    selected_vps = select_one_vp_per_as_city(
-                        ecs_vps, vps_coordinates, last_mile_delay
-                    )
-                    # careful, in that case, budget is a tuple
-                    ecs_vps_per_budget[budget] = selected_vps[budget[0] : budget[-1]]
+                ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                    ecs_vps, vps_coordinates, last_mile_delay
+                )[:budget]
 
             country_no_ping = []
             if vps_country:
@@ -133,13 +170,13 @@ def ecs_dns_vp_selection_eval(
                 country_no_ping = (major_country, proportion)
 
             # NOT PING GEOLOC
-            no_ping_vp = get_no_ping_vp(
-                target,
-                target_score,
-                vps_per_subnet,
-                vps_coordinates,
-                major_country=country_no_ping,
-            )
+            # no_ping_vp = get_no_ping_vp(
+            #     target,
+            #     target_score,
+            #     vps_per_subnet,
+            #     vps_coordinates,
+            #     major_country=country_no_ping,
+            # )
 
             # SHORTEST PING GEOLOC
             try:
@@ -172,7 +209,7 @@ def ecs_dns_vp_selection_eval(
 
             result_per_metric[metric] = {
                 "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
-                "no_ping_vp": no_ping_vp,
+                # "no_ping_vp": no_ping_vp,
                 "ecs_scores": ecs_vps_per_budget[budget],
                 "ecs_vps": ecs_vps,
             }
