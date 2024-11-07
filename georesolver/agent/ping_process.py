@@ -144,7 +144,7 @@ def get_geo_resolver_schedule(
 
         # get vps, function of their subnet ecs score
         ecs_vps = get_ecs_vps(
-            target_subnet, target_scores, vps_per_subnet, last_mile_delay, 10_000
+            target_subnet, target_scores, vps_per_subnet, last_mile_delay, 5_00
         )
 
         ecs_vps = select_one_vp_per_as_city(ecs_vps, vps_coordinates, last_mile_delay)[
