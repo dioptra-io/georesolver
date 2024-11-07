@@ -1,3 +1,5 @@
+import httpx
+
 from loguru import logger
 from collections import defaultdict
 from pych_client import ClickHouseClient, AsyncClickHouseClient
@@ -118,10 +120,14 @@ def load_target_geoloc(table_name: str) -> dict:
     """
     targets_geoloc = {}
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        resp = GetShortestPingResults().execute(
-            client=client,
-            table_name=table_name,
-        )
+        try:
+            resp = GetShortestPingResults().execute(
+                client=client,
+                table_name=table_name,
+            )
+        except:
+            logger.error(f"Table:: {table_name} does not exists")
+            return None
 
     for row in resp:
         target_addr = row["dst_addr"]

@@ -120,6 +120,7 @@ class Query:
         logger.debug(
             f"query={self.name}; database={client.config['database']}; table_name={table_name}  limit={limit}"
         )
+
         settings = dict(
             limit=limit[0] if limit else 0,
             offset=limit[1] if limit else 0,
