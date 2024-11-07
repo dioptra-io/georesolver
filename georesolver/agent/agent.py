@@ -332,6 +332,10 @@ class Agent:
         # check docker running
         logger.info(f"Agent {self.host}:: monitor agent experiment")
 
+        # TODO: remote monitoring
+        if self.host not in ["localhost", "127.0.0.1"]:
+            return
+
         container_running = True
         while container_running:
             container_running = self.is_container_running()
@@ -371,4 +375,4 @@ class Agent:
         self.agent_start()
 
         # monitor container execution
-        # self.monitor()
+        self.monitor()
