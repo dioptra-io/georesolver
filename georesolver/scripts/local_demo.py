@@ -19,9 +19,7 @@ os.environ["RIPE_ATLAS_SECRET_KEY"] = (
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 # LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
-LOCAL_DEMO_TARGET_FILE = (
-    path_settings.DATASET / "subnet_aggregation/subnet_aggregation_targets.csv"
-)
+LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "test_targets.csv"
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
 LOCAL_DEMO_CONFIG_PATH = path_settings.LOG_PATH / "local_demo"
 LOCAL_DEMO_ECS_MAPPING_TABLE = "local_demo_ecs_mapping"
@@ -38,7 +36,7 @@ if __name__ == "__main__":
     #     LOCAL_DEMO_TARGET_FILE,
     #     mode="w",
     # )
- 
+
     logger.info(f"File available at:: {LOCAL_DEMO_TARGET_FILE}")
 
     # create agent config
@@ -46,28 +44,28 @@ if __name__ == "__main__":
         "agent_uuid": "d1d51228-ee66-44e4-8381-ccdce1ab73e4",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
-        "batch_size": 1000,
+        "batch_size": 10,
         "init_ecs_mapping": False,
         "processes": [
             {
                 "name": "ecs_process",
-                "in_table": "ecs_aggregation_ecs",
-                "out_table": "ecs_aggregation_ecs",
+                "in_table": "test_ecs",
+                "out_table": "test_ecs",
             },
             {
                 "name": "score_process",
-                "in_table": "ecs_aggregation_ecs",
-                "out_table": "ecs_aggregation_score",
+                "in_table": "test_ecs",
+                "out_table": "test_score",
             },
             {
                 "name": "ping_process",
-                "in_table": "ecs_aggregation_score",
-                "out_table": "ecs_aggregation_ping",
+                "in_table": "test_score",
+                "out_table": "test_ping",
             },
             {
                 "name": "insert_process",
-                "in_table": "ecs_aggregation_ping",
-                "out_table": "ecs_aggregation_geoloc",
+                "in_table": "test_ping",
+                "out_table": "test_geoloc",
             },
         ],
         "log_path": f"{LOCAL_DEMO_CONFIG_PATH.resolve()}",

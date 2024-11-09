@@ -3,8 +3,8 @@ import numpy as np
 
 from tqdm import tqdm
 from numpy import mean
-from loguru import logger
 from pathlib import Path
+from loguru import logger
 from pprint import pformat
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
@@ -127,7 +127,6 @@ def score_per_vps(
     target_mapping: dict[dict],
     vps_mapping: dict,
 ) -> tuple[dict]:
-    """get vps score per hostname for a given target subnet"""
     vps_score = defaultdict(list)
     for hostname, target_answers in target_mapping.items():
         for vp_subnet in vps_mapping:
@@ -136,17 +135,18 @@ def score_per_vps(
             except KeyError:
                 continue
 
+            # compute DNS similarity between target's redirection and vp's one
             vp_score = score_jaccard(target_answers, vp_answers)
             vps_score[vp_subnet].append(vp_score)
 
     return vps_score
 
 
-def score_sort(vps_score: dict, nb_hostnames: int) -> dict[dict]:
+def score_sort(vps_score: dict) -> dict[dict]:
     """calculate final target score"""
     return sorted(
         [
-            (vp_subnet, hostname_scores / nb_hostnames)
+            (vp_subnet, mean(hostname_scores))
             for vp_subnet, hostname_scores in vps_score.items()
         ],
         key=lambda x: x[1],
@@ -185,14 +185,12 @@ def score_targets(args) -> None:
     target_score = {}
     for target_subnet in tqdm(target_subnets, file=output_file):
 
-        vps_score_subnet = score_per_vps_experimental(
+        vps_score = score_per_vps(
             target_mapping=targets_mapping[target_subnet],
             vps_mapping=vps_mapping,
         )
 
-        target_score[target_subnet] = score_sort(
-            vps_score=vps_score_subnet, nb_hostnames=len(hostnames)
-        )
+        target_score[target_subnet] = score_sort(vps_score)
 
     if output_file:
         output_file.close()

@@ -244,13 +244,6 @@ def main() -> None:
             metric_evaluated="d_error",
         )
 
-        # plot_d_error_per_budget(
-        #     in_file=base_path
-        #     / f"results__d_error_per_budget{'_new' if NEW_EVAL else ''}.pickle",
-        #     output_path=f"tier5_per_budget{'_new' if NEW_EVAL else ''}",
-        # )
-        # plot_d_error_per_rank()
-
 
 if __name__ == "__main__":
     main()
