@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 matplotlib.use("Agg")
 from matplotlib import collections as matcoll
@@ -182,6 +183,7 @@ def plot_cdf(
     legend_outside: str = False,
     legend_pos: str = "upper left",
     legend_size: int = 10,
+    x_log_scale: bool = False,
 ) -> None:
 
     fig, ax1 = plt.subplots(1, 1)
@@ -192,8 +194,9 @@ def plot_cdf(
 
     homogenize_legend(ax1, legend_pos, legend_size=legend_size)
     plt.tight_layout()
-    plt.xscale("log")
-    # plt.xlim(left=x_lim)
+    if x_log_scale:
+        plt.xscale("log")
+    plt.xlim(left=x_lim)
     plt.ylim((0, y_lim))
     plt.savefig(
         path_settings.FIGURE_PATH / f"{output_path}.png",
@@ -215,6 +218,10 @@ def plot_multiple_cdf(
     legend_size: int = 10,
     under_padding: int = 0,
     x_limit_left: int = 1,
+    x_label: str = "",
+    y_label: str = "CDF of targets",
+    x_log_scale: bool = True,
+    y_log_scale: bool = False,
 ) -> None:
 
     fig, ax1 = plt.subplots(1, 1)
@@ -226,28 +233,34 @@ def plot_multiple_cdf(
         else:
             ax1.plot(x, y, label=label, color=colors_blind[i][1])
 
-    x_label = get_x_label(metric_evaluated)
+    x_label = get_x_label(metric_evaluated) if not x_label else x_label
     ax1.grid(linestyle="dotted")
     ax1.set_xlabel(x_label, fontsize=fontsize_axis)
-    ax1.set_ylabel("CDF of targets", fontsize=fontsize_axis)
+    ax1.set_ylabel(y_label, fontsize=fontsize_axis)
 
     if metric_evaluated == "d_error":
         plot_limit(
             limit=40, metric_evaluated=metric_evaluated, under_padding_d=under_padding
         )
-    else:
+    elif metric_evaluated == "rtt":
         plot_limit(
             limit=2, metric_evaluated=metric_evaluated, under_padding_d=under_padding
         )
+    else:
+        pass
+
+    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
+
     if legend_outside:
         plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
     else:
         plt.legend(loc=legend_pos, fontsize=8)
+    if x_log_scale:
+        plt.xscale("log")
+    if x_limit_left:
+        plt.xlim(left=x_limit_left)
 
-    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
     plt.tight_layout()
-    plt.xscale("log")
-    plt.xlim(left=x_limit_left)
     plt.ylim((0, 1))
     plt.savefig(
         path_settings.FIGURE_PATH / f"{output_path}_{metric_evaluated}.png",
@@ -259,6 +272,69 @@ def plot_multiple_cdf(
     )
     plt.show()
 
+
+def plot_multiple_cdfs_with_dates(
+    cdfs: list,
+    output_path: str,
+    metric_evaluated: str,
+    legend_outside: str = False,
+    legend_pos: str = "upper left",
+    legend_size: int = 10,
+    under_padding: int = 0,
+    x_limit_left: int = 1,
+    x_label: str = "",
+    y_label: str = "CDF of targets",
+    x_log_scale: bool = True,
+    y_log_scale: bool = False,
+) -> None:
+
+    _, ax1 = plt.subplots(1, 1)
+    x = cdfs[0][0]
+    for i, (_, y, label) in enumerate(cdfs):
+        ax1.plot(x, y, label=label, color=colors_blind[i][1])
+
+    x_label = get_x_label(metric_evaluated) if not x_label else x_label
+    ax1.grid(linestyle="dotted")
+    ax1.set_xlabel(x_label, fontsize=fontsize_axis)
+    ax1.set_ylabel(y_label, fontsize=fontsize_axis)
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+    for label in ax1.get_xticklabels(which="major"):
+        label.set(rotation=30, horizontalalignment="right")
+    plt.gca().xaxis.set_major_locator(mdates.DayLocator())
+
+    if metric_evaluated == "d_error":
+        plot_limit(
+            limit=40, metric_evaluated=metric_evaluated, under_padding_d=under_padding
+        )
+    elif metric_evaluated == "rtt":
+        plot_limit(
+            limit=2, metric_evaluated=metric_evaluated, under_padding_d=under_padding
+        )
+    else:
+        pass
+
+    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
+
+    if legend_outside:
+        plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
+    else:
+        plt.legend(loc=legend_pos, fontsize=8)
+    if x_log_scale:
+        plt.xscale("log")
+    if x_limit_left:
+        plt.xlim(left=x_limit_left)
+
+    plt.tight_layout()
+    plt.ylim((0, 1))
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"{output_path}_{metric_evaluated}.png",
+        bbox_inches="tight",
+    )
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"{output_path}_{metric_evaluated}.pdf",
+        bbox_inches="tight",
+    )
+    plt.show()
 
 
 def plot_imc(
@@ -356,7 +432,7 @@ def plot_limit(
     # label = ""
     # if metric_evaluated == "d_error":
     #     label = f"under {limit} [km]"
- 
+
     # if metric_evaluated == "rtt":
     #     label = f"under {limit} ms"
 

@@ -11,7 +11,9 @@ from collections import defaultdict
 from georesolver.agent import ProcessNames
 from georesolver.clickhouse.queries import load_targets, load_vps, load_target_geoloc
 from georesolver.evaluation.evaluation_plot_functions import get_proportion_under, ecdf
-from georesolver.evaluation.evaluation_plot_functions import plot_multiple_cdf
+from georesolver.evaluation.evaluation_plot_functions import (
+    plot_multiple_cdfs_with_dates,
+)
 from georesolver.common.geoloc import distance
 from georesolver.common.files_utils import load_json
 from georesolver.common.settings import PathSettings, ClickhouseSettings
@@ -105,7 +107,7 @@ def get_geoloc_results(
         target_lat, target_lon = target["lat"], target["lon"]
 
         # distance errors
-        d = distance(vp_lat, vp_lon, target_lat, target_lon)
+        d = distance(vp_lat, target_lat, vp_lon, target_lon)
         d_error.append(d)
 
         # min measured latency
@@ -154,6 +156,9 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
         vps_per_addr=vps_per_addr,
         target_per_addr=target_per_addr,
     )
+    logger.info("Reference measurement::")
+    logger.info(f"   - fraction under 40km ={ref_under_40_km}")
+    logger.info(f"   - fraction under 2ms  ={ref_under_2_ms}")
 
     # get results for each round of measurements
     missing_days = set()
@@ -167,7 +172,6 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
             vps_per_addr=vps_per_addr,
             target_per_addr=target_per_addr,
         )
-
         round_under_40_km, round_under_2_ms = get_geoloc_results(
             measurement_table=round_mapping_measurement_table,
             vps_per_addr=vps_per_addr,
@@ -184,9 +188,17 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
             missing_days.add(start_time)
             continue
 
-        ref_results.append(start_time, (ref_under_40_km, ref_under_2_ms))
-        init_results.append(start_time, (init_under_40_km, init_under_2_ms))
-        round_results.append(start_time, (round_under_40_km, round_under_2_ms))
+        logger.info("Init measurement::")
+        logger.info(f"   - fraction under 40km ={init_under_40_km}")
+        logger.info(f"   - fraction under 2ms  ={init_under_2_ms}")
+
+        logger.info("Round measurement::")
+        logger.info(f"   - fraction under 40km ={round_under_40_km}")
+        logger.info(f"   - fraction under 2ms  ={round_under_2_ms}")
+
+        ref_results.append((start_time, (ref_under_40_km, ref_under_2_ms)))
+        init_results.append((start_time, (init_under_40_km, init_under_2_ms)))
+        round_results.append((start_time, (round_under_40_km, round_under_2_ms)))
 
     # sort by start time
     ref_results = sorted(ref_results, key=lambda x: x[0])
@@ -225,11 +237,14 @@ def plot_results(
 
     subplots = [ref_plot, init_plot, round_plot]
 
-    plot_multiple_cdf(
+    plot_multiple_cdfs_with_dates(
         cdfs=subplots,
-        output_path=path_settings.FIGURE_PATH / "ecs_deprecation_d_error",
-        metric_evaluated="d_error",
-        legend_pos="lower right",
+        output_path="ecs_deprecation_d_error",
+        metric_evaluated="",
+        legend_pos="upper right",
+        x_log_scale=False,
+        x_limit_left=None,
+        y_label="fraction of targets under 40km",
     )
 
 

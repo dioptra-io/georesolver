@@ -81,9 +81,7 @@ def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> No
     )
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
+    ping_vps_to_target = get_pings_per_target("anchors_ping", removed_vps)
 
     logger.info("Tier 5:: Distance error vs. VPs selection budget")
     scores: TargetScores = load_pickle(score_file)
@@ -237,6 +235,7 @@ def main() -> None:
         cdfs = plot_ecs_shortest_ping(
             results=results.results_answer_subnets,
             probing_budgets_evaluated=[1, 10, 50],
+            metric_evaluated="rtt",
         )
         plot_multiple_cdf(
             cdfs=cdfs,
