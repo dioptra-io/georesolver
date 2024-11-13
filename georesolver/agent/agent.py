@@ -366,7 +366,7 @@ class Agent:
             self.hostname_file,
             path_settings.RIB_TABLE.resolve(),
         ]
-        # self.upload_target_files(target_files)
+        self.upload_target_files(target_files)
 
         # pull docker image
         self.pull_docker_image()
