@@ -44,6 +44,9 @@ class RIPEAtlasAPI:
         self.settings = RIPEAtlasSettings()
         self.api_url = "https://atlas.ripe.net/api/v2"
         self.measurement_url = f"{self.api_url}/measurements/"
+        self.headers = {
+            "Authorization": f"Key {RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
+        }
         self.request_timeout = 60
 
     def check_schedule_validity(self, schedule: list[tuple]) -> None:
@@ -112,16 +115,16 @@ class RIPEAtlasAPI:
         """return the number of measurements which have the status Ongoing"""
         async with httpx.AsyncClient() as client:
             params = {
-                "sort": ["-start_time"],
                 "status__in": "Specified,Scheduled,Ongoing",
                 "tags": [tag],
                 "mine": True,
-                "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY,
             }
-
             try:
                 resp = await client.get(
-                    self.measurement_url, params=params, timeout=self.request_timeout
+                    self.measurement_url,
+                    params=params,
+                    headers=self.headers,
+                    timeout=self.request_timeout,
                 )
                 resp = resp.json()
             except httpx.ReadTimeout:
@@ -142,11 +145,12 @@ class RIPEAtlasAPI:
     async def stop_measurement(self, id: int) -> None:
         """stop an ongoing measurement"""
         async with httpx.AsyncClient() as client:
-            params = {"id": id, "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}
-
+            params = {"id": id}
             try:
                 resp = await client.delete(
-                    url=self.measurement_url + f"{id}", params=params
+                    url=self.measurement_url + f"{id}",
+                    params=params,
+                    headers=self.headers,
                 )
             except httpx.ReadTimeout:
                 return id
@@ -171,12 +175,13 @@ class RIPEAtlasAPI:
             "stop_time__gte": start_time,
             "tags": [str(tag) for tag in tags],
             "mine": True,
-            "key": RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY,
         }
 
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.get(self.measurement_url, params=params)
+                resp = await client.get(
+                    self.measurement_url, params=params, headers=self.headers
+                )
                 if resp.status_code != 200:
                     logger.error(f"Error:: {resp.json()}")
 
@@ -309,10 +314,8 @@ class RIPEAtlasAPI:
         self, ip_addr: int, params: dict = {"engine": "single-radius"}
     ) -> int:
         ripe_ip_map_url = f"https://ipmap-api.ripe.net/v1/locate/{ip_addr}/best"
-        ripe_ip_map_url += f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
-
         with httpx.Client() as client:
-            resp = client.get(url=ripe_ip_map_url, params=params)
+            resp = client.get(url=ripe_ip_map_url, params=params, headers=self.headers)
             resp = resp.json()
 
             contributions = resp["metadata"]["service"]["contributions"]
@@ -465,14 +468,11 @@ class RIPEAtlasAPI:
         wait_time: int = 30,
     ) -> dict:
         """get results from ping measurement id"""
-        url = (
-            f"{self.measurement_url}/{id}/results/"
-            + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
-        )
+        url = f"{self.measurement_url}/{id}/results/"
         async with httpx.AsyncClient(timeout=timeout) as client:
             for i in range(max_retry):
                 try:
-                    resp = await client.get(url, timeout=timeout)
+                    resp = await client.get(url, headers=self.headers, timeout=timeout)
                     resp = resp.json()
 
                     ping_results = self.parse_ping(resp)
@@ -488,12 +488,9 @@ class RIPEAtlasAPI:
         return ping_results
 
     def get_probe_requested(self, id: int) -> int:
-        url = (
-            f"{self.measurement_url}/{id}/"
-            + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"
-        )
+        url = f"{self.measurement_url}/{id}/"
         with httpx.Client() as client:
-            resp = client.get(url, timeout=30)
+            resp = client.get(url, headers=self.headers, timeout=30)
             resp = resp.json()
 
             time.sleep(0.1)
@@ -703,8 +700,8 @@ class RIPEAtlasAPI:
             for _ in range(max_retry):
                 try:
                     resp = await client.post(
-                        self.measurement_url
-                        + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}",
+                        self.measurement_url,
+                        headers=self.headers,
                         json=self.get_ping_config(target, vp_ids, probing_tag),
                         timeout=timeout,
                     )
@@ -746,8 +743,8 @@ class RIPEAtlasAPI:
         async with httpx.AsyncClient(timeout=60) as client:
             for _ in range(max_retry):
                 resp = await client.post(
-                    self.measurement_url
-                    + f"/?key={RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}",
+                    self.measurement_url,
+                    headers=self.headers,
                     json=self.get_traceroute_config(target, vp_ids, probing_tag),
                     timeout=60,
                 )
@@ -773,11 +770,15 @@ async def test() -> None:
     target = "145.220.0.55"
     vps = [1136]
 
-    id = await RIPEAtlasAPI().ping(target=target, vp_ids=vps, uuid=str(uuid4()))
+    id = await RIPEAtlasAPI().ping(
+        target=target, vp_ids=vps, probing_tag="test-measurements"
+    )
     logger.info(f"Ping with measurement id:: {id} started")
 
-    id = await RIPEAtlasAPI().traceroute(target=target, vp_ids=vps, uuid=str(uuid4()))
-    logger.info(f"Traceroute with measurement id:: {id} started")
+    # id = await RIPEAtlasAPI().traceroute(
+    #     target=target, vp_ids=vps, probing_tag="test-measurements"
+    # )
+    # logger.info(f"Traceroute with measurement id:: {id} started")
 
 
 if __name__ == "__main__":

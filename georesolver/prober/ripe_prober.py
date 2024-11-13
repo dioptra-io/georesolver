@@ -119,7 +119,7 @@ class RIPEAtlasProber:
             case "traceroute":
                 id = await self.api.traceroute(
                     target=target,
-                    vp_ids=[vp_id for vp_id in vp_ids],
+                    vp_ids=[vp_id for vp_id in vp_ids ],
                     probing_tag=str(self.probing_tag),
                 )
             case _:
