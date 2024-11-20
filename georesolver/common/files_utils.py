@@ -68,7 +68,7 @@ def dump_csv(data: list[str], output_file: Path, mode: str = "w") -> None:
 
     with output_file.open(mode) as f:
         for row in data:
-            f.write(row + "\n")
+            f.write(str(row)+ "\n")
 
 
 def load_csv(input_file: Path, exit_on_failure: bool = False) -> list[str]:

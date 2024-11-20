@@ -11,6 +11,21 @@ from ipaddress import (
     IPv4Network,
     ip_network,
 )
+from georesolver.common.settings import PathSettings
+
+path_settings = PathSettings()
+
+
+def load_subnet_to_asn(subnets: list[str]) -> dict:
+    """get the AS number for each subnet in the input list, return dict"""
+    asndb = pyasn(str(path_settings.RIB_TABLE.resolve()))
+
+    subnet_to_asn = {}
+    for subnet in subnets:
+        asn, _ = asndb.lookup(subnet)
+        subnet_to_asn[subnet] = asn
+
+    return subnet_to_asn
 
 
 def get_addr_granularity(client_granularity: str, target: dict, asndb: pyasn) -> str:
