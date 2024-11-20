@@ -19,14 +19,25 @@ os.environ["RIPE_ATLAS_SECRET_KEY"] = (
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 # LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
-LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "test_targets.csv"
+# LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "ripe_atlas_subnet_aggregationtargets.csv"
+LOCAL_DEMO_TARGET_FILE = (
+    path_settings.DATASET / "subnet_aggregation/subnet_aggregation_targets.csv"
+)
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
 LOCAL_DEMO_CONFIG_PATH = path_settings.LOG_PATH / "local_demo"
 LOCAL_DEMO_ECS_MAPPING_TABLE = "local_demo_ecs_mapping"
 LOCAL_DEMO_SCORE_TABLE = "local_demo_score"
 LOCAL_DEMO_PING_TABLE = "local_demo_ping"
 LOCAL_DEMO_GEOLOC_TABLE = "local_demo_geoloc"
-NB_ADDRS = 10
+NB_ADDRS = 100
+BATCH_SIZE = 1_000
+
+DOCKER_EXEC = True
+
+
+def local_exec() -> None:
+    """run georesolver locally"""
+
 
 if __name__ == "__main__":
     # dump N random address in local_demo file
@@ -44,28 +55,28 @@ if __name__ == "__main__":
         "agent_uuid": "d1d51228-ee66-44e4-8381-ccdce1ab73e4",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
-        "batch_size": 10,
+        "batch_size": BATCH_SIZE,
         "init_ecs_mapping": False,
         "processes": [
             {
                 "name": "ecs_process",
-                "in_table": "test_ecs",
-                "out_table": "test_ecs",
+                "in_table": "subnet_aggregation_ecs",
+                "out_table": "subnet_aggregation_ecs",
             },
             {
                 "name": "score_process",
-                "in_table": "test_ecs",
-                "out_table": "test_score",
+                "in_table": "subnet_aggregation_ecs",
+                "out_table": "subnet_aggregation_score",
             },
             {
                 "name": "ping_process",
-                "in_table": "test_score",
-                "out_table": "test_ping",
+                "in_table": "subnet_aggregation_score",
+                "out_table": "subnet_aggregation_ping",
             },
             {
                 "name": "insert_process",
-                "in_table": "test_ping",
-                "out_table": "test_geoloc",
+                "in_table": "subnet_aggregation_ping",
+                "out_table": "subnet_aggregation_geoloc",
             },
         ],
         "log_path": f"{LOCAL_DEMO_CONFIG_PATH.resolve()}",
@@ -75,4 +86,7 @@ if __name__ == "__main__":
         agent_config, path_settings.LOG_PATH / "local_demo/local_demo_config.json"
     )
 
-    main(path_settings.LOG_PATH / "local_demo/local_demo_config.json")
+    main(
+        path_settings.LOG_PATH / "local_demo/local_demo_config.json",
+        check_cached_measurements=True,
+    )

@@ -13,10 +13,10 @@ from georesolver.common.settings import PathSettings
 
 path_settings = PathSettings()
 
+# DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
+DEMO_TARGET_FILE = path_settings.DATASET / "test_targets.csv"
 CONFIG_PATH = path_settings.DATASET / "experiment_config/local_demo_config.json"
-DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
-DEMO_ECS_MAPPING_TABLE = "demo_ecs_mapping"
-NB_ADDRS = 10_000
+NB_ADDRS = 100
 
 
 def generate_random_dataset() -> None:
@@ -34,7 +34,7 @@ def main_demo() -> None:
     """run georesolver on a random subset of ITDK IP addresses"""
     # dump N random address from ITDK dataset in demo file
     logger.info(f"Generating {NB_ADDRS} random target file for demo")
-    generate_random_dataset()
+    # generate_random_dataset()
     # get_random_itdk_routers(
     #     NB_ADDRS,
     #     DEMO_TARGET_FILE,

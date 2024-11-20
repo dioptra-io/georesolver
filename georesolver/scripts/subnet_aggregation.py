@@ -52,7 +52,7 @@ def get_random_sample_per_prefix(dataset_size: int) -> None:
     targets = set()
     prefix_count = 0
     for _, addrs in addr_per_subnet.items():
-        if not len(addrs) > addr_per_prefix:
+        if len(addrs) < addr_per_prefix:
             continue
 
         # get random sample per prefix
