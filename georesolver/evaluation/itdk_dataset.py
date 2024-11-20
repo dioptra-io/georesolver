@@ -23,7 +23,7 @@ MAXMIND_SOURCE_NAME = "maxmind"
 
 ITDK_ROUTER_INTERFACES_PATH = path_settings.DATASET / "itdk/itdk_router_interfaces.json"
 ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH = (
-    path_settings.DATASET / "itdk/itdk_responsive_router_interface.csv"
+    path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
 )
 ITDK_ROUTER_PER_INTERFACES = (
     path_settings.DATASET / "itdk/itdk_router_per_interfaces.json"
@@ -32,7 +32,7 @@ ITDK_ADDRS_ALL_PATH = path_settings.DATASET / "itdk/itdk_addrs_all.csv"
 ITDK_RESPONSIVE_ADDRS_ALL_PATH = (
     path_settings.DATASET / "itdk/itdk_responsive_addrs_all.csv"
 )
-ZMAP_ADDRS_PATH = path_settings.DATASET / "itdk/zmap_icmp_scan_2024_09.csv"
+ZMAP_ADDRS_PATH = path_settings.DATASET / "itdk/zmap_icmp_scan_15_11_2024.csv"
 
 
 def itdk_geo_dataset_eval() -> None:
@@ -252,7 +252,7 @@ def get_itdk_responsive_router_interface() -> None:
         if router_id in router_ids:
             continue
 
-        responsive_router_interface.append(f"{router_id},{responsive_addr}")
+        responsive_router_interface.append(responsive_addr)
         router_ids.add(router_id)
 
     dump_csv(responsive_router_interface, ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH)

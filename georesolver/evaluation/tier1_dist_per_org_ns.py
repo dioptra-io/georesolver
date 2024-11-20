@@ -79,16 +79,6 @@ def compute_score() -> None:
         path_settings.HOSTNAME_FILES / "best_hostnames_per_org_per_ns.json"
     )
 
-    # org_per_ns = {
-    #     "awsdns": "AMAZON",
-    #     "google": "GOOGLE",
-    #     "facebook": "FACEBOOK",
-    #     "akamai": "AKAMAI",
-    #     "impervadns": "INCAPSULA",
-    #     "bunny": "CDN77",
-    #     "dns-parking": "AS-HOSTINGER",
-    # }
-
     hg_orgs = [
         "AMAZON",
         "GOOGLE",
@@ -105,13 +95,13 @@ def compute_score() -> None:
         "FASTLY",
     ]
 
-    nb_hostnames_per_org = [10, 100]
+    nb_hostnames_per_org = [10]
     for nb_hostnames in nb_hostnames_per_org:
         logger.info(f"{nb_hostnames=}")
         for hg in hg_orgs:
 
             # extract hostname per cdn
-            selected_hostnames_per_orgs = defaultdict(set)
+            selected_hostnames_per_orgs = defaultdict(list)
             for ns in hostname_per_ns_per_org:
 
                 for org, hostnames in hostname_per_ns_per_org[ns].items():
@@ -121,13 +111,14 @@ def compute_score() -> None:
                     ):
                         continue
 
-                    selected_hostnames_per_orgs[hg].update(
+                    selected_hostnames_per_orgs[hg].extend(
                         [h[1] for h in hostnames[:nb_hostnames]]
                     )
 
             selected_hostnames = set()
             for org, hostnames in selected_hostnames_per_orgs.items():
-                selected_hostnames.update(hostnames)
+                # in case we selected too many hostnames
+                selected_hostnames.update(hostnames[:nb_hostnames])
 
             output_path = (
                 path_settings.RESULTS_PATH
@@ -135,8 +126,8 @@ def compute_score() -> None:
             )
 
             # some organizations do not have enought hostnames
-            if output_path.exists():
-                continue
+            # if output_path.exists():
+            #     continue
 
             score_config = {
                 "targets_table": targets_table,
@@ -151,6 +142,8 @@ def compute_score() -> None:
                 "answer_granularities": ["answer_subnets"],
                 "output_path": output_path,
             }
+
+            logger.info(f"Hg = {hg} => nb_hostnames={len(selected_hostnames)}")
 
             get_scores(score_config)
 
