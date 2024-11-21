@@ -8,7 +8,7 @@ from pprint import pprint
 from loguru import logger
 
 from georesolver.agent import retrieve_pings
-from georesolver.clickhouse.queries import get_pings_per_target
+from georesolver.clickhouse.queries import get_pings_per_target, get_tables
 from georesolver.common.files_utils import load_csv, dump_csv
 from georesolver.common.settings import (
     PathSettings,
@@ -30,12 +30,10 @@ SINGLE_RADIUS_PING_TABLE = "single_radius_ping"
 GEORESOLVER_PING_TABLE = "single_radius_georesolver_ping"
 
 
-def get_single_radius_measurement_ids(
-    wait_time: int = 30,
-) -> None:
+def get_single_radius_measurement_ids(wait_time: int = 30) -> None:
     """generate a file with single radius measurement ids"""
     tags = ["geolocation", "single-radius"]
-    params = {"sort": ["-start_time"], "tags": tags, "status__in": "4"}
+    params = {"sort": ["-start_time"], "tags": tags, "status__in": "4", "af": 4}
     headers = {"Authorization": f"Key {RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"}
 
     logger.info("Retrieving measurement ids")
@@ -92,6 +90,7 @@ async def get_single_radius_measurement_results() -> None:
     batch_size = 1_000
     for i in range(0, len(measurement_ids), batch_size):
         batch_ids = measurement_ids[i : i + batch_size]
+        logger.info(f"batch:: {i} -> {i + batch_size}")
         await retrieve_pings(
             ids=batch_ids,
             output_table=SINGLE_RADIUS_PING_TABLE,
@@ -109,6 +108,8 @@ def load_dataset() -> None:
     """retrieve measurements using single radius tag"""
     if not SINGLE_RADIUS_MEASUREMENT_IDS.exists():
         get_single_radius_measurement_ids()
+
+    if not SINGLE_RADIUS_PING_TABLE in get_tables():
         asyncio.run(get_single_radius_measurement_results())
 
     if not SINGLE_RADIUS_TARGET_FILE.exists():

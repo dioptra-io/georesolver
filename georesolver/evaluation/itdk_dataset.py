@@ -8,146 +8,38 @@ from georesolver.common.files_utils import (
     load_iter_csv,
     dump_csv,
     dump_json,
-    load_pickle,
-    dump_pickle,
     load_json,
     load_csv,
 )
-from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.settings import PathSettings
 
 path_settings = PathSettings()
 
-HOIHO_SOURCE_NAME = "hoiho"
-MAXMIND_SOURCE_NAME = "maxmind"
-
-ITDK_ROUTER_INTERFACES_PATH = path_settings.DATASET / "itdk/itdk_router_interfaces.json"
+ITDK_PATH = path_settings.DATASET / "itdk/"
+ITDK_INTERFACES = ITDK_PATH / "midar-iff.ifaces"
+ITDK_ROUTER_PER_INTERFACES = ITDK_PATH / "itdk_router_per_interfaces.json"
+ITDK_ADDRS_ALL_PATH = ITDK_PATH / "itdk_addrs_all.csv"
+ITDK_RESPONSIVE_ADDRS_ALL_PATH = ITDK_PATH / "itdk_responsive_addrs_all.csv"
+ZMAP_ADDRS_PATH = ITDK_PATH / "zmap_icmp_scan_15_11_2024.csv"
+ITDK_ROUTER_INTERFACES_PATH = ITDK_PATH / "itdk_router_interfaces.json"
+HOIHO_GEOLOC_PATH = ITDK_PATH / "midar-iff.nodes.geo"
+HOIHO_GEOLOC_PARSED_PATH = ITDK_PATH / "hoiho_parsed_geoloc.json"
 ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH = (
-    path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
+    ITDK_PATH / "itdk_responsive_router_interface_parsed.csv"
 )
-ITDK_ROUTER_PER_INTERFACES = (
-    path_settings.DATASET / "itdk/itdk_router_per_interfaces.json"
-)
-ITDK_ADDRS_ALL_PATH = path_settings.DATASET / "itdk/itdk_addrs_all.csv"
-ITDK_RESPONSIVE_ADDRS_ALL_PATH = (
-    path_settings.DATASET / "itdk/itdk_responsive_addrs_all.csv"
-)
-ZMAP_ADDRS_PATH = path_settings.DATASET / "itdk/zmap_icmp_scan_15_11_2024.csv"
-
-
-def itdk_geo_dataset_eval() -> None:
-    """get proportion of nodes/addrs/subnet for Hoio and overall, compare with Zmap dataset"""
-    row: str = ""
-
-    # load every addr per nodes
-    if not (path_settings.DATASET / "itdk_addr_nodes.pickle").exists():
-        itdk_nodes = load_iter_csv(
-            path_settings.DATASET / "static_files/midar-iff.nodes"
-        )
-        itdk_addr_nodes = defaultdict(set)
-        for row in itdk_nodes:
-            if row.startswith("node"):
-                # get a random IP address for a node
-                node = row.split(":")[0].split(" ")[-1]  # Ni
-                addrs = row.split(":")[-1].split(" ")
-                addrs = [addr.strip("\n") for addr in addrs if addr]
-
-                itdk_addr_nodes[node].update(addrs)
-
-        dump_pickle(itdk_addr_nodes, path_settings.DATASET / "itdk_addr_nodes.pickle")
-
-    # get each nodes geo source
-    if not (path_settings.DATASET / "itdk_addr_nodes.pickle").exists():
-
-        itdk_geo_nodes = load_iter_csv(
-            path_settings.DATASET / "static_files/midar-iff.nodes.geo"
-        )
-
-        itdk_addr_geo_nodes = defaultdict(set)
-        for row in itdk_geo_nodes:
-            if row.startswith("node.geo"):
-                node = row.split(":")[0].split(" ")[-1]  # Ni
-                source = row.split(":")[-1].split("\t")[-1]  # Hoio or Maxmind
-                itdk_addr_geo_nodes[source].add(node)
-
-        dump_pickle(
-            itdk_addr_geo_nodes, path_settings.DATASET / "itdk_addr_geo_nodes.pickle"
-        )
-
-    itdk_addr_nodes = load_pickle(path_settings.DATASET / "itdk_addr_nodes.pickle")
-    itdk_addr_geo_nodes = load_pickle(
-        path_settings.DATASET / "itdk_addr_geo_nodes.pickle"
-    )
-
-    hoio_nb_nodes = len(itdk_addr_geo_nodes[HOIHO_SOURCE_NAME])
-    maxmind_nb_nodes = len(itdk_addr_geo_nodes[MAXMIND_SOURCE_NAME])
-
-    total_nb_nodes = hoio_nb_nodes + maxmind_nb_nodes
-    proportion_hoio_nodes = round(hoio_nb_nodes * 100 / total_nb_nodes, 2)
-
-    logger.info(f"Total nb nodes:: {total_nb_nodes}")
-    logger.info(f"Hoio nb nodes:: {hoio_nb_nodes}")
-    logger.info(f"Maxmind nb nodes:: {maxmind_nb_nodes}")
-    logger.info(
-        f"Proportion of Hoio nodes from geo dataset:: {proportion_hoio_nodes} [%]"
-    )
-
-    if not (path_settings.DATASET / "hoio_addrs.csv").exists():
-        hoio_addrs = set()
-        for node in itdk_addr_geo_nodes[HOIHO_SOURCE_NAME]:
-            addrs = itdk_addr_nodes[node]
-            hoio_addrs.update(addrs)
-
-        dump_csv(hoio_addrs, path_settings.DATASET / "hoio_addrs.csv")
-
-    if not (path_settings.DATASET / "itdk_addrs.csv").exists():
-        itdk_addrs = set()
-        for node in itdk_addr_geo_nodes[HOIHO_SOURCE_NAME]:
-            addrs = itdk_addr_nodes[node]
-            itdk_addrs.update(addrs)
-
-        for node in itdk_addr_geo_nodes[MAXMIND_SOURCE_NAME]:
-            addrs = itdk_addr_nodes[node]
-            itdk_addrs.update(addrs)
-
-        dump_csv(itdk_addrs, path_settings.DATASET / "itdk_addrs.csv")
-
-    hoio_addrs = load_csv(path_settings.DATASET / "hoio_addrs.csv")
-    itdk_addrs = load_csv(path_settings.DATASET / "itdk_addrs.csv")
-
-    logger.info(f"Total itdk addrs:: {len(itdk_addrs)}")
-    logger.info(f"Hoio addrs:: {len(hoio_addrs)}")
-    logger.info(f"Maxmind addrs:: {len(itdk_addrs) - len(hoio_addrs)}")
-    logger.info(
-        f"Proportion Hoio addrs:: {round(len(hoio_addrs) * 100 / len(hoio_addrs), 2)} [%]"
-    )
-
-    # TODO: compare with ZMap
-    if not (path_settings.DATASET / "responsive_hoio_addrs.csv").exists():
-
-        zmap_addrs = load_csv(path_settings.DATASET / "zmap_icmp_scan_2024_09.csv")
-
-        responsive_hoio_addrs = set(hoio_addrs).intersection(set(zmap_addrs))
-        unresponsive_hoio_addrs = set(hoio_addrs).difference(set(zmap_addrs))
-
-        dump_csv(
-            responsive_hoio_addrs,
-            path_settings.DATASET / "responsive_hoio_addrs.csv",
-        )
-
-        dump_csv(
-            unresponsive_hoio_addrs,
-            path_settings.DATASET / "unresponsive_hoio_addrs.csv",
-        )
-
-    responsive_itdk_addrs = set(itdk_addrs).intersection(set(zmap_addrs))
-    unresponsive_itdk_addrs = set(itdk_addrs).difference(set(zmap_addrs))
 
 
 def get_itdk_router_interfaces() -> None:
-    """extract all IP addresses that belongs to router interfaces"""
+    """
+    extract all IP addresses that belongs to router interfaces:
+        - example row : '227.40.95.226 N37253355 L56036288 T'
+        - step 1      : only take IP addresses that belong to routers (T)
+        - step 2      : remove IANA multicast IP addrs (* in traceroutes)
+        - step 3      : regroup IP addresses per node ID (alias resolution)
+        - step 4      : dump router interfaces
+    """
 
-    itdk_ifaces = load_iter_csv(path_settings.DATASET / "static_files/midar-iff.ifaces")
+    itdk_ifaces = load_iter_csv(ITDK_INTERFACES)
 
     row: str = ""
     router_interfaces = defaultdict(list)
@@ -273,12 +165,57 @@ def get_random_itdk_routers(nb_addr: int, out_file: Path, mode: str = "a") -> No
     )
 
 
+def parse_hoiho_geoloc() -> None:
+    """dump json file with each target geoloc coordinates"""
+    hoiho_raw_geoloc = load_csv(HOIHO_GEOLOC_PATH)
+    router_ip_address_per_node = load_json(ITDK_ROUTER_INTERFACES_PATH)
+
+    hoiho_parsed_geoloc = {}
+    nodes = set()
+    targets = set()
+    for row in hoiho_raw_geoloc:
+        row = row.split("\t")
+        geoloc_source = row[-1]
+
+        if geoloc_source != "hoiho":
+            continue
+
+        node = row[0].split(" ")[-1][:-1]
+        country, lat, lon = row[3], row[5], row[6]
+
+        try:
+            target_addrs = router_ip_address_per_node[node]
+        except KeyError:
+            logger.error(f"Cannot find node:: {node}")
+            continue
+
+        targets.update(target_addrs)
+        nodes.add(node)
+
+        for target_addr in target_addrs:
+            hoiho_parsed_geoloc[target_addr] = {
+                "country": country,
+                "lat": lat,
+                "lon": lon,
+            }
+
+    logger.info(f"Nb total addr        :: {len(hoiho_raw_geoloc)}")
+    logger.info(f"Nb total nodes Hoiho :: {len(nodes)}")
+    logger.info(f"Nb total addrs Hoiho :: {len(targets)}")
+
+    dump_json(hoiho_parsed_geoloc, HOIHO_GEOLOC_PARSED_PATH)
+
+
 if __name__ == "__main__":
     do_get_dataset: bool = True
+    do_parse_hoiho_geoloc: bool = True
     do_get_random: bool = False
 
     if do_get_dataset:
         get_itdk_responsive_router_interface()
+
+    if do_parse_hoiho_geoloc:
+        parse_hoiho_geoloc()
 
     if do_get_random:
         get_random_itdk_routers(1_000, path_settings.DATASET / "demo_targets.csv")

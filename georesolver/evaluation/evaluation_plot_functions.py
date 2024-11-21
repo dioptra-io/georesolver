@@ -184,6 +184,7 @@ def plot_cdf(
     legend_pos: str = "upper left",
     legend_size: int = 10,
     x_log_scale: bool = False,
+    metric_evaluated: str = "",
 ) -> None:
 
     fig, ax1 = plt.subplots(1, 1)
@@ -192,7 +193,15 @@ def plot_cdf(
     ax1.set_xlabel(x_label, fontsize=fontsize_axis)
     ax1.set_ylabel(y_label, fontsize=fontsize_axis)
 
+    if metric_evaluated == "d_error":
+        plot_limit(limit=40, metric_evaluated=metric_evaluated)
+    elif metric_evaluated == "rtt":
+        plot_limit(limit=2, metric_evaluated=metric_evaluated)
+    else:
+        pass
+
     homogenize_legend(ax1, legend_pos, legend_size=legend_size)
+
     plt.tight_layout()
     if x_log_scale:
         plt.xscale("log")
@@ -223,7 +232,7 @@ def plot_multiple_cdf(
     x_log_scale: bool = True,
     y_log_scale: bool = False,
 ) -> None:
-
+  
     fig, ax1 = plt.subplots(1, 1)
 
     for i, (x, y, label) in enumerate(cdfs):
@@ -651,18 +660,6 @@ def plot_ecs_shortest_ping(
                     label += f"\nBGP threshold={label_bgp_prefix}"
                 if label_nb_hostname_per_org_ns:
                     label += f"\n{label_nb_hostname_per_org_ns} hostnames per NS/org"
-
-                # if (
-                #     metric == "jaccard"
-                #     and len(probing_budgets_evaluated) > 1
-                #     and label_granularity
-                # ):
-                #     label += f" (GeoResolver {budget} VPs)"
-
-                # elif metric == "jaccard" and len(probing_budgets_evaluated) > 1:
-                #     label += f"GeoResolver {budget} VPs"
-                # else:
-                #     label += "GeoResolver"
 
                 cdfs.append((x, y, label))
 
