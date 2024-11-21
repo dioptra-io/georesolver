@@ -73,7 +73,6 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
 
     try:
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-            CreatePingTable().execute(client, table_name)
             resp = GetPingsPerTarget().execute(
                 client=client,
                 table_name=table_name,
