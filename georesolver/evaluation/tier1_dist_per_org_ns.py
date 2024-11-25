@@ -125,9 +125,8 @@ def compute_score() -> None:
                 / f"tier1_evaluation/scores__{len(selected_hostnames)}_hostname_{hg}.pickle"
             )
 
-            # some organizations do not have enought hostnames
-            # if output_path.exists():
-            #     continue
+            if output_path.exists():
+                continue
 
             score_config = {
                 "targets_table": targets_table,

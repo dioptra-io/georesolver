@@ -86,7 +86,7 @@ def get_geoloc_results(
     measurement_table: str, vps_per_addr: dict, target_per_addr: dict
 ) -> None:
     """return the number of IP addresses with a geolocation result under threshold"""
-    d_error = []
+    d_errors = []
     rtts = []
 
     targets_geoloc = load_target_geoloc(measurement_table)
@@ -108,22 +108,22 @@ def get_geoloc_results(
 
         # distance errors
         d = distance(vp_lat, target_lat, vp_lon, target_lon)
-        d_error.append(d)
+        d_errors.append(d)
 
         # min measured latency
         rtt = geoloc[-1]
         rtts.append(rtt)
 
-    x, y = ecdf(d_error)
+    x, y = ecdf(d_errors)
     under_40_km = get_proportion_under(x, y, threshold=40)
 
-    x, y = ecdf(d_error)
+    x, y = ecdf(rtts)
     under_2_ms = get_proportion_under(x, y, threshold=2)
 
     return under_40_km, under_2_ms
 
 
-def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
+def evaluation(measurements: dict[dict]) -> None:
     """
     compare the results between::
         1. init pings (reference)
@@ -133,7 +133,6 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
         1. proportion of IP addresses under 40km
         2. proportion of IP addresses under 2ms
     """
-    ref_results = []
     init_results = []
     round_results = []
 
@@ -148,17 +147,6 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
     target_per_addr = {}
     for target in targets:
         target_per_addr[target["addr"]] = target
-
-    # get ref metrics (day 0)
-    ref_measurement_table = init_measurement["init_vps_mapping"]["ping_table"]
-    ref_under_40_km, ref_under_2_ms = get_geoloc_results(
-        measurement_table=ref_measurement_table,
-        vps_per_addr=vps_per_addr,
-        target_per_addr=target_per_addr,
-    )
-    logger.info("Reference measurement::")
-    logger.info(f"   - fraction under 40km ={ref_under_40_km}")
-    logger.info(f"   - fraction under 2ms  ={ref_under_2_ms}")
 
     # get results for each round of measurements
     missing_days = set()
@@ -196,34 +184,22 @@ def evaluation(measurements: dict[dict], init_measurement: dict[dict]) -> None:
         logger.info(f"   - fraction under 40km ={round_under_40_km}")
         logger.info(f"   - fraction under 2ms  ={round_under_2_ms}")
 
-        ref_results.append((start_time, (ref_under_40_km, ref_under_2_ms)))
         init_results.append((start_time, (init_under_40_km, init_under_2_ms)))
         round_results.append((start_time, (round_under_40_km, round_under_2_ms)))
 
     # sort by start time
-    ref_results = sorted(ref_results, key=lambda x: x[0])
     init_results = sorted(init_results, key=lambda x: x[0])
     round_results = sorted(round_results, key=lambda x: x[0])
 
     logger.debug(f"Missing days:: {len(missing_days)} over {len(measurements)}")
 
-    return ref_results, init_results, round_results
+    return init_results, round_results
 
 
-def plot_results(
-    ref_results: list,
-    init_results: list,
-    round_results: list,
-) -> None:
+def plot_results(init_results: list, round_results: list) -> None:
     """plot each results"""
     subplots = []
 
-    # plot distance error results
-    ref_plot = (
-        [r[0] for r in ref_results],
-        [r[1][0] for r in ref_results],
-        "reference",
-    )
     init_plot = (
         [r[0] for r in init_results],
         [r[1][0] for r in init_results],
@@ -235,7 +211,7 @@ def plot_results(
         "round vps mapping",
     )
 
-    subplots = [ref_plot, init_plot, round_plot]
+    subplots = [init_plot, round_plot]
 
     plot_multiple_cdfs_with_dates(
         cdfs=subplots,
@@ -257,11 +233,9 @@ def main() -> None:
     logger.info("Init measurement::")
     logger.info("{}", pformat(init_measurement))
 
-    ref_results, init_results, round_results = evaluation(
-        measurements, init_measurement
-    )
+    init_results, round_results = evaluation(measurements)
 
-    plot_results(ref_results, init_results, round_results)
+    plot_results(init_results, round_results)
 
 
 if __name__ == "__main__":

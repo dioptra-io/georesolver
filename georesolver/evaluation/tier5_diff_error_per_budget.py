@@ -192,7 +192,7 @@ def plot_d_error_per_rank(
 def main() -> None:
     compute_scores = False
     evaluate_d_error_per_budget = False
-    evaluate_d_error_per_rank = False
+    evaluate_d_error_per_rank = True
     make_figs = True
 
     base_path = path_settings.RESULTS_PATH / "tier5_evaluation/"

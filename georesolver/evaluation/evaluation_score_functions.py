@@ -398,13 +398,15 @@ def get_scores(score_config: dict) -> None:
     logger.info(f"{len(vp_subnets)=}")
 
     # avoid overloading cpu
-    if len(hostnames) > 5_00:
-        usable_cpu = cpu_count() - 1
-    else:
-        usable_cpu = cpu_count() - 1
+    # if len(hostnames) > 5_00:
+    #     usable_cpu = cpu_count() - 1
+    # else:
+    #     usable_cpu = cpu_count() - 1
 
-    if usable_cpu < 1:
-        usable_cpu = 1
+    # if usable_cpu < 1:
+    #     usable_cpu = 1
+
+    usable_cpu = 1
 
     batch_size = len(target_subnets) // usable_cpu + 1
 

@@ -178,7 +178,8 @@ def plot_cdf(
     output_path: str,
     x_label: str,
     y_label: str,
-    x_lim: int = 1,
+    x_lim_right: int = 1,
+    x_lim_left: int = None,
     y_lim: int = 1,
     legend_outside: str = False,
     legend_pos: str = "upper left",
@@ -205,7 +206,9 @@ def plot_cdf(
     plt.tight_layout()
     if x_log_scale:
         plt.xscale("log")
-    plt.xlim(left=x_lim)
+    if x_lim_right:
+        plt.xlim(right=x_lim_right)
+    plt.xlim(left=x_lim_left)
     plt.ylim((0, y_lim))
     plt.savefig(
         path_settings.FIGURE_PATH / f"{output_path}.png",
@@ -232,7 +235,7 @@ def plot_multiple_cdf(
     x_log_scale: bool = True,
     y_log_scale: bool = False,
 ) -> None:
-  
+
     fig, ax1 = plt.subplots(1, 1)
 
     for i, (x, y, label) in enumerate(cdfs):
