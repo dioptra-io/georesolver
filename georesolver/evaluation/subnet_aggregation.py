@@ -316,8 +316,8 @@ def main() -> None:
         2. Evaluate the same metric but for each AS type (as we did for continental geoloc)
         3. Re-evaluate the results described in the Million scale paper
     """
-    do_fraction_subnet_eval: bool = False
-    do_reduced_eval: bool = False
+    do_fraction_subnet_eval: bool = True
+    do_reduced_eval: bool = True
     do_per_asn_eval: bool = True
 
     targets = load_csv(TARGET_FILE)
@@ -337,7 +337,7 @@ def main() -> None:
             x_limit_left=0,
             y_label="CDF of subnets",
             x_label="fraction of targets under 2ms",
-            x_log_scale=False,
+            x_log_scale=True,
         )
 
     if do_reduced_eval:

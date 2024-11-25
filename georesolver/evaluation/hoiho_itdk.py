@@ -77,18 +77,42 @@ def coverage_evaluation() -> None:
     """
     evaluate coverage of georesolver on ITDK dataset:
         - fraction of responsive IP address
-        - fraction of IP addresses under 2ms
-        - fraction of Hoiho geolocation
-        - fraction of intersection
-        - fraction of Hoiho IP address for which we do not have geolocation
-        - fraction of Georesolver IP address for which Hoiho does not have geolocation
     """
-    pass
+    all_router_interfaces = load_csv(path_settings.DATASET / "itdk/itdk_addrs_all.csv")
+    resp_router_interfaces = load_csv(
+        path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
+    )
+    geoloc_hoiho = load_json(path_settings.DATASET / "itdk/hoiho_parsed_geoloc.json")
+    hoiho_targets = [t for t in geoloc_hoiho]
+    responsive_hoiho_targets = set(resp_router_interfaces).intersection(
+        set(hoiho_targets)
+    )
+    hoiho_itdk_coverage = round(
+        (len(hoiho_targets) / len(all_router_interfaces)) * 100, 2
+    )
+    frac_responsive_hoiho = round(
+        (len(responsive_hoiho_targets) / len(geoloc_hoiho)) * 100, 2
+    )
+    frac_georesolver = round((2_030_192 / len(all_router_interfaces)) * 100, 2)
+
+    logger.info("HOIHO coverage             ::")
+    logger.info(f"Router iffaces            :: {len(hoiho_targets)}")
+    logger.info(f"Coverage over ITDK router interfaces:: {hoiho_itdk_coverage}")
+    logger.info(f"Responsive router iffaces :: {len(responsive_hoiho_targets)} ")
+    logger.info(f"Responsive router iffaces :: {frac_responsive_hoiho}[%]")
+    logger.info("GEORESOLVER coverage       ::")
+    logger.info(f"Router interfaces (responsive) :: 2.03M ")
+    logger.info(f"Router interfaces :: {frac_georesolver} [%]")
+    logger.info(f"Theoric coverage goeresolver (20%) :: {frac_georesolver} [%]")
 
 
 def hoiho_geoloc_vs_georesolver() -> None:
     """
-    compare Hoiho geolocation against georesolver
+    compare Hoiho geolocation against georesolver:
+        - fraction of Hoiho geolocation
+        - fraction of intersection
+        - fraction of Hoiho IP address for which we do not have geolocation
+        - fraction of Georesolver IP address for which Hoiho does not have geolocation
     """
     asndb = pyasn(str(path_settings.RIB_TABLE))
     vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
@@ -171,10 +195,14 @@ def main() -> None:
             - fraction of IP addresses with invalid geoloction in hoiho dataset
     """
     do_georesolver_evaluation: bool = True
+    do_coverage_evaluation: bool = True
     do_hoiho_vs_georesolver: bool = True
 
     if do_georesolver_evaluation:
         georesolver_evaluation()
+
+    if do_coverage_evaluation:
+        coverage_evaluation()
 
     if do_hoiho_vs_georesolver:
         impossible_geoloc = hoiho_geoloc_vs_georesolver()

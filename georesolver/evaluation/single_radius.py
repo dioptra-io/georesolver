@@ -1,15 +1,17 @@
 """this script aims at comparing the performances of georesolver against single-radius"""
 
+import os
 import httpx
 import asyncio
 
 from time import sleep
-from pprint import pprint
+from pprint import pformat
 from loguru import logger
 
 from georesolver.agent import retrieve_pings
+from georesolver.scheduler import create_agents
 from georesolver.clickhouse.queries import get_pings_per_target, get_tables
-from georesolver.common.files_utils import load_csv, dump_csv
+from georesolver.common.files_utils import load_json, load_csv, dump_csv
 from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
@@ -18,6 +20,9 @@ from georesolver.common.settings import (
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
+os.environ["RIPE_ATLAS_SECRET_KEY"] = (
+    RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY_SECONDARY
+)
 
 NB_TARGETS = 100_000
 SINGLE_RADIUS_TARGET_FILE = (
@@ -28,6 +33,9 @@ SINGLE_RADIUS_MEASUREMENT_IDS = (
 )
 SINGLE_RADIUS_PING_TABLE = "single_radius_ping"
 GEORESOLVER_PING_TABLE = "single_radius_georesolver_ping"
+GEORESOLVER_CONFIG_FILE = (
+    path_settings.DATASET / "experiment_config/single_radius_config.json"
+)
 
 
 def get_single_radius_measurement_ids(wait_time: int = 30) -> None:
@@ -118,8 +126,13 @@ def load_dataset() -> None:
 
 def run_georesolver() -> None:
     """perform georesolver measurement on single radius dataset"""
-    # TODO: generate measurement config and start with docker
-    pass
+    config = load_json(GEORESOLVER_CONFIG_FILE)
+    logger.info("Running GeoResolver with config:: ")
+    logger.info("config=\n{}", pformat(config))
+
+    agents = create_agents(GEORESOLVER_CONFIG_FILE)
+    for agent in agents:
+        agent.run()
 
 
 def run_evaluation() -> None:

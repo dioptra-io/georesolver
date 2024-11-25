@@ -120,6 +120,9 @@ def compute_score() -> None:
                 # in case we selected too many hostnames
                 selected_hostnames.update(hostnames[:nb_hostnames])
 
+            if not selected_hostnames:
+                continue
+
             output_path = (
                 path_settings.RESULTS_PATH
                 / f"tier1_evaluation/scores__{len(selected_hostnames)}_hostname_{hg}.pickle"

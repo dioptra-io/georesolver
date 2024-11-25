@@ -23,6 +23,7 @@ ITDK_RESPONSIVE_ADDRS_ALL_PATH = ITDK_PATH / "itdk_responsive_addrs_all.csv"
 ZMAP_ADDRS_PATH = ITDK_PATH / "zmap_icmp_scan_15_11_2024.csv"
 ITDK_ROUTER_INTERFACES_PATH = ITDK_PATH / "itdk_router_interfaces.json"
 HOIHO_GEOLOC_PATH = ITDK_PATH / "midar-iff.nodes.geo"
+HOIHO_GEOLOC_ALL_ADDRS = ITDK_PATH / "hoiho_geoloc_all_addrs.csv"
 HOIHO_GEOLOC_PARSED_PATH = ITDK_PATH / "hoiho_parsed_geoloc.json"
 ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH = (
     ITDK_PATH / "itdk_responsive_router_interface_parsed.csv"
@@ -170,9 +171,9 @@ def parse_hoiho_geoloc() -> None:
     hoiho_raw_geoloc = load_csv(HOIHO_GEOLOC_PATH)
     router_ip_address_per_node = load_json(ITDK_ROUTER_INTERFACES_PATH)
 
-    hoiho_parsed_geoloc = {}
     nodes = set()
     targets = set()
+    hoiho_parsed_geoloc = {}
     for row in hoiho_raw_geoloc:
         row = row.split("\t")
         geoloc_source = row[-1]
