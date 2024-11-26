@@ -154,29 +154,18 @@ def ecs_dns_vp_selection_eval(
 
             # take only one address per city and per AS
             # TODO: select function of the last mile delay
-            ecs_vps_per_budget = {}
-            for budget in probing_budgets:
-                ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
-                    ecs_vps, vps_coordinates, last_mile_delay
-                )[:budget]
-
-            country_no_ping = []
-            if vps_country:
-                countries = [
-                    vps_country[vp_addr] for vp_addr, _ in ecs_vps_per_budget[50]
-                ]
-                major_country = max(set(countries), key=countries.count)
-                proportion = countries.count(major_country) / len(countries)
-                country_no_ping = (major_country, proportion)
-
-            # NOT PING GEOLOC
-            # no_ping_vp = get_no_ping_vp(
-            #     target,
-            #     target_score,
-            #     vps_per_subnet,
-            #     vps_coordinates,
-            #     major_country=country_no_ping,
-            # )
+            if type(probing_budgets[0]) == int:
+                ecs_vps_per_budget = {}
+                for budget in probing_budgets:
+                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )[:budget]
+            else:
+                ecs_vps_per_budget = {}
+                for budget in probing_budgets:
+                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )[budget[0] : budget[1]]
 
             # SHORTEST PING GEOLOC
             try:
@@ -209,7 +198,6 @@ def ecs_dns_vp_selection_eval(
 
             result_per_metric[metric] = {
                 "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
-                # "no_ping_vp": no_ping_vp,
                 "ecs_scores": ecs_vps_per_budget[budget],
                 "ecs_vps": ecs_vps,
             }

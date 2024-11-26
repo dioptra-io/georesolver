@@ -7,10 +7,16 @@ import asyncio
 from time import sleep
 from pprint import pformat
 from loguru import logger
+from numpy import mean
 
 from georesolver.agent import retrieve_pings
 from georesolver.scheduler import create_agents
 from georesolver.clickhouse.queries import get_pings_per_target, get_tables
+from georesolver.evaluation.evaluation_plot_functions import (
+    ecdf,
+    plot_multiple_cdf,
+    get_proportion_under,
+)
 from georesolver.common.files_utils import load_json, load_csv, dump_csv
 from georesolver.common.settings import (
     PathSettings,
@@ -135,14 +141,133 @@ def run_georesolver() -> None:
         agent.run()
 
 
+def get_shortest_ping(ping_table: str) -> tuple[dict]:
+    """retrieve georesolver shortest ping"""
+    pings_per_target = get_pings_per_target(ping_table)
+
+    shortest_ping_per_target = {}
+    under_2_ms = {}
+    for target, pings in pings_per_target.items():
+        vp, min_rtt = min(pings, key=lambda x: x[-1])
+
+        shortest_ping_per_target[target] = (vp, min_rtt)
+
+        if min_rtt <= 2:
+            under_2_ms[target] = (vp, min_rtt)
+
+    return shortest_ping_per_target, under_2_ms
+
+
+def shortest_ping_evaluation() -> None:
+    """compute shortest ping for both single radius and georesolver, make figure"""
+    shortest_ping_single_radius, under_2_ms_single_radius = get_shortest_ping(
+        SINGLE_RADIUS_PING_TABLE
+    )
+    shortest_ping_georesolver, under_2_ms_georesolver = get_shortest_ping(
+        GEORESOLVER_PING_TABLE
+    )
+
+    shortest_ping_single_radius = {
+        key: val
+        for key, val in shortest_ping_single_radius.items()
+        if key in shortest_ping_georesolver
+    }
+
+    cdfs = []
+    x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver.values()])
+    cdfs.append((x, y, "georesolver"))
+    frac_under_2_ms_georesolver = get_proportion_under(x, y, 2)
+
+    x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_single_radius.values()])
+    cdfs.append((x, y, "single-radius"))
+    frac_under_2_ms_single_radius = get_proportion_under(x, y, 2)
+
+    logger.info("Single radius")
+    logger.info(f"Nb targets             :: {len(shortest_ping_single_radius)}")
+    logger.info(f"Nb target under 2ms    :: {len(under_2_ms_single_radius)}")
+    logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_single_radius}")
+
+    logger.info("GeoResolver")
+    logger.info(f"Nb targets             :: {len(shortest_ping_georesolver)}")
+    logger.info(f"Nb target under 2ms    :: {len(under_2_ms_georesolver)}")
+    logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_georesolver}")
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="single_radius_vs_georesolver_shortest_ping",
+        metric_evaluated="rtt",
+        legend_pos="lower right",
+    )
+
+
+def cost_evaluation() -> None:
+    """perform cost evaluation and plot CDF"""
+    single_radius_pings = get_pings_per_target(SINGLE_RADIUS_PING_TABLE)
+
+    cost_per_target = []
+    for pings in single_radius_pings.values():
+        cost_per_target.append(len(pings))
+
+    cdfs = []
+    avg_cost = mean(cost_per_target)
+    cummulative_cost_single_radius = sum(cost_per_target)
+    cummulative_cost_georesolver = 50 * len(cost_per_target)
+
+    x, y = ecdf(cost_per_target)
+    cdfs.append((x, y, "single-radius"))
+
+    y = [50 for _ in range(len(x))]
+    cdfs.append((x, y, "georesolver"))
+
+    logger.info(f"Avg cost single-radius         :: {round(avg_cost)}")
+    logger.info(f"Cummulative cost single-radius :: {cummulative_cost_single_radius}")
+    logger.info(f"Cummulative cost GeoResolver   :: {cummulative_cost_georesolver}")
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="single_radius_vs_georesolver_cost",
+        metric_evaluated="",
+        legend_pos="lower right",
+        x_log_scale=False,
+    )
+
+
+def get_vps_asn_country() -> None:
+    """return VPs asn and country"""
+    pass
+
+
+def asn_country_diversity_evaluation() -> None:
+    """per target, get the number of country/AS represented by the VPs set"""
+    pings_single_radius = get_pings_per_target(SINGLE_RADIUS_PING_TABLE)
+    pings_georesolver = get_pings_per_target(GEORESOLVER_PING_TABLE)
+
+    for target, pings in pings_georesolver.items():
+        pass
+
+
 def run_evaluation() -> None:
     """
     perform the evaluation:
-        - latency comparison overall
-        - AS diversity
-        - VPs selection analysis (to define)
+        - latency comparison overall:
+            - shortest ping single radius/georesolver
+        - AS diversity/country diversity (CDF + mean per target)
+        - VPs selection analysis (to define):
+            - idea: cummulative distance VPs
+            - idea: mean latency VPs
     """
-    pass
+    do_shortest_ping_evaluation: bool = True
+    do_cost_evaluation: bool = True
+    do_asn_country_diversity_evaluation: bool = True
+
+    if do_shortest_ping_evaluation:
+        shortest_ping_evaluation()
+
+    if do_cost_evaluation:
+        cost_evaluation()
+
+    if do_asn_country_diversity_evaluation:
+        asn_country_diversity_evaluation()
 
 
 def main() -> None:
@@ -150,13 +275,10 @@ def main() -> None:
     main function:
         - generate a dataset of single radius measurements
         - perform georesolver measurement on the dataset
-        - make the evaluation:
-            - latency comparison overall
-            - AS diversity
-            - VPs selection analysis (to define)
+        - evaluation
     """
-    perform_measurement: bool = True
-    make_eval: bool = False
+    perform_measurement: bool = False
+    make_eval: bool = True
     if perform_measurement:
         load_dataset()
         run_georesolver()

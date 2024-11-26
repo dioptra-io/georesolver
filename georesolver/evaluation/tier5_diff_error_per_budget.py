@@ -15,7 +15,6 @@ from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
     plot_multiple_cdf,
     plot_ref,
-    plot_ecs_shortest_ping,
 )
 from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
     ecs_dns_vp_selection_eval,
@@ -28,11 +27,6 @@ from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
-
-# set to True to use evaluation data
-NEW_EVAL = True
-if not NEW_EVAL:
-    os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def compute_score(output_path: Path) -> None:
@@ -75,9 +69,7 @@ def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> No
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(
-        path_settings.REMOVED_VPS
-        if NEW_EVAL
-        else path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
+        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
     )
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
@@ -113,7 +105,6 @@ def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> No
 
 
 def plot_d_error_per_budget(
-    in_file: Path,
     output_path: str = "tier5_per_budget",
     metric_evaluated: str = "d_error",
     legend_pos: str = "lower right",
@@ -122,12 +113,15 @@ def plot_d_error_per_budget(
     ref_cdf = plot_ref(metric_evaluated)
     all_cdfs.append(ref_cdf)
 
-    eval: EvalResults = load_pickle(in_file)
+    eval: EvalResults = load_pickle(
+        path_settings.RESULTS_PATH
+        / "tier5_evaluation/results__d_error_per_budget.pickle"
+    )
 
     d_errors_per_budget = defaultdict(list)
-    for _, results_per_metric in eval.results_answer_subnets.items():
+    for _, target_results in eval.results_answer_subnets.items():
         try:
-            results = results_per_metric["result_per_metric"]["jaccard"]
+            results = target_results["result_per_metric"]["jaccard"]
             shortest_ping_vp_per_budget: dict = results[
                 "ecs_shortest_ping_vp_per_budget"
             ]
@@ -174,6 +168,8 @@ def plot_d_error_per_rank(
             continue
 
         for budget, shortest_ping_vp in shortest_ping_vp_per_budget.items():
+            if budget != (0, 50):
+                continue
             d_errors_per_budget[budget].append(shortest_ping_vp[metric_evaluated])
 
     # get cdf for each budget/rank
@@ -198,16 +194,13 @@ def main() -> None:
     base_path = path_settings.RESULTS_PATH / "tier5_evaluation/"
 
     if compute_scores:
-        compute_score(
-            output_path=base_path / f"scores{'_new' if NEW_EVAL else ''}.pickle"
-        )
+        compute_score(output_path=base_path / f"scores.pickle")
     if evaluate_d_error_per_budget:
 
         probing_parameter = [1, 10, 50, 100]
         evaluate(
-            score_file=base_path / f"scores{'_new' if NEW_EVAL else ''}.pickle",
-            output_file=base_path
-            / f"results__d_error_per_budget{'_new' if NEW_EVAL else ''}.pickle",
+            score_file=base_path / f"scores.pickle",
+            output_file=base_path / f"results__d_error_per_budget.pickle",
             probing_parameter=probing_parameter,
         )
 
@@ -221,27 +214,14 @@ def main() -> None:
             (2_000, 10_000),
         ]
         evaluate(
-            score_file=base_path / f"scores{'_new' if NEW_EVAL else ''}.pickle",
-            output_file=base_path
-            / f"results__d_error_per_rank{'_new' if NEW_EVAL else ''}.pickle",
+            score_file=base_path / f"scores.pickle",
+            output_file=base_path / f"results__d_error_per_rank.pickle",
             probing_parameter=probing_parameter,
         )
 
     if make_figs:
-        results: EvalResults = load_pickle(
-            path_settings.RESULTS_PATH
-            / f"tier5_evaluation/results__d_error_per_budget{'_new' if NEW_EVAL else ''}.pickle"
-        )
-        cdfs = plot_ecs_shortest_ping(
-            results=results.results_answer_subnets,
-            probing_budgets_evaluated=[1, 10, 50],
-            metric_evaluated="rtt",
-        )
-        plot_multiple_cdf(
-            cdfs=cdfs,
-            output_path=f"tier5_evaluation{'_new' if NEW_EVAL else ''}",
-            metric_evaluated="d_error",
-        )
+        plot_d_error_per_budget()
+        plot_d_error_per_rank()
 
 
 if __name__ == "__main__":

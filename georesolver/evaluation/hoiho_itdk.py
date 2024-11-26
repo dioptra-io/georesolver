@@ -54,7 +54,7 @@ def get_georesolver_shortest_ping() -> tuple[dict]:
 def georesolver_evaluation() -> None:
     """simple georesolver evaluation on ITDK dataset, output CDF of the latency"""
     shortest_ping_per_target, under_2_ms = get_georesolver_shortest_ping()
-    frac_under_2_ms = len(under_2_ms) / len(shortest_ping_per_target) * 100
+    frac_under_2_ms = len(under_2_ms) / len(shortest_ping_per_target) * 100 
 
     logger.info(f"Nb targets geolocated :: {len(shortest_ping_per_target)}")
     logger.info(f"Nb targets under 2 ms :: {len(under_2_ms)}")

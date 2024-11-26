@@ -373,13 +373,18 @@ def main() -> None:
         logger.info(f"Under 2ms reduced :: {reduced_under_2_ms * 100}[%]")
 
     if do_per_asn_eval:
+
+        cdfs = []
+        frac_per_subnet = get_frac_per_subnet(pings_per_subnet, 2)
+        x, y = ecdf(frac_per_subnet)
+        cdfs.append((x, y, "fraction per subnet, all ASes"))
+
         frac_per_subnet_per_AS_type, nb_subnets, nb_asn = (
             get_frac_per_subnet_per_asn_type(
                 pings_per_subnet=pings_per_subnet, latency_threshold=2
             )
         )
 
-        cdfs = []
         for as_type, frac_per_subnet in frac_per_subnet_per_AS_type.items():
             x, y = ecdf(frac_per_subnet)
             fraction_of_subnets = round((len(frac_per_subnet) / nb_subnets) * 100, 2)
