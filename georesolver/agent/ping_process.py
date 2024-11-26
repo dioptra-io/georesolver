@@ -184,7 +184,9 @@ def get_measurement_schedule(
         clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
     )
     subnet_scores = {}
+    logger.info(f"Retriving scores for {len(subnets)}")
     for i in range(0, len(subnets), 1000):
+        logger.info(f"Batch:: {i} -> {i + 1000}")
         batch_subnets = subnets[i : i + 1_000]
         subnet_scores.update(
             load_target_scores(score_table=score_table, subnets=batch_subnets)
@@ -318,6 +320,7 @@ async def ping_task(
 
             max_batch_size = 100_000
             for i in range(0, len(filtered_targets), max_batch_size):
+                logger.info(f"Batch:: {i} -> {i+max_batch_size}")
                 batch_targets = filtered_targets[i : i + max_batch_size]
 
                 # get measurement schedule for all subnets with score
