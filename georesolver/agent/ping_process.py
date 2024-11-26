@@ -232,13 +232,18 @@ def filter_targets(
         table_name=score_table,
         print_error=verbose,
     )
+    logger.info(f"Found {len(cached_score_subnets)} subnets with score")
 
     # get cached target from table
     cached_targets = load_cached_targets(ping_table)
+    logger.info(f"Found {len(cached_targets)} targets measurements")
+
     # add targets that were geolocated but not inserted
     cached_targets.extend(geolocated_targets)
     # get remaining targets to geolocate
     no_measured_target = set(targets).difference(set(cached_targets))
+
+    logger.info(f"Found {len(no_measured_target)} targets without measurements")
 
     no_measured_target_per_subnet = defaultdict(list)
     for target in no_measured_target:
@@ -313,7 +318,7 @@ async def ping_task(
 
             max_batch_size = 100_000
             for i in range(0, len(filtered_targets), max_batch_size):
-                batch_targets = filter_targets[i : i + max_batch_size]
+                batch_targets = filtered_targets[i : i + max_batch_size]
 
                 # get measurement schedule for all subnets with score
                 measurement_schedule = get_measurement_schedule(
@@ -329,9 +334,8 @@ async def ping_task(
 
                 await prober.main(measurement_schedule)
 
-                geolocated_targets.extend(filtered_targets)
-
-                logger.info("Geolocation round complete")
+            geolocated_targets.extend(filtered_targets)
+            logger.info("Geolocation round complete")
 
         else:
             logger.info("Waiting for score process to complete")
