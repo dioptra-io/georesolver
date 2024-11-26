@@ -240,11 +240,17 @@ def filter_targets(
     # get remaining targets to geolocate
     no_measured_target = set(targets).difference(set(cached_targets))
 
-    # remove targets for which we do not have scores ready
+    no_measured_target_per_subnet = defaultdict(list)
     for target in no_measured_target:
-        target_subnet = get_prefix_from_ip(target)
-        if target_subnet in cached_score_subnets:
+        subnet = get_prefix_from_ip(target)
+        no_measured_target_per_subnet[subnet].append(target)
+
+    for subnet in cached_score_subnets:
+        try:
+            targets = no_measured_target_per_subnet[subnet]
             filtered_targets.append(target)
+        except KeyError:
+            continue
 
     # remove targets for which a measurement was started but results not inserted yet
     filtered_targets = set(filtered_targets).difference(set(geolocated_targets))
@@ -305,23 +311,27 @@ async def ping_task(
                 logger.info("Stopped Geolocation process")
                 break
 
-            # get measurement schedule for all subnets with score
-            measurement_schedule = get_measurement_schedule(
-                targets=filtered_targets,
-                subnets=[get_prefix_from_ip(target) for target in filtered_targets],
-                score_table=in_table,
-                output_logs=output_logs,
-            )
+            max_batch_size = 100_000
+            for i in range(0, len(filtered_targets), max_batch_size):
+                batch_targets = filter_targets[i : i + max_batch_size]
 
-            logger.info(
-                f"Starting geolocation round for {len(measurement_schedule)} targets"
-            )
+                # get measurement schedule for all subnets with score
+                measurement_schedule = get_measurement_schedule(
+                    targets=batch_targets,
+                    subnets=[get_prefix_from_ip(target) for target in filtered_targets],
+                    score_table=in_table,
+                    output_logs=output_logs,
+                )
 
-            await prober.main(measurement_schedule)
+                logger.info(
+                    f"Starting geolocation round for {len(measurement_schedule)} targets"
+                )
 
-            geolocated_targets.extend(filtered_targets)
+                await prober.main(measurement_schedule)
 
-            logger.info("Geolocation round complete")
+                geolocated_targets.extend(filtered_targets)
+
+                logger.info("Geolocation round complete")
 
         else:
             logger.info("Waiting for score process to complete")
