@@ -50,8 +50,8 @@ COPY georesolver/main.py georesolver/main.py
 
 COPY README.md README.md
 
-# install zdns
-RUN git clone https://github.com/zmap/zdns.git
+# install zdns with latest relead tag
+RUN git clone https://github.com/zmap/zdns.git --branch v1.1.0
 RUN cd zdns && go build && cd -
 RUN cp zdns/zdns georesolver/zdns/zdns_binary && rm -rf zdns/
 

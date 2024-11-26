@@ -253,12 +253,12 @@ def filter_targets(
     for subnet in cached_score_subnets:
         try:
             targets = no_measured_target_per_subnet[subnet]
-            filtered_targets.append(target)
+            filtered_targets.extend(targets)
         except KeyError:
             continue
 
     # remove targets for which a measurement was started but results not inserted yet
-    filtered_targets = set(filtered_targets).difference(set(geolocated_targets))
+    filtered_targets = list(set(filtered_targets).difference(set(geolocated_targets)))
 
     return filtered_targets, no_measured_target
 
