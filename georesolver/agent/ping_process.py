@@ -172,12 +172,12 @@ def load_targets_from_score(
 
 def get_measurement_schedule(
     targets: list[str],
-    subnets: list[str],
     score_table: str,
     output_logs: Path = None,
 ) -> dict[list]:
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
+    subnets = [get_prefix_from_ip(target) for target in targets]
     vps = load_vps(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(
@@ -185,9 +185,10 @@ def get_measurement_schedule(
     )
     subnet_scores = {}
     logger.info(f"Retriving scores for {len(subnets)}")
-    for i in range(0, len(subnets), 1000):
-        logger.info(f"Batch:: {i} -> {i + 1000}")
-        batch_subnets = subnets[i : i + 1_000]
+    batch_score_size = 10_000
+    for i in range(0, len(subnets), batch_score_size):
+        logger.info(f"Batch:: {i} -> {i + batch_score_size}")
+        batch_subnets = subnets[i : i + batch_score_size]
         subnet_scores.update(
             load_target_scores(score_table=score_table, subnets=batch_subnets)
         )
@@ -326,7 +327,6 @@ async def ping_task(
                 # get measurement schedule for all subnets with score
                 measurement_schedule = get_measurement_schedule(
                     targets=batch_targets,
-                    subnets=[get_prefix_from_ip(target) for target in filtered_targets],
                     score_table=in_table,
                     output_logs=output_logs,
                 )
