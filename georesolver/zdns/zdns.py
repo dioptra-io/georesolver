@@ -9,6 +9,7 @@ from dateutil import parser
 from enum import Enum
 from pathlib import Path
 from loguru import logger
+from pprint import pprint
 from pych_client import AsyncClickHouseClient
 
 from georesolver.clickhouse import (
@@ -103,9 +104,8 @@ class ZDNS:
 
         return query_results, subnet
 
-    def parse_timestamp(self, resp: dict) -> datetime:
+    def parse_timestamp(self, timestamp: dict) -> datetime:
         """retrieve timestamp from DNS resp"""
-        timestamp = resp["timestamp"]
         timestamp = parser.isoparse(timestamp)
         timestamp = datetime.timestamp(timestamp)
 
@@ -114,16 +114,17 @@ class ZDNS:
     def parse_a_records(self, resp: dict, subnet: str, asndb) -> str:
         """parse A records from ZDNS output"""
         parsed_output = []
-        try:
-            hostname = resp["name"]
-            results = resp["results"]["A"]
 
-            if not results["status"] == ZDNS_STATUS.NOERROR.value:
+        try:
+            status = resp["status"]
+
+            if not status == ZDNS_STATUS.NOERROR.value:
                 return None
 
-            answers = answers = results["data"]["answers"]
-            timestamp = self.parse_timestamp(results)
-            source_scope = results["data"]["additionals"][0]["csubnet"]["source_scope"]
+            hostname = resp["name"]
+            answers = answers = resp["data"]["answers"]
+            timestamp = self.parse_timestamp(resp["timestamp"])
+            source_scope = resp["data"]["additionals"][0]["csubnet"]["source_scope"]
 
             if source_scope == 0:
                 return None
