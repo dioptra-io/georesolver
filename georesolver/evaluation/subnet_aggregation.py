@@ -5,10 +5,11 @@ from random import sample
 from loguru import logger
 from collections import defaultdict
 
-from georesolver.clickhouse.queries import load_vps, get_pings_per_target
+from georesolver.clickhouse.queries import load_vps, get_pings_per_target_extended
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
     get_proportion_under,
+    get_proportion_over,
     plot_cdf,
     plot_multiple_cdf,
 )
@@ -33,7 +34,7 @@ PING_TABLE = "subnet_aggregation_ping"
 def load_pings_per_subnet(target_subnets: set) -> dict:
     """retrieve all pings per IP address, group by prefix"""
     pings_per_subnet = defaultdict(list)
-    ping_per_targets = get_pings_per_target(PING_TABLE)
+    ping_per_targets = get_pings_per_target_extended(PING_TABLE)
 
     for target_addr, pings in ping_per_targets.items():
         subnet = get_prefix_from_ip(target_addr)
@@ -59,7 +60,7 @@ def get_frac_per_subnet(
         # get the shortest ping per target
         shortest_pings_per_ip = []
         for _, pings in pings_per_target:
-            _, shortest_ping = min(pings, key=lambda x: x[-1])
+            _, _, shortest_ping = min(pings, key=lambda x: x[-1])
             shortest_pings_per_ip.append(shortest_ping)
 
         # only consider subnet is smallest latency is inferior to 2ms
@@ -97,7 +98,7 @@ def get_frac_per_subnet_per_asn_type(
         # get the shortest ping per target
         shortest_pings_per_ip = []
         for _, pings in pings_per_target:
-            _, shortest_ping = min(pings, key=lambda x: x[-1])
+            _, _, shortest_ping = min(pings, key=lambda x: x[-1])
             shortest_pings_per_ip.append(shortest_ping)
 
         # only consider subnet is smallest latency is inferior to 2ms
@@ -207,8 +208,8 @@ def get_latencies_per_vp(representatives: list) -> dict[list]:
     """return a dictionnary with each VPs shortest ping to 3 representative targets"""
     latencies_per_vp = defaultdict(list)
     for _, pings in representatives:
-        for vp_addr, min_rtt in pings:
-            latencies_per_vp[vp_addr].append(min_rtt)
+        for _, vp_id, min_rtt in pings:
+            latencies_per_vp[vp_id].append(min_rtt)
 
     return latencies_per_vp
 
@@ -219,14 +220,14 @@ def get_reduced_vps(representatives: list, nb_vps: int = 10) -> list[str]:
 
     # get median rtt per VP
     median_latencies_per_vp = []
-    for vp_addr, rtts in latencies_per_vp.items():
-        median_latencies_per_vp.append((vp_addr, median(rtts)))
+    for vp_id, rtts in latencies_per_vp.items():
+        median_latencies_per_vp.append((vp_id, median(rtts)))
 
     # order by median RTT
     median_latencies_per_vp = sorted(median_latencies_per_vp, key=lambda x: x[-1])
 
     # take the N VPs with the lowest median latency
-    reduced_vps = [vp for vp, _ in median_latencies_per_vp[:nb_vps]]
+    reduced_vps = [vp_id for vp_id, _ in median_latencies_per_vp[:nb_vps]]
 
     return reduced_vps
 
@@ -262,11 +263,11 @@ def get_reduced_results(
                 continue
 
             reduced_pings = []
-            for vp_addr, min_rtt in pings:
-                if vp_addr not in reduced_vps:
+            for vp_addr, vp_id, min_rtt in pings:
+                if vp_id not in reduced_vps:
                     continue
 
-                reduced_pings.append((vp_addr, min_rtt))
+                reduced_pings.append((vp_addr, vp_id, min_rtt))
 
             try:
                 georesolver_geoloc = min(pings, key=lambda x: x[-1])
@@ -316,8 +317,8 @@ def main() -> None:
         2. Evaluate the same metric but for each AS type (as we did for continental geoloc)
         3. Re-evaluate the results described in the Million scale paper
     """
-    do_fraction_subnet_eval: bool = True
-    do_reduced_eval: bool = True
+    do_fraction_subnet_eval: bool = False
+    do_reduced_eval: bool = False
     do_per_asn_eval: bool = True
 
     targets = load_csv(TARGET_FILE)
@@ -377,6 +378,9 @@ def main() -> None:
         cdfs = []
         frac_per_subnet = get_frac_per_subnet(pings_per_subnet, 2)
         x, y = ecdf(frac_per_subnet)
+        print(x[:1_0000])
+        frac_under_100 = get_proportion_over(x, y, 1)
+        logger.info(f"Fraction all under 2ms, all ASes:: {frac_under_100}")
         cdfs.append((x, y, "fraction per subnet, all ASes"))
 
         frac_per_subnet_per_AS_type, nb_subnets, nb_asn = (
@@ -387,6 +391,8 @@ def main() -> None:
 
         for as_type, frac_per_subnet in frac_per_subnet_per_AS_type.items():
             x, y = ecdf(frac_per_subnet)
+            frac_under_100 = get_proportion_over(x, y, 1)
+            logger.info(f"Fraction all under 2ms, {as_type}:: {frac_under_100}")
             fraction_of_subnets = round((len(frac_per_subnet) / nb_subnets) * 100, 2)
             cdfs.append(
                 (

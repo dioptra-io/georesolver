@@ -1,11 +1,11 @@
 """ECS deprecation evaluation script: compare and evaluate how long before VPS ECS mapping become stale"""
 
 import os
-import httpx
 
 from loguru import logger
 from pprint import pformat
 from datetime import datetime
+from numpy import std
 from collections import defaultdict
 
 from georesolver.agent import ProcessNames
@@ -200,14 +200,29 @@ def plot_results(init_results: list, round_results: list) -> None:
     """plot each results"""
     subplots = []
 
+    init_values = [r[1][0] * 100 for r in init_results]
+    round_values = [r[1][0] * 100 for r in round_results]
+
+    std_init = std(init_values)
+    range_init = max(init_values) - min(init_values)
+    std_round = std(round_values)
+    range_round = max(round_values) - min(round_values)
+
+    logger.info(
+        f"Init :: {std_init=}; {range_init}; {max(init_values)=}; {min(init_values)}"
+    )
+    logger.info(
+        f"Init :: {std_round=}; {range_round}; {max(round_values)=}; {min(round_values)}"
+    )
+
     init_plot = (
         [r[0] for r in init_results],
-        [r[1][0] for r in init_results],
+        init_values,
         "init vps mapping",
     )
     round_plot = (
         [r[0] for r in round_results],
-        [r[1][0] for r in round_results],
+        round_values,
         "round vps mapping",
     )
 

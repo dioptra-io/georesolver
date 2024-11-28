@@ -432,6 +432,16 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
     return round(proportion_of_ip, 2)
 
 
+def get_proportion_over(x, y, threshold: int = 40) -> int:
+    proportion_of_ip = 1
+    for i, value in enumerate(x):
+        if value <= threshold:
+            proportion_of_ip = y[i]
+            break
+
+    return round(proportion_of_ip, 2)
+
+
 def plot_limit(
     limit: float,
     metric_evaluated: str = "d_error",

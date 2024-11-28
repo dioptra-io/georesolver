@@ -23,6 +23,11 @@ from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
     ecs_dns_vp_selection_eval,
 )
 from georesolver.evaluation.evaluation_score_functions import get_scores
+from georesolver.evaluation.evaluation_plot_functions import (
+    ecdf,
+    plot_multiple_cdf,
+    get_proportion_under,
+)
 from georesolver.common.files_utils import load_csv, load_json, load_pickle, dump_pickle
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
@@ -154,7 +159,9 @@ def evaluate() -> None:
     """calculate distance error and latency for each score"""
     probing_budgets = [50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
-
+    removed_vps = load_json(
+        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
+    )
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
@@ -237,9 +244,8 @@ def evaluate() -> None:
 
 
 if __name__ == "__main__":
-    compute_scores = True
-    evaluation = False
-
+    compute_scores = False
+    evaluation = True
     if compute_scores:
         compute_score()
 

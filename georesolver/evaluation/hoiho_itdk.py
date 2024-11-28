@@ -3,14 +3,11 @@
 from loguru import logger
 from tqdm import tqdm
 from pyasn import pyasn
+from matplotlib_venn import venn3
+from matplotlib import pyplot as plt
 
 from georesolver.clickhouse.queries import get_pings_per_target, load_vps
-from georesolver.evaluation.evaluation_plot_functions import (
-    ecdf,
-    plot_cdf,
-    plot_multiple_cdf,
-    get_proportion_under,
-)
+from georesolver.evaluation.evaluation_plot_functions import ecdf, plot_cdf
 from georesolver.common.utils import get_parsed_vps
 from georesolver.common.geoloc import is_within_cirle
 from georesolver.common.files_utils import load_csv, load_json, dump_csv, dump_json
@@ -54,7 +51,7 @@ def get_georesolver_shortest_ping() -> tuple[dict]:
 def georesolver_evaluation() -> None:
     """simple georesolver evaluation on ITDK dataset, output CDF of the latency"""
     shortest_ping_per_target, under_2_ms = get_georesolver_shortest_ping()
-    frac_under_2_ms = len(under_2_ms) / len(shortest_ping_per_target) * 100 
+    frac_under_2_ms = len(under_2_ms) / len(shortest_ping_per_target) * 100
 
     logger.info(f"Nb targets geolocated :: {len(shortest_ping_per_target)}")
     logger.info(f"Nb targets under 2 ms :: {len(under_2_ms)}")
@@ -180,6 +177,23 @@ def hoiho_geoloc_vs_georesolver() -> None:
     return imposible_geoloc
 
 
+def plot_venn() -> None:
+    """plot venn diagramm for ITDK vs. Hoiho vs. georesolver"""
+    # Make a Basic Venn
+    v = venn3(
+        subsets=(1, 1, 1, 1, 1, 1, 1),
+        set_labels=("ITDK unresponsive", "ITDK responsive", "Hoiho responsive"),
+    )
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"venn_itdk_vs_hoiho_georesolver.png",
+        bbox_inches="tight",
+    )
+    plt.savefig(
+        path_settings.FIGURE_PATH / f"venn_itdk_vs_hoiho_georesolver.pdf",
+        bbox_inches="tight",
+    )
+
+
 def main() -> None:
     """
     entry point of itdk/hoiho evaluation:
@@ -197,6 +211,7 @@ def main() -> None:
     do_georesolver_evaluation: bool = True
     do_coverage_evaluation: bool = True
     do_hoiho_vs_georesolver: bool = True
+    do_plot_venn: bool = True
 
     if do_georesolver_evaluation:
         georesolver_evaluation()
@@ -206,6 +221,9 @@ def main() -> None:
 
     if do_hoiho_vs_georesolver:
         impossible_geoloc = hoiho_geoloc_vs_georesolver()
+
+    if do_plot_venn:
+        plot_venn()
 
 
 if __name__ == "__main__":

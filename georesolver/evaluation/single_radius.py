@@ -11,12 +11,18 @@ from numpy import mean
 
 from georesolver.agent import retrieve_pings
 from georesolver.scheduler import create_agents
-from georesolver.clickhouse.queries import get_pings_per_target, get_tables
+from georesolver.clickhouse.queries import (
+    get_pings_per_target_extended,
+    get_pings_per_target,
+    get_tables,
+    load_vps,
+)
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
     plot_multiple_cdf,
     get_proportion_under,
 )
+from georesolver.common.utils import get_vp_per_id
 from georesolver.common.files_utils import load_json, load_csv, dump_csv
 from georesolver.common.settings import (
     PathSettings,
@@ -37,7 +43,7 @@ SINGLE_RADIUS_TARGET_FILE = (
 SINGLE_RADIUS_MEASUREMENT_IDS = (
     path_settings.DATASET / "single_radius/single_radius_ids.csv"
 )
-SINGLE_RADIUS_PING_TABLE = "single_radius_ping"
+SINGLE_RADIUS_PING_TABLE = "single_radius_ping_updated"
 GEORESOLVER_PING_TABLE = "single_radius_georesolver_ping"
 GEORESOLVER_CONFIG_FILE = (
     path_settings.DATASET / "experiment_config/single_radius_config.json"
@@ -63,6 +69,7 @@ def get_single_radius_measurement_ids(wait_time: int = 30) -> None:
                     headers=headers,
                 )
                 resp = resp.json()
+                sleep(0.1)
             except Exception:
                 logger.info("Unsuported error, waiting")
                 sleep(wait_time)
@@ -83,6 +90,7 @@ def get_single_radius_measurement_ids(wait_time: int = 30) -> None:
                 try:
                     resp = client.get(url=resp["next"], headers=headers)
                     resp = resp.json()
+                    sleep(0.1)
                 except Exception:
                     logger.info("Unsuported error, waiting")
                     sleep(wait_time)
@@ -143,7 +151,7 @@ def run_georesolver() -> None:
 
 def get_shortest_ping(ping_table: str) -> tuple[dict]:
     """retrieve georesolver shortest ping"""
-    pings_per_target = get_pings_per_target(ping_table)
+    pings_per_target = get_pings_per_target(ping_table, nb_packets=1)
 
     shortest_ping_per_target = {}
     under_2_ms = {}
@@ -175,7 +183,7 @@ def shortest_ping_evaluation() -> None:
 
     cdfs = []
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver.values()])
-    cdfs.append((x, y, "georesolver"))
+    cdfs.append((x, y, "GeoResolver"))
     frac_under_2_ms_georesolver = get_proportion_under(x, y, 2)
 
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_single_radius.values()])
@@ -232,21 +240,93 @@ def cost_evaluation() -> None:
     )
 
 
-def get_vps_asn_country() -> None:
+def get_vps_asn_country(pings: list, vps_coordinates: dict) -> None:
     """return VPs asn and country"""
-    pass
+    asns = set()
+    countries = set()
+    for _, vp_id, _ in pings:
+        try:
+            vp = vps_coordinates[vp_id]
+        except KeyError:
+            continue
+
+        vp_asn, vp_country = vp["asn_v4"], vp["country_code"]
+
+        countries.add(vp_country)
+        asns.add(vp_asn)
+
+    return asns, countries
+
+
+def get_asn_country_per_target(targets: list[str], ping_table: str) -> None:
+    """return the country/asn diverstity for each targets"""
+    vps = load_vps(ch_settings.VPS_ALL_TABLE)
+    vps_coordinates = get_vp_per_id(vps)
+    pings = get_pings_per_target_extended(ping_table)
+
+    asns_per_target = []
+    countries_per_target = []
+    for target_addr in targets:
+        target_pings = pings[target_addr]
+        asns, countries = get_vps_asn_country(target_pings, vps_coordinates)
+
+        asns_per_target.append(len(asns))
+        countries_per_target.append(len(countries))
+
+    return asns_per_target, countries_per_target
 
 
 def asn_country_diversity_evaluation() -> None:
     """per target, get the number of country/AS represented by the VPs set"""
-    pings_single_radius = get_pings_per_target(SINGLE_RADIUS_PING_TABLE)
-    pings_georesolver = get_pings_per_target(GEORESOLVER_PING_TABLE)
+    cdfs_asns = []
+    cdfs_countries = []
 
-    for target, pings in pings_georesolver.items():
-        pass
+    pings = get_pings_per_target_extended(GEORESOLVER_PING_TABLE)
+    targets = [t for t in pings]
+
+    single_radius_asns, single_radius_countries = get_asn_country_per_target(
+        targets, SINGLE_RADIUS_PING_TABLE
+    )
+    avg_asns = round(mean(single_radius_asns), 2)
+    avg_countries = round(mean(single_radius_countries), 2)
+    logger.info(f"Single Radius:: {avg_asns=} || {avg_countries=}")
+    x_asns, y_asns = ecdf(single_radius_asns)
+    cdfs_asns.append((x_asns, y_asns, "single-radius"))
+    x_countries, y_countries = ecdf(single_radius_countries)
+    cdfs_countries.append((x_countries, y_countries, "single-radius"))
+
+    ####################################################################################
+    ####################################################################################
+
+    georesolver_asns, georesolver_countries = get_asn_country_per_target(
+        targets, GEORESOLVER_PING_TABLE
+    )
+    avg_asns = round(mean(georesolver_asns), 2)
+    avg_countries = round(mean(georesolver_countries), 2)
+    logger.info(f"Single Radius:: {avg_asns=} || {avg_countries=}")
+    x_asns, y_asns = ecdf(georesolver_asns)
+    cdfs_asns.append((x_asns, y_asns, "georesolver"))
+    x_countries, y_countries = ecdf(georesolver_countries)
+    cdfs_countries.append((x_countries, y_countries, "georesolver"))
+
+    plot_multiple_cdf(
+        cdfs=cdfs_asns,
+        output_path="single_radius_vs_georesolver_asn_diversity",
+        metric_evaluated="",
+        x_label="Number of ASes",
+        x_log_scale=False,
+    )
+
+    plot_multiple_cdf(
+        cdfs=cdfs_countries,
+        output_path="single_radius_vs_georesolver_country_diversity",
+        metric_evaluated="",
+        x_label="Number of countries",
+        x_log_scale=False,
+    )
 
 
-def run_evaluation() -> None:
+def eval() -> None:
     """
     perform the evaluation:
         - latency comparison overall:
@@ -277,14 +357,18 @@ def main() -> None:
         - perform georesolver measurement on the dataset
         - evaluation
     """
-    perform_measurement: bool = False
-    make_eval: bool = True
-    if perform_measurement:
+    do_load_dataset: bool = False
+    do_measurements: bool = False
+    do_eval: bool = True
+
+    if do_load_dataset:
         load_dataset()
+
+    if do_measurements:
         run_georesolver()
 
-    if make_eval:
-        run_evaluation()
+    if do_eval:
+        eval()
 
 
 if __name__ == "__main__":

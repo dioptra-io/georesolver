@@ -27,6 +27,7 @@ from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
+os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def compute_score(output_path: Path) -> None:
@@ -73,7 +74,9 @@ def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> No
     )
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    ping_vps_to_target = get_pings_per_target("anchors_ping", removed_vps)
+    ping_vps_to_target = get_pings_per_target(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+    )
 
     logger.info("Tier 5:: Distance error vs. VPs selection budget")
     scores: TargetScores = load_pickle(score_file)
@@ -134,7 +137,14 @@ def plot_d_error_per_budget(
     # get cdf for each budget/rank
     for budget, d_errors in d_errors_per_budget.items():
         x, y = ecdf(d_errors)
-        all_cdfs.append((x, y, f"{budget} VPs" if budget > 1 else f"{budget} VP"))
+        label = ""
+        if budget == 1:
+            label = f"{budget} VP"
+        elif budget == 50:
+            label = f"{budget} VPs (GeoResolver)"
+        else:
+            label = f"{budget} VPs"
+        all_cdfs.append((x, y, label))
 
     plot_multiple_cdf(
         cdfs=all_cdfs,
@@ -168,14 +178,22 @@ def plot_d_error_per_rank(
             continue
 
         for budget, shortest_ping_vp in shortest_ping_vp_per_budget.items():
-            if budget != (0, 50):
-                continue
             d_errors_per_budget[budget].append(shortest_ping_vp[metric_evaluated])
 
     # get cdf for each budget/rank
     for budget, d_errors in d_errors_per_budget.items():
         x, y = ecdf(d_errors)
-        all_cdfs.append((x, y, f"{budget[0]}:{budget[1]} VPs"))
+        all_cdfs.append(
+            (
+                x,
+                y,
+                (
+                    f"{budget[0]}:{budget[1]} VPs"
+                    if budget[0] != 0
+                    else f"{budget[0]}:{budget[1]} VPs (GeoResolver)"
+                ),
+            )
+        )
 
     plot_multiple_cdf(
         cdfs=all_cdfs,
@@ -188,7 +206,7 @@ def plot_d_error_per_rank(
 def main() -> None:
     compute_scores = False
     evaluate_d_error_per_budget = False
-    evaluate_d_error_per_rank = True
+    evaluate_d_error_per_rank = False
     make_figs = True
 
     base_path = path_settings.RESULTS_PATH / "tier5_evaluation/"
@@ -197,7 +215,7 @@ def main() -> None:
         compute_score(output_path=base_path / f"scores.pickle")
     if evaluate_d_error_per_budget:
 
-        probing_parameter = [1, 10, 50, 100]
+        probing_parameter = [1, 10, 50, 100, 500]
         evaluate(
             score_file=base_path / f"scores.pickle",
             output_file=base_path / f"results__d_error_per_budget.pickle",
