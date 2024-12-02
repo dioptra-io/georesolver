@@ -1,16 +1,23 @@
 """"evaluation of georesolver on itdk dataset, include comparison and evaluation of hoiho geolocatio"""
 
-from loguru import logger
 from tqdm import tqdm
 from pyasn import pyasn
-from matplotlib_venn import venn3
-from matplotlib import pyplot as plt
+from random import sample
+from loguru import logger
+from numpy import mean, std
+from collections import defaultdict
 
 from georesolver.clickhouse.queries import get_pings_per_target, load_vps
-from georesolver.evaluation.evaluation_plot_functions import ecdf, plot_cdf
+from georesolver.evaluation.evaluation_plot_functions import (
+    ecdf,
+    get_proportion_under,
+    plot_cdf,
+    plot_multiple_cdf,
+)
 from georesolver.common.utils import get_parsed_vps
 from georesolver.common.geoloc import is_within_cirle
-from georesolver.common.files_utils import load_csv, load_json, dump_csv, dump_json
+from georesolver.common.ip_addresses_utils import get_prefix_from_ip
+from georesolver.common.files_utils import load_csv, load_json, dump_json
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -51,13 +58,20 @@ def get_georesolver_shortest_ping() -> tuple[dict]:
 def georesolver_evaluation() -> None:
     """simple georesolver evaluation on ITDK dataset, output CDF of the latency"""
     shortest_ping_per_target, under_2_ms = get_georesolver_shortest_ping()
+    subnets_geolocated = set([get_prefix_from_ip(t) for t in shortest_ping_per_target])
     frac_under_2_ms = len(under_2_ms) / len(shortest_ping_per_target) * 100
+    subnets_under_2ms = set([get_prefix_from_ip(t) for t in under_2_ms])
+    frac_subnets_under_2_ms = len(subnets_under_2ms) / len(subnets_geolocated) * 100
 
-    logger.info(f"Nb targets geolocated :: {len(shortest_ping_per_target)}")
-    logger.info(f"Nb targets under 2 ms :: {len(under_2_ms)}")
-    logger.info(f"Fraction under 2 ms   :: {round(frac_under_2_ms,2)}[%]")
+    logger.info(f"Nb targets geolocated     :: {len(shortest_ping_per_target)}")
+    logger.info(f"Nb subnets geolocated     :: {len(subnets_geolocated)}")
+    logger.info(f"Nb targets under 2 ms     :: {len(under_2_ms)}")
+    logger.info(f"Nb subnets under 2 ms     :: {len(subnets_under_2ms)}")
+    logger.info(f"Frac under 2 ms           :: {round(frac_under_2_ms,2)}[%]")
+    logger.info(f"Frac subnets under 2 ms   :: {round(frac_subnets_under_2_ms,2)}[%]")
 
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_per_target.values()])
+
     plot_cdf(
         x=x,
         y=y,
@@ -81,26 +95,24 @@ def coverage_evaluation() -> None:
     )
     geoloc_hoiho = load_json(path_settings.DATASET / "itdk/hoiho_parsed_geoloc.json")
     hoiho_targets = [t for t in geoloc_hoiho]
-    responsive_hoiho_targets = set(resp_router_interfaces).intersection(
-        set(hoiho_targets)
-    )
+    resp_hoiho_targets = set(resp_router_interfaces).intersection(set(hoiho_targets))
     hoiho_itdk_coverage = round(
         (len(hoiho_targets) / len(all_router_interfaces)) * 100, 2
     )
     frac_responsive_hoiho = round(
-        (len(responsive_hoiho_targets) / len(geoloc_hoiho)) * 100, 2
+        (len(resp_hoiho_targets) / len(geoloc_hoiho)) * 100, 2
     )
     frac_georesolver = round((2_030_192 / len(all_router_interfaces)) * 100, 2)
 
-    logger.info("HOIHO coverage             ::")
-    logger.info(f"Router iffaces            :: {len(hoiho_targets)}")
-    logger.info(f"Coverage over ITDK router interfaces:: {hoiho_itdk_coverage}")
-    logger.info(f"Responsive router iffaces :: {len(responsive_hoiho_targets)} ")
-    logger.info(f"Responsive router iffaces :: {frac_responsive_hoiho}[%]")
-    logger.info("GEORESOLVER coverage       ::")
-    logger.info(f"Router interfaces (responsive) :: 2.03M ")
-    logger.info(f"Router interfaces :: {frac_georesolver} [%]")
-    logger.info(f"Theoric coverage goeresolver (20%) :: {frac_georesolver} [%]")
+    logger.info(f"HOIHO coverage")
+    logger.info(f"Router iffaces                       :: {len(hoiho_targets)}")
+    logger.info(f"Coverage over ITDK router interfaces :: {hoiho_itdk_coverage}")
+    logger.info(f"Responsive iffaces                   :: {len(resp_hoiho_targets)}")
+    logger.info(f"Responsive router iffaces            :: {frac_responsive_hoiho}%")
+    logger.info("GEORESOLVER coverage")
+    logger.info(f"Router interfaces (responsive)       :: 2.03M ")
+    logger.info(f"Router interfaces                    :: {frac_georesolver}%")
+    logger.info(f"Theoric coverage goeresolver (20%)   :: {frac_georesolver}%")
 
 
 def hoiho_geoloc_vs_georesolver() -> None:
@@ -177,30 +189,61 @@ def hoiho_geoloc_vs_georesolver() -> None:
     return imposible_geoloc
 
 
-def plot_venn() -> None:
-    """plot venn diagramm for ITDK vs. Hoiho vs. georesolver"""
-    # Make a Basic Venn
-    v = venn3(
-        subsets=(1, 1, 1, 1, 1, 1, 1),
-        set_labels=("ITDK unresponsive", "ITDK responsive", "Hoiho responsive"),
-    )
-    plt.savefig(
-        path_settings.FIGURE_PATH / f"venn_itdk_vs_hoiho_georesolver.png",
-        bbox_inches="tight",
-    )
-    plt.savefig(
-        path_settings.FIGURE_PATH / f"venn_itdk_vs_hoiho_georesolver.pdf",
-        bbox_inches="tight",
+def projection_evaluation() -> None:
+    """
+    perform evaluation based on random sample for projection:
+        - loop over different sample sizes
+        - select N samples for each sample sizes
+        - for each sample compute the fraction of IP addresses under 2ms
+        - plot the CDF for each sample sizes
+    """
+    n_samples = 1_000
+    sample_sizes = [
+        10_000,
+        50_000,
+        100_000,
+    ]
+    shortest_ping_per_target, _ = get_georesolver_shortest_ping()
+    pings = [min_rtt for _, min_rtt in shortest_ping_per_target.values()]
+
+    projection_results = defaultdict(list)
+    for sample_size in sample_sizes:
+        logger.info(
+            f"Computing GeoResolver performances for samples of size:: {sample_size}"
+        )
+        for _ in tqdm(range(n_samples)):
+            rnd_sample = sample(pings, sample_size)
+            x, y = ecdf(rnd_sample)
+            frac_under_2ms = get_proportion_under(x, y, 2)
+            projection_results[sample_size].append(frac_under_2ms)
+
+    cdfs = []
+    for sample_size, sample_results in projection_results.items():
+        x, y = ecdf(sample_results)
+        avg_frac = mean(sample_results)
+        std_frac = std(sample_results)
+        logger.info(f"{sample_size=}; {avg_frac=}; {std_frac=}")
+        cdfs.append((x, y, f"sample size = {sample_size}"))
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="itdk_projection_evaluation",
+        x_label="fraction of IP addresses under 2ms",
+        y_label="fraction of samples",
+        legend_pos="lower right",
+        metric_evaluated="",
+        x_limit_left=0,
+        x_limit_right=0.3,
+        y_log_scale=False,
+        x_log_scale=False,
     )
 
 
 def main() -> None:
     """
     entry point of itdk/hoiho evaluation:
-        - raw evaluation of georesolver on ITDK dataset:
-            - fraction/cdf of georesolver latency
+        - latency evaluation of georesolver on ITDK dataset
         - coverage evaluation:
-            - fraction of IP addresses of:
                 - hoiho intersection georesolver
                 - hoiho IP addresses we do not geolocate
                 - ITDK IP addresses georesolver geolocate but not hoiho
@@ -211,7 +254,7 @@ def main() -> None:
     do_georesolver_evaluation: bool = True
     do_coverage_evaluation: bool = True
     do_hoiho_vs_georesolver: bool = True
-    do_plot_venn: bool = True
+    do_projection_evaluation: bool = True
 
     if do_georesolver_evaluation:
         georesolver_evaluation()
@@ -222,8 +265,8 @@ def main() -> None:
     if do_hoiho_vs_georesolver:
         impossible_geoloc = hoiho_geoloc_vs_georesolver()
 
-    if do_plot_venn:
-        plot_venn()
+    if do_projection_evaluation:
+        projection_evaluation()
 
 
 if __name__ == "__main__":

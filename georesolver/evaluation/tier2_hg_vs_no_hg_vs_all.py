@@ -144,8 +144,8 @@ def compute_score(ordered_hg: list) -> None:
     output_path = (
         path_settings.RESULTS_PATH / f"tier2_evaluation/scores__all_orgs.pickle"
     )
-    # if not output_path.exists():
-    #     score_per_config(all_orgs_hostnames, output_path)
+    if not output_path.exists():
+        score_per_config(all_orgs_hostnames, output_path)
 
     #############################################################################################################################
     hostname_configs = []
@@ -208,18 +208,12 @@ def evaluate() -> None:
         removed_vps,
     )
 
-    logger.info("BGP prefix score geoloc evaluation")
-
     score_dir = path_settings.RESULTS_PATH / "tier2_evaluation"
 
     for score_file in score_dir.iterdir():
 
-        if "results" in score_file.name:
+        if "scores" not in score_file.name:
             continue
-
-        scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / score_file)
-
-        logger.info(f"ECS evaluation for score:: {score_file}")
 
         output_file = (
             path_settings.RESULTS_PATH
@@ -228,6 +222,9 @@ def evaluate() -> None:
 
         if output_file.exists():
             continue
+
+        logger.info(f"ECS evaluation for score:: {score_file}")
+        scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / score_file)
 
         results_answer_subnets = ecs_dns_vp_selection_eval(
             targets=targets,
@@ -263,14 +260,22 @@ def plot(
     ref_cdf = plot_ref(metric_evaluated)
     all_cdfs.append(ref_cdf)
 
-    eval_files = [
-        "results__all_orgs.pickle",
-        "results__hg_orgs.pickle",
-        "results__akamai.pickle",
-    ]
+    eval_files = {
+        "results__all_orgs.pickle": "All (GeoResolver)",
+        "results__hg_orgs.pickle": "9 Hypergiants (All)",
+        "results__georesolver_minus_INCAPSULA.pickle": "8 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE.pickle": "7 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE.pickle": "6 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON.pickle": "5 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI.pickle": "4 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77.pickle": "3 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET.pickle": "2 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET_OVH.pickle": "1 Hypergiants",
+        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET_OVH.pickle": "1 Hypergiants",
+        "results__no_hg_orgs.pickle": "No Hypergiants",
+    }
 
-    labels = ["All (GeoResolver)", "Hypergiants", "Akamai"]
-    for i, file in enumerate(eval_files):
+    for file, label in eval_files.items():
 
         eval: EvalResults = load_pickle(
             path_settings.RESULTS_PATH / f"tier2_evaluation/{file}"
@@ -281,12 +286,10 @@ def plot(
         nb_orgs = len(selected_hostnames_per_cdn)
 
         selected_hostnames = set()
-        for org, hostnames in selected_hostnames_per_cdn.items():
+        for _, hostnames in selected_hostnames_per_cdn.items():
             selected_hostnames.update(hostnames)
 
         nb_hostnames = len(selected_hostnames)
-
-        label = labels[i]
 
         logger.info(f"{file=} loaded")
         logger.info(f"{nb_orgs} orgs, {nb_hostnames} hostnames")

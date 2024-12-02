@@ -8,11 +8,13 @@ from time import sleep
 from pprint import pformat
 from loguru import logger
 from numpy import mean
+from tqdm import tqdm
 
 from georesolver.agent import retrieve_pings
 from georesolver.scheduler import create_agents
 from georesolver.clickhouse.queries import (
     get_pings_per_target_extended,
+    get_measurement_ids,
     get_pings_per_target,
     get_tables,
     load_vps,
@@ -23,7 +25,7 @@ from georesolver.evaluation.evaluation_plot_functions import (
     get_proportion_under,
 )
 from georesolver.common.utils import get_vp_per_id
-from georesolver.common.files_utils import load_json, load_csv, dump_csv
+from georesolver.common.files_utils import load_json, load_csv, dump_csv, insert_json
 from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
@@ -40,10 +42,13 @@ NB_TARGETS = 100_000
 SINGLE_RADIUS_TARGET_FILE = (
     path_settings.DATASET / "single_radius/single_radius_targets.csv"
 )
+SINGLE_RADIUS_MEASUREMENT_DESCRIPTION = (
+    path_settings.DATASET / "single_radius/single_radius_measurement_description.json"
+)
 SINGLE_RADIUS_MEASUREMENT_IDS = (
     path_settings.DATASET / "single_radius/single_radius_ids.csv"
 )
-SINGLE_RADIUS_PING_TABLE = "single_radius_ping_updated"
+SINGLE_RADIUS_PING_TABLE = "single_radius_ping"
 GEORESOLVER_PING_TABLE = "single_radius_georesolver_ping"
 GEORESOLVER_CONFIG_FILE = (
     path_settings.DATASET / "experiment_config/single_radius_config.json"
@@ -119,6 +124,43 @@ async def get_single_radius_measurement_results() -> None:
         )
 
 
+def get_single_radius_measurement_description(wait_time: int = 60 * 3) -> None:
+    """retrieve all measurements description, for measurements with at least one results"""
+    batch_size = 1_000
+    measurement_ids = list(get_measurement_ids(SINGLE_RADIUS_PING_TABLE))
+    headers = {"Authorization": f"Key {RIPEAtlasSettings().RIPE_ATLAS_SECRET_KEY}"}
+
+    logger.info(f"Retrieving description for {len(measurement_ids)} measurements")
+    for i in range(0, len(measurement_ids), batch_size):
+        logger.info(
+            f"Retrieving measurement description for batch:: {i} -> {i + batch_size}"
+        )
+        measurement_descriptions = {}
+        batch_ids = measurement_ids[i : i + batch_size]
+        for measurement_id in tqdm(batch_ids):
+            for _ in range(3):
+                try:
+                    with httpx.Client() as client:
+                        params = {"id": measurement_id}
+                        resp = client.get(
+                            url=RIPEAtlasSettings().MEASUREMENT_URL,
+                            params=params,
+                            headers=headers,
+                        )
+                        resp = resp.json()
+
+                        if resp:
+                            break
+                except Exception:
+                    logger.error("Getting measurement description failed, retrying")
+                    sleep(wait_time)
+
+            measurement_description = resp["results"][0]
+            measurement_descriptions[measurement_id] = measurement_description
+
+        insert_json(measurement_descriptions, SINGLE_RADIUS_MEASUREMENT_DESCRIPTION)
+
+
 def generate_target_file() -> None:
     """generate target file based on retrieved measurement results"""
     pings_per_target = get_pings_per_target(table_name=SINGLE_RADIUS_PING_TABLE)
@@ -133,6 +175,9 @@ def load_dataset() -> None:
 
     if not SINGLE_RADIUS_PING_TABLE in get_tables():
         asyncio.run(get_single_radius_measurement_results())
+
+    if not SINGLE_RADIUS_MEASUREMENT_DESCRIPTION.exists():
+        get_single_radius_measurement_description()
 
     if not SINGLE_RADIUS_TARGET_FILE.exists():
         generate_target_file()
@@ -149,9 +194,9 @@ def run_georesolver() -> None:
         agent.run()
 
 
-def get_shortest_ping(ping_table: str) -> tuple[dict]:
+def get_shortest_ping(ping_table: str, nb_packets: int = -1) -> tuple[dict]:
     """retrieve georesolver shortest ping"""
-    pings_per_target = get_pings_per_target(ping_table, nb_packets=1)
+    pings_per_target = get_pings_per_target(ping_table, nb_packets=nb_packets)
 
     shortest_ping_per_target = {}
     under_2_ms = {}
@@ -168,13 +213,20 @@ def get_shortest_ping(ping_table: str) -> tuple[dict]:
 
 def shortest_ping_evaluation() -> None:
     """compute shortest ping for both single radius and georesolver, make figure"""
-    shortest_ping_single_radius, under_2_ms_single_radius = get_shortest_ping(
-        SINGLE_RADIUS_PING_TABLE
+    shortest_ping_georesolver_extended, under_2_ms_georesolver_extended = (
+        get_shortest_ping(GEORESOLVER_PING_TABLE)
     )
     shortest_ping_georesolver, under_2_ms_georesolver = get_shortest_ping(
-        GEORESOLVER_PING_TABLE
+        GEORESOLVER_PING_TABLE,
+        nb_packets=1,
+    )
+    shortest_ping_single_radius, under_2_ms_single_radius = get_shortest_ping(
+        SINGLE_RADIUS_PING_TABLE,
+        nb_packets=1,
     )
 
+    # filter single radius targets,
+    # we did not run GeoResolver on the entire dataset
     shortest_ping_single_radius = {
         key: val
         for key, val in shortest_ping_single_radius.items()
@@ -182,8 +234,13 @@ def shortest_ping_evaluation() -> None:
     }
 
     cdfs = []
+    cdfs = []
+    x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver_extended.values()])
+    cdfs.append((x, y, "GeoResolver (3 packets/ping)"))
+    frac_under_2_ms_georesolver_extended = get_proportion_under(x, y, 2)
+
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver.values()])
-    cdfs.append((x, y, "GeoResolver"))
+    cdfs.append((x, y, "GeoResolver (1 packet/ping)"))
     frac_under_2_ms_georesolver = get_proportion_under(x, y, 2)
 
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_single_radius.values()])
@@ -195,10 +252,15 @@ def shortest_ping_evaluation() -> None:
     logger.info(f"Nb target under 2ms    :: {len(under_2_ms_single_radius)}")
     logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_single_radius}")
 
-    logger.info("GeoResolver")
+    logger.info("GeoResolver (1 packet)")
     logger.info(f"Nb targets             :: {len(shortest_ping_georesolver)}")
     logger.info(f"Nb target under 2ms    :: {len(under_2_ms_georesolver)}")
     logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_georesolver}")
+
+    logger.info("GeoResolver (3 packets)")
+    logger.info(f"Nb targets             :: {len(shortest_ping_georesolver_extended)}")
+    logger.info(f"Nb target under 2ms    :: {len(under_2_ms_georesolver_extended)}")
+    logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_georesolver_extended}")
 
     plot_multiple_cdf(
         cdfs=cdfs,
@@ -210,11 +272,14 @@ def shortest_ping_evaluation() -> None:
 
 def cost_evaluation() -> None:
     """perform cost evaluation and plot CDF"""
-    single_radius_pings = get_pings_per_target(SINGLE_RADIUS_PING_TABLE)
+    single_radius_measurement_descriptions = load_json(
+        SINGLE_RADIUS_MEASUREMENT_DESCRIPTION
+    )
 
     cost_per_target = []
-    for pings in single_radius_pings.values():
-        cost_per_target.append(len(pings))
+    for measurement_description in single_radius_measurement_descriptions.values():
+        probe_requested = measurement_description["probes_requested"]
+        cost_per_target.append(probe_requested)
 
     cdfs = []
     avg_cost = mean(cost_per_target)

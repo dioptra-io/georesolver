@@ -83,77 +83,6 @@ def ecdf(data: list, array: bool = True):
         return x, y
 
 
-def get_error_bars(results: dict) -> tuple:
-    """parse data for plot"""
-    x = []
-    y = []
-    e = []
-    for budget, (median_distance, deviation) in results.items():
-        x.append(budget)
-        y.append(median_distance)
-        e.append(deviation)
-
-    return x, y, e
-
-
-def get_plot(results: dict) -> tuple[tuple, tuple]:
-    """parse data for plot"""
-    x1 = []
-    y1 = []
-    x2 = []
-    y2 = []
-    for budget, (m_d, w_m_d) in results.items():
-        x1.append(budget)
-        y1.append(m_d)
-
-        x2.append(budget)
-        y2.append(w_m_d)
-
-    return (x1, y1), (x2, y2)
-
-
-def plot_no_pings(results: dict, out_file: str) -> None:
-    fig, ax1 = plt.subplots(1, 1)
-
-    p1, p2 = get_plot(results["answers"])
-    ax1.plot(p1[0], p1[1], label="frontend fingerprint")
-    ax1.plot(p2[0], p2[1], label="w frontend fingerprint")
-
-    p1, p2 = get_plot(results["subnet"])
-    ax1.plot(p1[0], p1[1], label="subnet fingerprint")
-    ax1.plot(p2[0], p2[1], label="w subnet fingerprint")
-
-    p1, p2 = get_plot(results["bgp_prefix"])
-    ax1.plot(p1[0], p1[1], label="bgp fingerprint")
-    ax1.plot(p2[0], p2[1], label="w bgp fingerprint")
-
-    plt.xlabel("Probing Budget [nb pings]")
-    plt.ylabel("Median Error [km]")
-    plt.legend(loc="upper right", fontsize=10)
-    plt.grid()
-    plt.yscale("log")
-    plt.title(f"Geolocation Error Function of Probing Budget", fontsize=13)
-    plt.savefig(path_settings.FIGURE_PATH / out_file)
-    plt.show()
-
-
-def plot_median_error_per_finger_printing_method(results: dict, out_file: str) -> None:
-    fig, ax1 = plt.subplots(1, 1)
-
-    for granularity, result in results.items():
-        x, y, _ = get_error_bars(result)
-        ax1.plot(x, y, label=f"{granularity} fingerprint")
-
-    plt.xlabel("Probing Budget [nb pings]")
-    plt.ylabel("Median Error [km]")
-    plt.legend(loc="upper right", fontsize=10)
-    plt.grid()
-    plt.yscale("log")
-    plt.title(f"Geolocation Error Function of Probing Budget", fontsize=13)
-    plt.savefig(path_settings.FIGURE_PATH / out_file)
-    plt.show()
-
-
 def get_median(target_results: dict, key: str, metric: str = "d_error") -> float:
     """return the median distance error"""
     return round(
@@ -230,6 +159,7 @@ def plot_multiple_cdf(
     legend_size: int = 10,
     under_padding: int = 0,
     x_limit_left: int = 1,
+    x_limit_right: int = None,
     x_label: str = "",
     y_label: str = "CDF of targets",
     x_log_scale: bool = True,
@@ -269,8 +199,12 @@ def plot_multiple_cdf(
         plt.legend(loc=legend_pos, fontsize=8)
     if x_log_scale:
         plt.xscale("log")
+    if y_log_scale:
+        plt.yscale("log")
     if x_limit_left:
         plt.xlim(left=x_limit_left)
+    if x_limit_right:
+        plt.xlim(right=x_limit_right)
 
     plt.tight_layout()
     plt.ylim((0, 1))
@@ -429,7 +363,7 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
             proportion_of_ip = y[i]
             break
 
-    return round(proportion_of_ip, 2)
+    return proportion_of_ip
 
 
 def get_proportion_over(x, y, threshold: int = 40) -> int:
