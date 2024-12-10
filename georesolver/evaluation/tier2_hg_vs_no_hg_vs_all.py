@@ -40,6 +40,20 @@ path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
+HG_ORGS = [
+    "AMAZON",
+    "GOOGLE",
+    "FACEBOOK",
+    "AKAMAI",
+    "ALIBABA-CN-NET",
+    "OVH",
+    "CDNNETWORKS",
+    "APPLE",
+    "CDN77",
+    "INCAPSULA",
+    "FASTLY",
+]
+
 
 def load_hostnames() -> tuple[dict]:
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
@@ -53,37 +67,23 @@ def load_hostnames() -> tuple[dict]:
         for org, hostnames in best_hostnames_per_org_per_ns[ns].items():
             best_hostnames_per_org[org].extend(hostnames)
 
-    hg_orgs = [
-        "AMAZON",
-        "GOOGLE",
-        "FACEBOOK",
-        "AKAMAI",
-        "ALIBABA-CN-NET",
-        "OVH",
-        "CDNNETWORKS",
-        "APPLE",
-        "CDN77",
-        "INCAPSULA",
-        "FASTLY",
-    ]
-
     hg_hostnames = defaultdict(list)
     no_hg_hostnames = defaultdict(list)
     all_orgs_hostnames = defaultdict(list)
-    akamai_hostnames = defaultdict(list)
+    each_hg = defaultdict(list)
     for org, hostnames in best_hostnames_per_org.items():
-        if org in hg_orgs:
+        if org in HG_ORGS:
             hg_hostnames[org].extend(hostnames)
 
-        if org not in hg_orgs:
+        if org not in HG_ORGS:
             no_hg_hostnames[org].extend(hostnames)
 
         all_orgs_hostnames[org].extend(hostnames)
 
-        if org == "AKAMAI":
-            akamai_hostnames["AKAMAI"].extend(hostnames)
+        if org in HG_ORGS:
+            each_hg[org].extend(hostnames)
 
-    return hg_hostnames, no_hg_hostnames, all_orgs_hostnames, akamai_hostnames
+    return hg_hostnames, no_hg_hostnames, all_orgs_hostnames, each_hg
 
 
 def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
@@ -116,15 +116,23 @@ def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
     get_scores(score_config)
 
 
-def compute_score(ordered_hg: list) -> None:
+def compute_score(ordered_hg: list = None) -> None:
     """calculate score for each organization/ns pair"""
 
-    hg_hostnames, no_hg_hostnames, all_orgs_hostnames, akamai_hostnames = (
-        load_hostnames()
-    )
+    hg_hostnames, no_hg_hostnames, all_orgs_hostnames, each_hg = load_hostnames()
+
+    #############################################################################################################################
+    logger.info("Calculating scores for each HG separately")
+    for hg, hostnames in each_hg.items():
+        logger.info(f"{hg}:: {len(each_hg)} hostnames")
+        output_path = (
+            path_settings.RESULTS_PATH / f"tier2_evaluation/scores__{hg}.pickle"
+        )
+        if not output_path.exists():
+            score_per_config({hg: hostnames}, output_path)
 
     ##############################################################################################################################
-    logger.info(f"HG hostnames:: {len(hg_hostnames)} orgs")
+    logger.info(f"All HG hostnames:: {len(hg_hostnames)} orgs")
     output_path = (
         path_settings.RESULTS_PATH / f"tier2_evaluation/scores__hg_orgs.pickle"
     )
@@ -149,58 +157,52 @@ def compute_score(ordered_hg: list) -> None:
 
     #############################################################################################################################
     hostname_configs = []
-    # create a list of hostname selection (remove one new org each time)
-    for i in range(len(ordered_hg) - 1):
-        new_config_hostnames = {}
-        # remove the n first hg
-        for org, hostnames in all_orgs_hostnames.items():
-            if org in ordered_hg[: (i + 1)]:
-                continue
-            new_config_hostnames[org] = hostnames
+    if ordered_hg:
+        # create a list of hostname selection (remove one new org each time)
+        for i in range(len(ordered_hg) - 1):
+            new_config_hostnames = {}
+            # remove the n first hg
+            for org, hostnames in hg_hostnames.items():
+                if org in ordered_hg[: (i + 1)]:
+                    continue
+                new_config_hostnames[org] = hostnames
 
-        # add config for score calculation
-        hostname_configs.append(new_config_hostnames)
-        logger.info(f"nb orgs for hostnames:: {len(new_config_hostnames.keys())}")
+            # add config for score calculation
+            hostname_configs.append(new_config_hostnames)
+            logger.info(f"nb orgs for hostnames:: {len(new_config_hostnames.keys())}")
 
-        # save config for checking
-        removed_hg = "_".join([ordered_hg[j] for j in range(0, i + 1)])
+            # save config for checking
+            removed_hg = "_".join([ordered_hg[j] for j in range(0, i + 1)])
 
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"tier2_evaluation/hostnames__georesolver_minus_{removed_hg}.json"
-        )
-        dump_json(new_config_hostnames, output_path)
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"tier2_evaluation/hostnames__georesolver_minus_{removed_hg}.json"
+            )
+            dump_json(new_config_hostnames, output_path)
 
-    for i, hostname_config in enumerate(hostname_configs):
-        removed_hg = "_".join([ordered_hg[j] for j in range(0, i + 1)])
+        for i, hostname_config in enumerate(hostname_configs):
+            removed_hg = "_".join([ordered_hg[j] for j in range(0, i + 1)])
 
-        logger.info(f"Georesolver minus {removed_hg}:: {len(hostname_config)} orgs")
+            logger.info(f"Georesolver minus {removed_hg}:: {len(hostname_config)} orgs")
 
-        output_path = (
-            path_settings.RESULTS_PATH
-            / f"tier2_evaluation/scores__georesolver_minus_{removed_hg}.pickle"
-        )
+            output_path = (
+                path_settings.RESULTS_PATH
+                / f"tier2_evaluation/scores__georesolver_minus_{removed_hg}.pickle"
+            )
 
-        if not output_path.exists():
-            score_per_config(hostname_config, output_path)
-
-    #############################################################################################################################
-    logger.info(f"AKAMAI hostnames:: {len(akamai_hostnames)} orgs")
-    output_path = path_settings.RESULTS_PATH / f"tier2_evaluation/scores__akamai.pickle"
-    if not output_path.exists():
-        score_per_config(akamai_hostnames, output_path)
+            if not output_path.exists():
+                score_per_config(hostname_config, output_path)
 
 
-def evaluate() -> None:
+def evaluate(only_hgs: bool = False) -> None:
     """calculate distance error and latency for each score"""
     probing_budgets = [50]
     asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     removed_vps = load_json(
         path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
     )
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     ping_vps_to_target = get_pings_per_target(
@@ -214,6 +216,11 @@ def evaluate() -> None:
 
         if "scores" not in score_file.name:
             continue
+
+        if only_hgs:
+            hg_name = score_file.name.split("scores__")[-1].split(".")[0]
+            if not hg_name in HG_ORGS:
+                continue
 
         output_file = (
             path_settings.RESULTS_PATH
@@ -262,16 +269,15 @@ def plot(
 
     eval_files = {
         "results__all_orgs.pickle": "All (GeoResolver)",
-        "results__hg_orgs.pickle": "9 Hypergiants (All)",
-        "results__georesolver_minus_INCAPSULA.pickle": "8 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE.pickle": "7 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE.pickle": "6 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON.pickle": "5 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI.pickle": "4 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77.pickle": "3 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET.pickle": "2 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET_OVH.pickle": "1 Hypergiants",
-        "results__georesolver_minus_INCAPSULA_APPLE_FACEBOOK_GOOGLE_AMAZON_AKAMAI_CDN77_ALIBABA-CN-NET_OVH.pickle": "1 Hypergiants",
+        "results__hg_orgs.pickle": "Only Hypergiants",
+        # "results__georesolver_minus_CDN77.pickle": "8 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON.pickle": "7 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA.pickle": "6 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK.pickle": "5 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI.pickle": "4 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE.pickle": "3 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE_GOOGLE.pickle": "2 Hypergiants",
+        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE_GOOGLE_OVH.pickle": "1 Hypergiants",
         "results__no_hg_orgs.pickle": "No Hypergiants",
     }
 
@@ -306,15 +312,18 @@ def plot(
 
 def order_hg() -> list:
     """order HG based on the fraction of IP addresses geolocated under 40km"""
-    results_path = path_settings.RESULTS_PATH / "tier1_evaluation"
+    results_path = path_settings.RESULTS_PATH / "tier2_evaluation"
 
     frac_under_40_per_hg = {}
 
     for i, file in enumerate(results_path.iterdir()):
-        if "score" in file.name:
+        if "results" not in file.name:
             continue
 
         hg = file.name.split("_")[-1].split(".")[0]
+
+        if hg not in HG_ORGS:
+            continue
 
         logger.info(f"Analysing results for {hg}")
 
@@ -362,23 +371,28 @@ def order_hg() -> list:
 
 
 if __name__ == "__main__":
-    compute_scores = True
-    evaluation = True
+    per_hg = False
+    compute_scores = False
+    evaluation = False
     make_figure = True
 
+    if per_hg:
+        compute_score()
+        evaluate(only_hgs=True)
+
     if compute_scores:
+        # evaluate()
         # frac_under_40_per_hg = order_hg()
         frac_under_40_per_hg = [
+            ("CDN77", 0.69),
+            ("AMAZON", 0.62),
             ("INCAPSULA", 0.6),
-            ("APPLE", 0.59),
-            ("FACEBOOK", 0.55),
+            ("FACEBOOK", 0.54),
+            ("AKAMAI", 0.47),
+            ("APPLE", 0.46),
             ("GOOGLE", 0.46),
-            ("AMAZON", 0.43),
-            ("AKAMAI", 0.38),
-            ("CDN77", 0.36),
-            ("ALIBABA-CN-NET", 0.34),
-            ("OVH", 0.23),
-            ("FASTLY", 0.19),
+            ("OVH", 0.35),
+            ("ALIBABA-CN-NET", 0.23),
         ]
         ordered_hg = [hg for hg, _ in frac_under_40_per_hg]
         compute_score(ordered_hg)

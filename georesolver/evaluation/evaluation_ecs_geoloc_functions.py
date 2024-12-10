@@ -8,12 +8,12 @@ from georesolver.clickhouse.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
 )
-from georesolver.agent.ping_process import get_ecs_vps
 from georesolver.common.utils import (
     get_parsed_vps,
     shortest_ping,
     get_vp_info,
     parse_target,
+    get_ecs_vps,
     TargetScores,
 )
 from georesolver.common.geoloc import distance

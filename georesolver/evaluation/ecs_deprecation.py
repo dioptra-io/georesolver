@@ -198,8 +198,6 @@ def evaluation(measurements: dict[dict]) -> None:
 
 def plot_results(init_results: list, round_results: list) -> None:
     """plot each results"""
-    subplots = []
-
     init_values = [r[1][0] * 100 for r in init_results]
     round_values = [r[1][0] * 100 for r in round_results]
 
@@ -217,13 +215,13 @@ def plot_results(init_results: list, round_results: list) -> None:
 
     init_plot = (
         [r[0] for r in init_results],
-        init_values,
-        "init vps mapping",
+        [r[1][0] for r in init_results],
+        "VP selection with ECS measurements of 11/13",
     )
     round_plot = (
         [r[0] for r in round_results],
-        round_values,
-        "round vps mapping",
+        [r[1][0] for r in round_results],
+        "VP selection with ECS measurements of current day",
     )
 
     subplots = [init_plot, round_plot]
@@ -236,6 +234,7 @@ def plot_results(init_results: list, round_results: list) -> None:
         x_log_scale=False,
         x_limit_left=None,
         y_label="fraction of targets under 40km",
+        legend_fontisize=10,
     )
 
 

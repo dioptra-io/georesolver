@@ -104,7 +104,7 @@ def coverage_evaluation() -> None:
     )
     frac_georesolver = round((2_030_192 / len(all_router_interfaces)) * 100, 2)
 
-    logger.info(f"HOIHO coverage")
+    logger.info("HOIHO coverage")
     logger.info(f"Router iffaces                       :: {len(hoiho_targets)}")
     logger.info(f"Coverage over ITDK router interfaces :: {hoiho_itdk_coverage}")
     logger.info(f"Responsive iffaces                   :: {len(resp_hoiho_targets)}")
@@ -140,12 +140,14 @@ def hoiho_geoloc_vs_georesolver() -> None:
     missing_in_hoiho = set(georesolver_targets).difference(set(hoiho_targets))
     missing_in_hoiho_2_ms = set(under_2_ms).difference(set(hoiho_targets))
     missing_in_georesolver = set(hoiho_targets).difference(set(georesolver_targets))
+    missing_in_georesolver_2_ms = set(intersection).difference(set(under_2_ms))
 
-    logger.info(f"Intersection size                 :: {len(intersection)}")
-    logger.info(f"Intersection size (under 2ms)     :: {len(intersection_2_ms)}")
-    logger.info(f"Targets missing hoiho             :: {len(missing_in_hoiho)}")
-    logger.info(f"Targets missing hoiho (under 2ms) :: {len(missing_in_hoiho_2_ms)}")
-    logger.info(f"Targets missing georesolver       :: {len(missing_in_georesolver)}")
+    logger.info(f"Intersection size           :: {len(intersection)}")
+    logger.info(f"Intersection size (< 2ms)   :: {len(intersection_2_ms)}")
+    logger.info(f"missing hoiho               :: {len(missing_in_hoiho)}")
+    logger.info(f"missing hoiho (< 2ms)       :: {len(missing_in_hoiho_2_ms)}")
+    logger.info(f"missing georesolver         :: {len(missing_in_georesolver)}")
+    logger.info(f"missing georesolver (< 2ms) :: {len(missing_in_georesolver_2_ms)}")
 
     # check for impossible hoiho geoloc
     imposible_geoloc = {}

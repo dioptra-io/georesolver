@@ -157,9 +157,11 @@ def evaluate() -> None:
 
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    removed_vps = load_json(
+        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
+    )
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
         ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
@@ -182,8 +184,8 @@ def evaluate() -> None:
             / f"tier3_evaluation/{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        if output_file.exists():
-            continue
+        # if output_file.exists():
+        #     continue
 
         results_answers = {}
         results_answer_subnets = {}
@@ -461,13 +463,13 @@ def plot_d_error_vs_latency(
 ) -> None:
     """get all targets geolocation error and check the latency"""
 
-    score_file = (
+    results_file = (
         path_settings.RESULTS_PATH
-        / "tier3_evaluation/results__best_hostname_geo_score.pickle"
+        / "tier5_evaluation/results__d_error_per_budget.pickle"
     )
-    output_path = ("d_error_vs_latency",)
-    eval: EvalResults = load_pickle(score_file)
-    logger.info(f"{score_file=} loaded")
+
+    eval: EvalResults = load_pickle(results_file)
+    logger.info(f"{results_file=} loaded")
 
     score_config = eval.target_scores.score_config
     hostname_per_cdn = score_config["hostname_per_cdn"]
@@ -486,11 +488,12 @@ def plot_d_error_vs_latency(
 
     plot_multiple_cdf(
         all_cdfs,
-        output_path,
+        "d_error_vs_latency",
         "d_error",
         legend_outside,
         legend_pos=legend_pos,
-        legend_size=10,
+        legend_size=11,
+        legend_fontsize=11,
         under_padding=22,
     )
 
@@ -507,16 +510,18 @@ if __name__ == "__main__":
         evaluate()
 
     if make_figures:
-        plot_per_granularity()
-        plot_per_scores_distance()
-        plot_per_scores_distance_scope()
-        plot_per_vp_selection()
+        # plot_per_granularity()
+        # plot_per_scores_distance()
+        # plot_per_scores_distance_scope()
+        # plot_per_vp_selection()
         plot_d_error_vs_latency()
 
-        plot_end_to_end_results(
-            score_file=path_settings.RESULTS_PATH
-            / "tier4_evaluation/results__best_hostname_geo_score_20_BGP_3_hostnames_per_org_ns.pickle",
-            output_path="end_to_end_results",
-            metric_evaluated="d_error",
-            legend_pos="lower right",
-        )
+        # plot_end_to_end_results(
+        #     score_file=path_settings.RESULTS_PATH
+        #     / "tier5_evaluation/results__d_error_per_budget.pickle",
+        #     output_path="end_to_end_results",
+        #     metric_evaluated="d_error",
+        #     legend_pos="lower right",
+        #     legend_size=10,
+        #     legend_fontsize=10,
+        # )

@@ -3,6 +3,8 @@
 from numpy import median
 from random import sample
 from loguru import logger
+from tqdm import tqdm
+from pyasn import pyasn
 from collections import defaultdict
 
 from georesolver.clickhouse.queries import load_vps, get_pings_per_target_extended
@@ -13,9 +15,19 @@ from georesolver.evaluation.evaluation_plot_functions import (
     plot_cdf,
     plot_multiple_cdf,
 )
-from georesolver.common.geoloc import rtt_to_km, circle_intersections
-from georesolver.common.files_utils import load_csv, load_json
-from georesolver.common.ip_addresses_utils import get_prefix_from_ip, load_subnet_to_asn
+from georesolver.common.utils import get_vp_per_id, get_parsed_vps
+from georesolver.common.geoloc import rtt_to_km, circle_intersections, distance
+from georesolver.common.files_utils import (
+    load_csv,
+    load_json,
+    load_anycatch_data,
+    dump_pickle,
+)
+from georesolver.common.ip_addresses_utils import (
+    get_prefix_from_ip,
+    load_subnet_to_asn,
+    route_view_bgp_prefix,
+)
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -29,15 +41,23 @@ CONFIG_PATH = (
     / "subnet_aggregation__78uy56er-cd58-4ff9-ad7f-41fa8ad26a3f.json"
 )
 PING_TABLE = "subnet_aggregation_ping"
+RESULT_PATH = path_settings.RESULTS_PATH / "subnet_aggregation"
 
 
 def load_pings_per_subnet(target_subnets: set) -> dict:
     """retrieve all pings per IP address, group by prefix"""
     pings_per_subnet = defaultdict(list)
     ping_per_targets = get_pings_per_target_extended(PING_TABLE)
+    anycatch_db = load_anycatch_data()
+    asndb = pyasn(str(path_settings.RIB_TABLE))
 
     for target_addr, pings in ping_per_targets.items():
         subnet = get_prefix_from_ip(target_addr)
+        _, bgp_prefix = route_view_bgp_prefix(target_addr, asndb)
+
+        # remove anycast prefix
+        if bgp_prefix in anycatch_db:
+            continue
 
         if subnet not in target_subnets:
             continue
@@ -118,90 +138,72 @@ def get_frac_per_subnet_per_asn_type(
 
 
 def non_overlapping_geoloc(pings_per_subnet: dict[list], vps_coordinates: dict) -> None:
-    """
-    For each subnet:
-        - get the geolocation for each target
-        - check if there exists non-overlapping geolocation
-    """
-    non_overlapping_geoloc_per_subnet = defaultdict(dict)
-    for subnet, pings_per_target in pings_per_subnet.items():
+    """for each subnet, find if some IP addresses were geolocated in different metro"""
+    # TODO
+    problematic_geoloc = defaultdict(dict)
+    for subnet, pings_per_target in tqdm(pings_per_subnet.items()):
+        shortest_ping_per_target = {}
 
-        # first, get each target geoloc and group per VP
-        target_geoloc_per_vp = defaultdict(list)
+        rtts = []
         for target_addr, pings in pings_per_target:
-            vp_addr, shortest_ping = min(pings, key=lambda x: x[-1])
-            target_geoloc_per_vp[vp_addr].append((target_addr, shortest_ping))
+            vp_addr, vp_id, min_rtt = min(pings, key=lambda x: x[-1])
+            shortest_ping_per_target[target_addr] = (vp_addr, vp_id, min_rtt)
+            rtts.append(min_rtt)
 
-        # check if more than one VP
-        if len(target_geoloc_per_vp) <= 1:
+        if min(rtts) > 2:
             continue
 
-        # more than two VPs. Order each VP's targets per latency
-        for vp, targets_geoloc in target_geoloc_per_vp.items():
-            target_geoloc_per_vp[vp] = sorted(targets_geoloc, key=lambda x: x[-1])
+        for target_m, (
+            vp_i_addr,
+            vp_i_id,
+            min_rtt_i,
+        ) in shortest_ping_per_target.items():
+            for target_n, (
+                vp_j_addr,
+                vp_j_id,
+                min_rtt_j,
+            ) in shortest_ping_per_target.items():
+                if target_m == target_n:
+                    continue
 
-        # compare geoloc of target with smallest latency with every other
-        for vp_i, targets_geoloc_i in target_geoloc_per_vp.items():
-            for target_m, min_rtt_m in targets_geoloc_i:
-                # compare other geoloc with the smallest circle
-                vp_i_lat, vp_i_lon, _, _ = vps_coordinates[vp_i]
-                d = rtt_to_km(min_rtt_m)
-                circle_i = (vp_i_lat, vp_i_lon, min_rtt_m, d, d / 2)
+                if vp_i_id == vp_j_id:
+                    continue
 
-                # compare targets geoloc with the current one
-                for vp_j, targets_geoloc_j in target_geoloc_per_vp.items():
-                    if vp_i == vp_j:
-                        continue
+                # check that the two circles intersect
+                # vp_i = vps_per_id[vp_i_id]
+                # vp_j = vps_per_id[vp_j_id]
 
-                    if (vp_i, vp_j) in non_overlapping_geoloc_per_subnet[subnet] or (
-                        vp_j,
-                        vp_i,
-                    ) in non_overlapping_geoloc_per_subnet[subnet]:
-                        continue
+                # vp_i_lat, vp_i_lon = vp_i["lat"], vp_i["lon"]
+                # vp_j_lat, vp_j_lon = vp_j["lat"], vp_j["lon"]
+                try:
+                    vp_i_lat, vp_i_lon, _, _ = vps_coordinates[vp_i_addr]
+                    vp_j_lat, vp_j_lon, _, _ = vps_coordinates[vp_j_addr]
+                except KeyError:
+                    continue
 
-                    if vp_j in non_overlapping_geoloc_per_subnet[subnet]:
-                        continue
+                # get all distances
+                d_i = rtt_to_km(min_rtt_i)
+                d_j = rtt_to_km(min_rtt_j)
+                d_vp_i_to_vp_j = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
 
-                    for target_n, min_rtt_n in targets_geoloc_j:
-                        vp_j_lat, vp_j_lon, _, _ = vps_coordinates[vp_j]
-                        d = rtt_to_km(min_rtt_n)
-                        circle_j = (vp_j_lat, vp_j_lon, min_rtt_n, d, d / 2)
+                # speed of light violation test
+                if d_i + d_j < d_vp_i_to_vp_j:
+                    print(f"{subnet=}")
+                    print(f"{target_m=}")
+                    print(f"{target_n=}")
+                    print(f"{vp_i_addr=}")
+                    print(f"{vp_j_addr=}")
+                    print(f"{min_rtt_i=}")
+                    print(f"{min_rtt_j=}")
+                    print(f"{d_i=}")
+                    print(f"{d_j=}")
+                    print(f"{d_vp_i_to_vp_j=}")
+                    problematic_geoloc[subnet][(target_m, target_n)] = [
+                        (vp_i_lat, vp_i_lon, min_rtt_j),
+                        (vp_j_lat, vp_j_lon, min_rtt_j),
+                    ]
 
-                        intersect, _ = circle_intersections([circle_i, circle_j])
-
-                        # if there is an intersection, no need to check the rest
-                        # (we ordered the circles function of the latency)
-                        if intersect:
-                            break
-
-                        # if the two circles are non-overlapping, save
-                        try:
-                            non_overlapping_geoloc_per_subnet[subnet][
-                                (vp_i, vp_j)
-                            ].append((target_m, min_rtt_m, target_n, min_rtt_n))
-                        except KeyError:
-                            non_overlapping_geoloc_per_subnet[subnet][(vp_i, vp_j)] = [
-                                (target_m, min_rtt_m, target_n, min_rtt_n)
-                            ]
-
-                # if the two circles described by the target with the smallest
-                # latency overlap, no need to continue analysis
-
-                # if no intersection, save subnet non-overlapping targets
-                # with their geolocation
-                # TODO: improve this step (check with next target, etc.)
-
-        # get the proportion under 2 ms
-        x, y = ecdf(shortest_pings_per_ip)
-        frac = get_proportion_under(x, y, latency_threshold)
-        frac_per_subnet.append(frac)
-
-        if shortest_pings_per_ip_filtered:
-            x, y = ecdf(shortest_pings_per_ip)
-            frac = get_proportion_under(x, y, latency_threshold)
-            frac_per_subnet_filtered.append(frac)
-
-    return frac_per_subnet, frac_per_subnet_filtered
+    return problematic_geoloc
 
 
 def get_latencies_per_vp(representatives: list) -> dict[list]:
@@ -320,6 +322,7 @@ def main() -> None:
     do_fraction_subnet_eval: bool = False
     do_reduced_eval: bool = False
     do_per_asn_eval: bool = True
+    do_find_non_overlapping: bool = False
 
     targets = load_csv(TARGET_FILE)
     target_subnets = set([get_prefix_from_ip(t) for t in targets])
@@ -370,18 +373,17 @@ def main() -> None:
             x_log_scale=True,
         )
 
-        logger.info(f"Under 2ms geoRes  :: {georesolver_under_2_ms * 100}[%]")
-        logger.info(f"Under 2ms reduced :: {reduced_under_2_ms * 100}[%]")
+        logger.info(f"Under 2ms geoRes  :: {georesolver_under_2_ms}")
+        logger.info(f"Under 2ms reduced :: {reduced_under_2_ms}")
 
     if do_per_asn_eval:
 
-        cdfs = []
+        ordered_curves = []
         frac_per_subnet = get_frac_per_subnet(pings_per_subnet, 2)
         x, y = ecdf(frac_per_subnet)
-        print(x[:1_0000])
         frac_under_100 = get_proportion_over(x, y, 1)
         logger.info(f"Fraction all under 2ms, all ASes:: {frac_under_100}")
-        cdfs.append((x, y, "fraction per subnet, all ASes"))
+        ordered_curves.append((frac_under_100, x, y, "All ASes"))
 
         frac_per_subnet_per_AS_type, nb_subnets, nb_asn = (
             get_frac_per_subnet_per_asn_type(
@@ -394,13 +396,12 @@ def main() -> None:
             frac_under_100 = get_proportion_over(x, y, 1)
             logger.info(f"Fraction all under 2ms, {as_type}:: {frac_under_100}")
             fraction_of_subnets = round((len(frac_per_subnet) / nb_subnets) * 100, 2)
-            cdfs.append(
-                (
-                    x,
-                    y,
-                    f"fraction per subnet, {as_type}, {fraction_of_subnets}[%] subnets",
-                )
-            )
+            ordered_curves.append((frac_under_100, x, y, f"{as_type}"))
+
+        ordered_curves = sorted(ordered_curves, key=lambda x: x[0], reverse=True)
+        cdfs = []
+        for _, x, y, label in ordered_curves:
+            cdfs.append((x, y, label))
 
         plot_multiple_cdf(
             cdfs=cdfs,
@@ -408,9 +409,21 @@ def main() -> None:
             metric_evaluated="",
             x_limit_left=0,
             y_label="CDF of subnets",
-            x_label="fraction of targets under 2ms",
+            x_label="Fraction of IP addresses in the same metro",
             x_log_scale=False,
+            legend_size=8,
+            legend_fontsize=6,
         )
+
+    if do_find_non_overlapping:
+        vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
+        # vps_per_id = get_vp_per_id(vps)
+        asndb = pyasn(str(path_settings.RIB_TABLE))
+        _, vps_coordinates = get_parsed_vps(vps, asndb)
+
+        problematic_geoloc = non_overlapping_geoloc(pings_per_subnet, vps_coordinates)
+        logger.info(f"Nb subnet with conflicting geoloc:: {len(problematic_geoloc)}")
+        dump_pickle(problematic_geoloc, RESULT_PATH / "problematic_geoloc.pickle")
 
 
 if __name__ == "__main__":

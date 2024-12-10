@@ -159,7 +159,7 @@ def evaluate() -> None:
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_VPS_MESHED_PINGS_TABLE, removed_vps
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)

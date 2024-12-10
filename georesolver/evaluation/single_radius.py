@@ -233,14 +233,20 @@ def shortest_ping_evaluation() -> None:
         if key in shortest_ping_georesolver
     }
 
+    under_2_ms_single_radius = {
+        key: val
+        for key, val in under_2_ms_single_radius.items()
+        if key in shortest_ping_georesolver
+    }
+
     cdfs = []
     cdfs = []
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver_extended.values()])
-    cdfs.append((x, y, "GeoResolver (3 packets/ping)"))
+    # cdfs.append((x, y, "GeoResolver (3 packets/ping)"))
     frac_under_2_ms_georesolver_extended = get_proportion_under(x, y, 2)
 
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_georesolver.values()])
-    cdfs.append((x, y, "GeoResolver (1 packet/ping)"))
+    cdfs.append((x, y, "GeoResolver"))
     frac_under_2_ms_georesolver = get_proportion_under(x, y, 2)
 
     x, y = ecdf([min_rtt for _, min_rtt in shortest_ping_single_radius.values()])
@@ -262,11 +268,24 @@ def shortest_ping_evaluation() -> None:
     logger.info(f"Nb target under 2ms    :: {len(under_2_ms_georesolver_extended)}")
     logger.info(f"Frac target under 2ms  :: {frac_under_2_ms_georesolver_extended}")
 
+    not_in_single_radius = set(under_2_ms_georesolver).difference(
+        under_2_ms_single_radius
+    )
+    not_in_georesolver = set(under_2_ms_single_radius).difference(
+        under_2_ms_georesolver
+    )
+
+    logger.info("Coverage evaluation")
+    logger.info(f"Missing in single radius :: {len(not_in_single_radius)}")
+    logger.info(f"Missing in georesolver   :: {len(not_in_georesolver)}")
+
     plot_multiple_cdf(
         cdfs=cdfs,
         output_path="single_radius_vs_georesolver_shortest_ping",
         metric_evaluated="rtt",
         legend_pos="lower right",
+        legend_size=12,
+        legend_fontsize=12,
     )
 
 
@@ -402,8 +421,8 @@ def eval() -> None:
             - idea: mean latency VPs
     """
     do_shortest_ping_evaluation: bool = True
-    do_cost_evaluation: bool = True
-    do_asn_country_diversity_evaluation: bool = True
+    do_cost_evaluation: bool = False
+    do_asn_country_diversity_evaluation: bool = False
 
     if do_shortest_ping_evaluation:
         shortest_ping_evaluation()

@@ -66,6 +66,9 @@ colors_blind = [
     ["bluish_green", (0, 158.0 / 255, 115.0 / 255)],
     ["dark_green", (41.0 / 255, 94.0 / 255, 17.0 / 255)],
     ["yellow", (240.0 / 255, 228.0 / 255, 66.0 / 255)],
+    ["brown", (110.0 / 255, 74.0 / 255, 60.0 / 255)],
+    ["grey", (221.0 / 255, 221.0 / 255, 221.0 / 255)],
+    ["light_green", (000.0 / 255, 158.0 / 255, 115.0 / 255)],
 ]
 
 
@@ -164,16 +167,14 @@ def plot_multiple_cdf(
     y_label: str = "CDF of targets",
     x_log_scale: bool = True,
     y_log_scale: bool = False,
+    fontsize_axis: int = 17,
+    legend_fontsize: int = 8,
 ) -> None:
 
     fig, ax1 = plt.subplots(1, 1)
 
     for i, (x, y, label) in enumerate(cdfs):
-        if "under" in label:
-            ax1.plot(x, y, label=label, color=colors_blind[i][1])
-
-        else:
-            ax1.plot(x, y, label=label, color=colors_blind[i][1])
+        ax1.plot(x, y, label=label, color=colors_blind[i][1])
 
     x_label = get_x_label(metric_evaluated) if not x_label else x_label
     ax1.grid(linestyle="dotted")
@@ -191,12 +192,10 @@ def plot_multiple_cdf(
     else:
         pass
 
-    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
-
     if legend_outside:
-        plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
+        plt.legend(bbox_to_anchor=(1, 1), fontsize=legend_fontsize)
     else:
-        plt.legend(loc=legend_pos, fontsize=8)
+        plt.legend(loc=legend_pos, fontsize=legend_fontsize)
     if x_log_scale:
         plt.xscale("log")
     if y_log_scale:
@@ -205,6 +204,8 @@ def plot_multiple_cdf(
         plt.xlim(left=x_limit_left)
     if x_limit_right:
         plt.xlim(right=x_limit_right)
+
+    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
 
     plt.tight_layout()
     plt.ylim((0, 1))
@@ -232,6 +233,7 @@ def plot_multiple_cdfs_with_dates(
     y_label: str = "CDF of targets",
     x_log_scale: bool = True,
     y_log_scale: bool = False,
+    legend_fontisize: int = 10,
 ) -> None:
 
     _, ax1 = plt.subplots(1, 1)
@@ -259,12 +261,12 @@ def plot_multiple_cdfs_with_dates(
     else:
         pass
 
-    homogenize_legend(ax1, legend_pos, legend_size=legend_size)
+    homogenize_legend(ax1, legend_pos, legend_size=legend_fontisize)
 
     if legend_outside:
         plt.legend(bbox_to_anchor=(1, 1), fontsize=8)
     else:
-        plt.legend(loc=legend_pos, fontsize=8)
+        plt.legend(loc=legend_pos, fontsize=legend_fontisize)
     if x_log_scale:
         plt.xscale("log")
     if x_limit_left:
@@ -341,7 +343,7 @@ def plot_ref(metric_evaluated: str) -> None:
 def plot_random(metric_evaluated: str) -> None:
 
     ref_shortest_ping_results = load_pickle(
-        path_settings.RESULTS_PATH / "results_random_shortest_ping.pickle"
+        path_settings.RESULTS_PATH / "results__random_shortest_ping.pickle"
     )
 
     x, y = ecdf(
@@ -369,11 +371,11 @@ def get_proportion_under(x, y, threshold: int = 40) -> int:
 def get_proportion_over(x, y, threshold: int = 40) -> int:
     proportion_of_ip = 1
     for i, value in enumerate(x):
-        if value <= threshold:
+        if value >= threshold:
             proportion_of_ip = y[i]
             break
 
-    return round(proportion_of_ip, 2)
+    return proportion_of_ip
 
 
 def plot_limit(
@@ -639,6 +641,9 @@ def plot_end_to_end_results(
     score_metrics=["jaccard"],
     metric_evaluated: str = "d_error",
     legend_pos="upper left",
+    fontsize_axis: int = 17,
+    legend_size: int = 12,
+    legend_fontsize: int = 8,
 ) -> None:
     all_cdfs = []
     ref_cdf = plot_ref(metric_evaluated)
@@ -659,7 +664,16 @@ def plot_end_to_end_results(
     cdf_imc = plot_random(metric_evaluated=metric_evaluated)
     all_cdfs.append(cdf_imc)
 
-    plot_multiple_cdf(all_cdfs, output_path, metric_evaluated, False, legend_pos)
+    plot_multiple_cdf(
+        all_cdfs,
+        output_path,
+        metric_evaluated,
+        False,
+        legend_pos,
+        legend_size=legend_size,
+        fontsize_axis=fontsize_axis,
+        legend_fontsize=legend_fontsize,
+    )
 
 
 def plot_routers(

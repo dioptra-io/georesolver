@@ -173,7 +173,7 @@ def evaluate() -> None:
 
     logger.info("BGP prefix score geoloc evaluation")
 
-    score_dir = path_settings.RESULTS_PATH / "tier1_evaluation"
+    score_dir = path_settings.RESULTS_PATH / "tier2_evaluation"
 
     for score_file in score_dir.iterdir():
 

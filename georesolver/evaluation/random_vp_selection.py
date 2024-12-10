@@ -99,7 +99,8 @@ def main() -> None:
 
     dump_pickle(
         data=random_shortest_ping_results,
-        output_file=path_settings.RESULTS_PATH / f"results_random_shortest_ping.pickle",
+        output_file=path_settings.RESULTS_PATH
+        / f"results__random_shortest_ping.pickle",
     )
 
 

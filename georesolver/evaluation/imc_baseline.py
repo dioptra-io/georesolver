@@ -275,7 +275,7 @@ if __name__ == "__main__":
     # 1. measurement overhead for anchors
     targets = load_targets(clickhouse_settings.VPS_FILTERED_TABLE)
     targets = [target["addr"] for target in targets]
-    ping_table = clickhouse_settings.VPS_VPS_MESHED_PINGS_TABLE
+    ping_table = clickhouse_settings.VPS_MESHED_PINGS_TABLE
     output_path = path_settings.RESULTS_PATH / "imc_baseline_anchors_dataset.json"
 
     if not output_path.exists():
