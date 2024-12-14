@@ -449,7 +449,12 @@ def get_updated_vps(latest_vps: list[dict], prev_vps: list[dict]) -> list[dict]:
 async def vps_init(
     update_meshed_pings: bool = True, update_meshed_traceroutes: bool = True
 ) -> None:
-    # 1. dowload all VPs
+    # 1. download all VPs
+    api = RIPEAtlasAPI()
+    vps = await api.get_all_vps()
+    await api.insert_vps(vps, clickhouse_settings.VPS_ALL_TABLE)
+
+    # 1. download all connected VPs
     # api = RIPEAtlasAPI()
     # vps = await api.get_vps()
     # await api.insert_vps(vps, clickhouse_settings.VPS_RAW_TABLE)
@@ -474,7 +479,7 @@ async def vps_init(
     # ).main(traceroutes_schedule)
 
     # 5. create a table with only VPs with last myle delay under 2 ms
-    await filter_low_connectivity_vps(delay_threshold=2)
+    # await filter_low_connectivity_vps(delay_threshold=2)
 
 
 # debugging, testing

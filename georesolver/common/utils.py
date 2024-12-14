@@ -100,6 +100,18 @@ def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = []) -> dict:
     return vps_subnet, vps_coordinates
 
 
+def get_vp_per_id(vps: list, removed_vps: list = []) -> dict:
+    """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
+    vps_coordinates = {}
+    for vp in vps:
+        if vp["addr"] in removed_vps:
+            continue
+
+        vps_coordinates[vp["id"]] = vp
+
+    return vps_coordinates
+
+
 def get_vp_score(vp_subnet: str, target_score: list) -> tuple[float, float]:
     """retrieve vp score"""
     score = -1

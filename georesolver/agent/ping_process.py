@@ -22,7 +22,6 @@ from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
     ConstantSettings,
-    RIPEAtlasSettings,
     setup_logger,
 )
 
@@ -81,7 +80,6 @@ def select_one_vp_per_as_city(
 
 
 def get_ecs_vps(
-    target_subnet: str,
     target_score: dict,
     vps_per_subnet: dict,
     last_mile_delay_vp: dict,
@@ -94,10 +92,6 @@ def get_ecs_vps(
     ecs_vps = []
     target_score = sorted(target_score, key=lambda x: x[1], reverse=True)
     for subnet, score in target_score:
-        # for fairness, do not take vps that are in the same subnet as the target
-        if subnet == target_subnet:
-            continue
-
         vps_in_subnet = vps_per_subnet[subnet]
 
         vps_delay_subnet = []
@@ -143,9 +137,7 @@ def get_geo_resolver_schedule(
             raise RuntimeError(f"{target_subnet} does not have score")
 
         # get vps, function of their subnet ecs score
-        ecs_vps = get_ecs_vps(
-            target_subnet, target_scores, vps_per_subnet, last_mile_delay, 5_00
-        )
+        ecs_vps = get_ecs_vps(target_scores, vps_per_subnet, last_mile_delay, 5_00)
 
         ecs_vps = select_one_vp_per_as_city(ecs_vps, vps_coordinates, last_mile_delay)[
             : constant_settings.PROBING_BUDGET
@@ -185,17 +177,12 @@ def get_measurement_schedule(
     )
     subnet_scores = {}
     logger.info(f"Retriving scores for {len(subnets)}")
-    batch_score_size = 10_000
+    batch_score_size = 5_000
     for i in range(0, len(subnets), batch_score_size):
         logger.info(f"Batch:: {i} -> {i + batch_score_size}")
         batch_subnets = subnets[i : i + batch_score_size]
         subnet_scores.update(
             load_target_scores(score_table=score_table, subnets=batch_subnets)
-        )
-
-    if not subnet_scores:
-        raise RuntimeError(
-            f"Should have retrieved some subnets from {score_table} table"
         )
 
     target_schedule = get_geo_resolver_schedule(
@@ -231,21 +218,15 @@ def filter_targets(
     filtered_targets = []
 
     # Check if scores exists for part of the subnets
-    cached_score_subnets = get_subnets(
-        table_name=score_table,
-        print_error=verbose,
-    )
+    cached_score_subnets = get_subnets(table_name=score_table, print_error=verbose)
     logger.info(f"Found {len(cached_score_subnets)} subnets with score")
-
     # get cached target from table
     cached_targets = load_cached_targets(ping_table)
     logger.info(f"Found {len(cached_targets)} targets measurements")
-
     # add targets that were geolocated but not inserted
     cached_targets.extend(geolocated_targets)
     # get remaining targets to geolocate
     no_measured_target = set(targets).difference(set(cached_targets))
-
     logger.info(f"Found {len(no_measured_target)} targets without measurements")
 
     no_measured_target_per_subnet = defaultdict(list)

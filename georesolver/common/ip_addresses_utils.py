@@ -16,6 +16,9 @@ from georesolver.common.settings import PathSettings
 path_settings = PathSettings()
 
 
+def filter_anycast() -> list[str]:
+    """remove all prefix present in anycatch db"""
+    
 def load_subnet_to_asn(subnets: list[str]) -> dict:
     """get the AS number for each subnet in the input list, return dict"""
     asndb = pyasn(str(path_settings.RIB_TABLE.resolve()))

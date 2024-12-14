@@ -684,6 +684,43 @@ class RIPEAtlasAPI:
 
         return vps
 
+    async def get_all_vps(self) -> list:
+        """return all RIPE Atlas VPs (set probe_only to remove anchors)"""
+        vps = []
+        rejected = 0
+        vp: dict = None
+        async for vp in self.get_raw_vps():
+            if (
+                vp.get("address_v4") is None
+                or vp.get("geometry") is None
+                or vp.get("address_v4") is None
+                or vp.get("asn_v4") is None
+                or vp.get("country_code") is None
+            ):
+                rejected += 1
+                continue
+
+            reduced_vp = {
+                "address_v4": vp["address_v4"],
+                "asn_v4": vp["asn_v4"],
+                "country_code": vp["country_code"],
+                "geometry": vp["geometry"],
+                "lat": vp["geometry"]["coordinates"][1],
+                "lon": vp["geometry"]["coordinates"][0],
+                "id": vp["id"],
+                "is_anchor": vp["is_anchor"],
+            }
+            vps.append(reduced_vp)
+
+        logger.info(f"Retrieved {len(vps)} VPs on RIPE Atlas")
+        logger.info(f"VPs removed: {rejected}")
+        logger.info(
+            f"Number of Probes  = {len([vp for vp in vps if not vp['is_anchor']])}"
+        )
+        logger.info(f"Number of Anchors = {len([vp for vp in vps if vp['is_anchor']])}")
+
+        return vps
+
     async def ping(
         self,
         target: str,

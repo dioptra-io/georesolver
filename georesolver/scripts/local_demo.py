@@ -19,9 +19,10 @@ os.environ["RIPE_ATLAS_SECRET_KEY"] = (
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 # LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
-# LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "ripe_atlas_subnet_aggregationtargets.csv"
+# LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "ripe_atlas_itdktargets.csv"
+# LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "itdk/itdk_targets.csv"
 LOCAL_DEMO_TARGET_FILE = (
-    path_settings.DATASET / "subnet_aggregation/subnet_aggregation_targets.csv"
+    path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
 )
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
 LOCAL_DEMO_CONFIG_PATH = path_settings.LOG_PATH / "local_demo"
@@ -52,7 +53,7 @@ if __name__ == "__main__":
 
     # create agent config
     agent_config = {
-        "agent_uuid": "d1d51228-ee66-44e4-8381-ccdce1ab73e4",
+        "agent_uuid": "16b489a-5191-459c-9f4e-da558d58836c",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": BATCH_SIZE,
@@ -60,23 +61,23 @@ if __name__ == "__main__":
         "processes": [
             {
                 "name": "ecs_process",
-                "in_table": "subnet_aggregation_ecs",
-                "out_table": "subnet_aggregation_ecs",
+                "in_table": "itdk_ecs",
+                "out_table": "itdk_ecs",
             },
             {
                 "name": "score_process",
-                "in_table": "subnet_aggregation_ecs",
-                "out_table": "subnet_aggregation_score",
+                "in_table": "itdk_ecs",
+                "out_table": "itdk_score",
             },
             {
                 "name": "ping_process",
-                "in_table": "subnet_aggregation_score",
-                "out_table": "subnet_aggregation_ping",
+                "in_table": "itdk_score",
+                "out_table": "itdk_ping",
             },
             {
                 "name": "insert_process",
-                "in_table": "subnet_aggregation_ping",
-                "out_table": "subnet_aggregation_geoloc",
+                "in_table": "itdk_ping",
+                "out_table": "itdk_geoloc",
             },
         ],
         "log_path": f"{LOCAL_DEMO_CONFIG_PATH.resolve()}",

@@ -375,4 +375,4 @@ class Agent:
         self.agent_start()
 
         # monitor container execution
-        self.monitor()
+        # self.monitor()
