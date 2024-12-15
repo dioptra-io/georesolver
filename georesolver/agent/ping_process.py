@@ -300,7 +300,7 @@ async def ping_task(
                 logger.info("Stopped Geolocation process")
                 break
 
-            max_batch_size = 100_000
+            max_batch_size = 50_000
             for i in range(0, len(filtered_targets), max_batch_size):
                 logger.info(f"Batch:: {i} -> {i+max_batch_size}")
                 batch_targets = filtered_targets[i : i + max_batch_size]
