@@ -21,6 +21,7 @@ path_settings = PathSettings()
 class ProcessNames(Enum):
     ECS_PROC = "ecs_process"
     SCORE_PROC = "score_process"
+    SCHEDULE_PROC = "schedule_process"
     PING_PROC = "ping_process"
     INSERT_PROC = "insert_process"
 

@@ -14,11 +14,13 @@ from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.agent import (
     ecs_task,
     score_task,
+    schedule_task,
     ping_task,
     insert_task,
     insert_results,
     ecs_init,
 )
+from georesolver.scheduler import create_agents
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -33,10 +35,10 @@ def main_processes(task, task_args) -> None:
 
 
 def main(agent_config_path: Path, check_cached_measurements: bool = False) -> None:
+    """GeoResolver agent entry point, schedule processes, set parameters and start each process"""
 
     agent_config = load_json(agent_config_path, exit_on_failure=True)
 
-    # load input path from config
     try:
         agent_uuid = agent_config["agent_uuid"]
         target_file = Path(agent_config["target_file"])
@@ -115,11 +117,15 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
         if name == ProcessNames.SCORE_PROC.value:
             func = score_task
             base_params.pop("agent_uuid")
+            # specific use case, if we want a specific vps ECS result
             base_params["vps_ecs_table"] = (
                 process_definition["vps_ecs_table"]
                 if "vps_ecs_table" in process_definition
                 else clickhouse_settings.VPS_ECS_MAPPING_TABLE
             )
+        if name == ProcessNames.SCHEDULE_PROC.value:
+            func = schedule_task
+            base_params.pop("agent_uuid")
         if name == ProcessNames.PING_PROC.value:
             func = ping_task
             base_params.pop("hostname_file")
@@ -146,7 +152,6 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
                     )
                 )
 
-        # create process object
         process = Process(target=main_processes, args=(func, base_params))
         processes.append((name, process))
 
@@ -157,7 +162,6 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
     logger.info("##########################################")
     process: Process = None
     for name, process in processes:
-        # Start all processes
         logger.info(f"Starting {name} process")
         process.start()
 
@@ -166,7 +170,6 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
     logger.info("##########################################")
     process: Process = None
     for name, process in processes:
-        # join and wait all processes
         process.join()
 
     logger.info(f"Agent experiment {agent_uuid} succesfully executed")

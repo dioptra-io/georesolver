@@ -33,8 +33,7 @@ ITDK_RESPONSIVE_ROUTER_INTERFACE_PATH = (
 def get_itdk_router_interfaces() -> None:
     """
     extract all IP addresses that belongs to router interfaces:
-        - example row : '227.40.95.226 N37253355 L56036288 T'
-        - step 1      : only take IP addresses that belong to routers (T)
+        - example row : '227.40.95.226 N37253355 L56036288 X'
         - step 2      : remove IANA multicast IP addrs (* in traceroutes)
         - step 3      : regroup IP addresses per node ID (alias resolution)
         - step 4      : dump router interfaces

@@ -100,14 +100,21 @@ def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = []) -> dict:
     return vps_subnet, vps_coordinates
 
 
-def get_vp_per_id(vps: list, removed_vps: list = []) -> dict:
+def get_vps_per_subnet(vps: list) -> dict:
+    """group vps per subnet"""
+    vps_subnet = defaultdict(list)
+
+    for vp in vps:
+        vps_subnet[vp["subnet"]].append(vp)
+
+    return vps_subnet
+
+
+def get_vps_per_addr(vps: list) -> dict:
     """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
     vps_coordinates = {}
     for vp in vps:
-        if vp["addr"] in removed_vps:
-            continue
-
-        vps_coordinates[vp["id"]] = vp
+        vps_coordinates[vp["addr"]] = vp
 
     return vps_coordinates
 
@@ -386,38 +393,6 @@ def select_one_vp_per_as_city(
                 if not already_found:
                     selected_vps_per_as[asn].append((vp_i, score))
                     filtered_vp_selection.append((vp_i, score))
-
-    # for asn, vps in vps_per_as.items():
-    #     for (vp_addr, score) in vps:
-
-    #     for vp_addr, score in one_vp_per_as_selection[asn]:
-    #         one_vp_per_as_selection
-
-    # # select one VP per city
-    # for vp_addr, score in one_vp_per_as_selection:
-
-    #     # take at least one probe per AS
-    #     if vp_asn not in selected_vps_per_asn:
-    #         filtered_vp_selection.append((vp_addr, score))
-    #         selected_vps_per_asn[vp_asn].append((vp_addr, vp_lat, vp_lon))
-
-    #     else:
-    #         # check if we already selected a VP in the same area (threshold)
-    #         selected_close = False
-    #         for _, selected_probe_lat, selected_probe_lon in selected_vps_per_asn[
-    #             vp_asn
-    #         ]:
-    #             probe_distance = distance(
-    #                 vp_lat, selected_probe_lat, vp_lon, selected_probe_lon
-    #             )
-
-    #             # do not select two VPs that are close together
-    #             if probe_distance < threshold:
-    #                 selected_close = True
-    #                 break
-
-    #         if not selected_close:
-    #             filtered_vp_selection.append((vp_addr, score))
 
     return filtered_vp_selection
 

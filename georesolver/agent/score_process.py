@@ -345,21 +345,14 @@ async def score_task(
                 break
 
 
-# profilin, testing, debugging
 if __name__ == "__main__":
-
-    targets = load_csv(path_settings.DATASET / "demo_targets.csv")
-    subnets = [get_prefix_from_ip(addr) for addr in targets]
-    hostnames = load_csv(path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv")
-
     asyncio.run(
         score_task(
-            subnets=subnets,
-            hostnames=hostnames,
-            ecs_mapping_table="demo_ecs_mapping",
-            score_table="demo_score",
-            batch_size=10,
-            nb_cpu=1,
+            target_file=path_settings.DATASET / "ripe_atlas_anchors_addrs.csv",
+            hostname_file=path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv",
+            in_table="vps_ecs_mapping",
+            out_table="vps_mapping_score",
+            vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
             output_logs=None,
         )
     )

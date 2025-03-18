@@ -11,6 +11,7 @@ from georesolver.clickhouse import (
     GetVPs,
     GetVPsIds,
     GetPingsPerTarget,
+    GetPingsPerTargetExtended,
     GetPingsPerSrcDst,
     GetDNSMappingHostnames,
     GetECSResults,
@@ -19,6 +20,7 @@ from georesolver.clickhouse import (
     GetLastMileDelay,
     CreatePingTable,
     CreateScoreTable,
+    CreateScheduleTable,
     CreateGeolocTable,
     CreateDNSMappingTable,
     CreateTracerouteTable,
@@ -64,7 +66,9 @@ def get_min_rtt_per_vp(table_name: str) -> dict:
     return last_mile_delay_per_vp
 
 
-def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
+def get_pings_per_target(
+    table_name: str, removed_vps: list = [], nb_packets: int = -1
+) -> dict:
     """
     return meshed ping for all targets
     ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
@@ -74,6 +78,36 @@ def get_pings_per_target(table_name: str, removed_vps: list = []) -> dict:
     try:
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             resp = GetPingsPerTarget().execute(
+                client=client,
+                table_name=table_name,
+                filtered_vps=removed_vps,
+                nb_packets=nb_packets,
+            )
+
+        for row in resp:
+            ping_vps_to_target[row["target"]] = row["pings"]
+
+        logger.info(f"Retrived pings for {len(ping_vps_to_target)} targets")
+
+    except ClickHouseException:
+        logger.warning(
+            f"Something went wrong. Probably that {table_name} does not exists"
+        )
+        pass
+
+    return ping_vps_to_target
+
+
+def get_pings_per_target_extended(table_name: str, removed_vps: list = []) -> dict:
+    """
+    return meshed ping for all targets
+    ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
+    """
+    ping_vps_to_target = {}
+
+    try:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            resp = GetPingsPerTargetExtended().execute(
                 client=client,
                 table_name=table_name,
                 filtered_vps=removed_vps,
@@ -167,14 +201,8 @@ def load_vps(input_table: str) -> list:
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         rows = GetVPs().execute(client=client, table_name=input_table)
 
-    vps_addrs = set()
     for row in rows:
-        if row["addr"] in vps_addrs:
-            continue
-        else:
-            vps.append(row)
-            vps_addrs.add(row["addr"])
-
+        vps.append(row)
     return vps
 
 
@@ -351,7 +379,6 @@ def get_subnets(
 def get_dst_prefix(ping_table: str) -> list[str]:
     """retrieve subnets from ping table"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        CreatePingTable().execute(client, ping_table)
         rows = GetDstPrefix().execute(
             client=client,
             table_name=ping_table,
@@ -476,6 +503,21 @@ async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
         await CreateTracerouteTable().aio_execute(
             client=client, table_name=output_table
         )
+        Query().execute_insert(
+            client=client,
+            table_name=output_table,
+            in_file=tmp_file_path,
+        )
+
+    tmp_file_path.unlink()
+
+
+async def insert_schedule(csv_data: list[str], output_table: str) -> None:
+    """insert target schedule into output table"""
+    tmp_file_path = create_tmp_csv_file(csv_data)
+
+    async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        await CreateScheduleTable().aio_execute(client=client, table_name=output_table)
         Query().execute_insert(
             client=client,
             table_name=output_table,

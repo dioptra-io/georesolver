@@ -255,6 +255,56 @@ class GetVPsIds(Query):
 
 
 class GetPingsPerTarget(Query):
+    def statement(
+        self, table_name: str, filtered_vps: list = [], nb_packets: int = -1, **kwargs
+    ) -> str:
+        filter_vps_statement = ""
+        if filtered_vps:
+            in_clause = f"".join([f",toIPv4('{p}')" for p in filtered_vps])[1:]
+            filter_vps_statement = (
+                f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
+            )
+
+        limit_statement = ""
+        if limit := kwargs.get("limit"):
+            limit_statement = f"LIMIT {limit}"
+
+        if nb_packets == -1:
+            query = f"""
+            SELECT 
+                DISTINCT toString(dst_addr) as target,
+                groupArray((toString(src_addr), min)) as pings
+            FROM 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            WHERE
+                min > -1 
+                AND dst_addr != src_addr
+                AND src_prefix != dst_prefix
+                {filter_vps_statement}
+            GROUP BY 
+                target
+            {limit_statement}
+            """
+        else:
+            query = f"""
+            SELECT 
+                DISTINCT toString(dst_addr) as target,
+                groupArray((toString(src_addr), rtts[1])) as pings
+            FROM 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            WHERE
+                rtts[1] > -1 
+                AND dst_addr != src_addr
+                AND src_prefix != dst_prefix
+                {filter_vps_statement}
+            GROUP BY 
+                target
+            {limit_statement}
+            """
+        return query
+
+
+class GetPingsPerTargetExtended(Query):
     def statement(self, table_name: str, filtered_vps: list = [], **kwargs) -> str:
         filter_vps_statement = ""
         if filtered_vps:
@@ -270,7 +320,7 @@ class GetPingsPerTarget(Query):
         return f"""
         SELECT 
             DISTINCT toString(dst_addr) as target,
-            groupArray((toString(src_addr), min)) as pings
+            groupArray((toString(src_addr), prb_id, min)) as pings
         FROM 
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE
@@ -714,6 +764,8 @@ class GetMeasurementIds(Query):
             ) as msm_id
         FROM 
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
+        WHERE
+            min > -1
         """
 
 

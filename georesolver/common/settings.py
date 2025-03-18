@@ -95,6 +95,7 @@ class ClickhouseSettings(BaseSettings):
 
     # VPs related tables
     VPS_RAW_TABLE: str = "vps_raw"
+    VPS_ALL_TABLE: str = "vps_all"
     VPS_FILTERED_TABLE: str = "vps_filtered"
     VPS_FILTERED_FINAL_TABLE: str = "vps_filtered_final"
     VPS_MESHED_PINGS_TABLE: str = "vps_meshed_pings"

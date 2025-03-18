@@ -34,7 +34,7 @@ def check_processes(process_definition: list[dict]) -> list[str]:
     p_names = []
     for process in process_definition:
         assert "name" in process
-        assert "in_table" in process
+        assert "in_table" in process 
         assert "out_table" in process
         process_name = process["name"]
         if process_name not in ProcessNames._value2member_map_:

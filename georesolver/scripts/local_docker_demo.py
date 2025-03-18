@@ -12,7 +12,7 @@ path_settings = PathSettings()
 DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
 CONFIG_PATH = path_settings.DATASET / "experiment_config/local_demo_config.json"
 RANDOM_DATASET = True
-NB_ADDRS = 100
+NB_ADDRS = 1_000
 
 
 def generate_random_dataset() -> None:

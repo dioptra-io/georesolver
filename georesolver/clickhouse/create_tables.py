@@ -40,7 +40,7 @@ class CreateVPsTable(Query):
 
 class CreatePingTable(Query):
     def statement(self, table_name: str) -> str:
-        """returns anchors mapping table query"""
+        """return ping creation table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
             CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
@@ -49,8 +49,8 @@ class CreatePingTable(Query):
                 src_addr           IPv4,
                 src_prefix         IPv4,
                 src_netmask        UInt8,
-                prb_id             UInt16,
-                msm_id             UInt32, 
+                prb_id             UInt64,
+                msm_id             UInt64, 
                 dst_addr           IPv4,
                 dst_prefix         IPv4,
                 proto              String,
@@ -60,6 +60,24 @@ class CreatePingTable(Query):
                 max                Float32,
                 avg                Float32,
                 rtts               Array(Float32)
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
+class CreateScheduleTable(Query):
+    def statement(self, table_name: str) -> str:
+        """return schedule creation table query"""
+        sorting_key = "subnet, prb_id, vp_addr, vp_subnet, vp_score"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            (
+                subnet             IPv4,
+                prb_id             UInt64,
+                vp_addr            IPv4,
+                vp_subnet          IPv4,
+                vp_score           Float32
             )
             ENGINE MergeTree
             ORDER BY ({sorting_key})
@@ -145,6 +163,23 @@ class CreateDNSMappingTable(Query):
         """
 
 
+class CreateScoreTable(Query):
+    def statement(self, table_name: str) -> str:
+        sorting_key = "subnet, vp_subnet, metric, score"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            (
+                subnet                 IPv4,
+                vp_subnet              IPv4,
+                metric                 String,
+                answer_granularity     String,
+                score                  Float32
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
 class CreateNameServerTable(Query):
     def statement(self, table_name: str) -> str:
         sorting_key = "subnet, netmask, hostname,name_server, timestamp"
@@ -161,46 +196,3 @@ class CreateNameServerTable(Query):
         ENGINE MergeTree
         ORDER BY ({sorting_key})
         """
-
-
-class CreateDNSMappingWithMetadataTable(Query):
-    def statement(self, table_name: str) -> str:
-        sorting_key = "subnet, bgp_prefix, asn, hostname, answer, answer_subnet, answer_bgp_prefix, answer_asn, pop_ip_info_id"
-        return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
-            (
-                subnet                 IPv4,
-                bgp_prefix             String,
-                asn                    UInt32,
-                hostname               String,
-                answer                 IPv4,
-                answer_subnet          IPv4,
-                answer_bgp_prefix      String,
-                answer_asn             UInt32,
-                pop_ip_info_id         Int32,
-                pop_lat                Float32,
-                pop_lon                Float32,
-                pop_city               String,
-                pop_country            String,
-                pop_continent          String
-            )
-            ENGINE MergeTree
-            ORDER BY ({sorting_key})
-            """
-
-
-class CreateScoreTable(Query):
-    def statement(self, table_name: str) -> str:
-        sorting_key = "subnet, vp_subnet, metric, score"
-        return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
-            (
-                subnet                 IPv4,
-                vp_subnet              IPv4,
-                metric                 String,
-                answer_granularity     String,
-                score                  Float32
-            )
-            ENGINE MergeTree
-            ORDER BY ({sorting_key})
-            """
