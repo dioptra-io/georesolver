@@ -9,7 +9,7 @@ from pathlib import Path
 from loguru import logger
 from pprint import pformat
 
-from georesolver.scheduler import create_agents
+from georesolver.georesolver import run_georesolver
 from georesolver.agent import run_dns_mapping, ProcessNames
 from georesolver.clickhouse.queries import load_targets, load_vps, get_tables
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
@@ -191,9 +191,7 @@ async def run_experiment(vps_subnet: list[str]) -> None:
     )
 
     # run georesolver
-    agents = create_agents(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH)
 
     new_config = update_config(
         experiment_name=EXPERIMENT_NAME,
@@ -219,10 +217,7 @@ async def run_experiment(vps_subnet: list[str]) -> None:
         output_table=vps_ecs_table,
     )
 
-    # run georesolver
-    agents = create_agents(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH)
 
 
 async def main() -> None:

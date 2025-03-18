@@ -11,15 +11,12 @@ from multiprocessing import Process
 from georesolver.agent.ripe_init import vps_init
 from georesolver.common.files_utils import load_csv, load_json
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
-from georesolver.agent import (
-    ecs_task,
-    score_task,
-    schedule_task,
-    ping_task,
-    insert_task,
-    insert_results,
-    ecs_init,
-)
+from georesolver.agent.ecs_process import ecs_task
+from georesolver.agent.score_process import score_task
+from georesolver.agent.schedule_process import schedule_task
+from georesolver.agent.ping_process import ping_task
+from georesolver.agent.insert_process import insert_task, insert_results
+from georesolver.agent.ecs_mapping_init import ecs_init
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()

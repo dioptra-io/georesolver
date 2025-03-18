@@ -1,8 +1,6 @@
 """run GeoResolver geolocation on a set of demo targets"""
 
-import os
-
-from georesolver.main import main
+from georesolver.agent.main import main
 from georesolver.common.files_utils import dump_json
 from georesolver.common.settings import PathSettings, RIPEAtlasSettings
 

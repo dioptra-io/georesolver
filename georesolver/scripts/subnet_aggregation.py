@@ -5,7 +5,7 @@ from pprint import pformat
 from random import shuffle
 from collections import defaultdict
 
-from georesolver.scheduler import create_agents
+from georesolver.georesolver import run_georesolver
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.files_utils import (
     load_json,
@@ -86,9 +86,7 @@ def run_experiment() -> None:
     logger.info("Running subnet aggregation experiment from config:: ")
     logger.info("config=\n{}", pformat(config))
 
-    agents = create_agents(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH)
 
 
 def main() -> None:

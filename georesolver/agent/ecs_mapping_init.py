@@ -10,7 +10,7 @@ from datetime import datetime
 from collections import defaultdict
 from pych_client import AsyncClickHouseClient
 
-from georesolver.agent import run_dns_mapping
+from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.clickhouse import (
     GetDNSMapping,
     GetHostnamesAnswerSubnet,

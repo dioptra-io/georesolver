@@ -3,7 +3,7 @@
 from random import sample
 from loguru import logger
 
-from georesolver.scheduler import create_agents
+from georesolver.georesolver import run_georesolver
 from georesolver.evaluation.itdk_dataset import load_csv, dump_csv
 from georesolver.common.settings import PathSettings
 
@@ -34,7 +34,7 @@ def main_demo() -> None:
 
     logger.info(f"File available at:: {DEMO_TARGET_FILE}")
 
-    agents = create_agents(CONFIG_PATH)
+    run_georesolver(CONFIG_PATH)
     for agent in agents:
         agent.run()
 

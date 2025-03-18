@@ -365,7 +365,7 @@ def run_remote_agent(
     # monitor()
 
 
-def main(config_path: Path) -> None:
+def run_georesolver(config_path: Path) -> None:
     """entry point, run georesolver"""
     # check config validity
     config = check_config(config_path)

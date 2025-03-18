@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from georesolver.scheduler import create_agents
+from georesolver.georesolver import run_georesolver
 from georesolver.evaluation.itdk_dataset import get_random_itdk_routers
 from georesolver.common.settings import PathSettings
 
@@ -27,9 +27,7 @@ def main_demo() -> None:
         logger.info(f"File available at:: {DEMO_TARGET_FILE}")
 
     # debugging
-    agents = create_agents(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH)
 
 
 if __name__ == "__main__":
