@@ -9,14 +9,14 @@ from loguru import logger
 from multiprocessing import Process
 
 from georesolver.agent.ripe_init import vps_init
-from georesolver.common.files_utils import load_csv, load_json
-from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.agent.ecs_process import ecs_task
 from georesolver.agent.score_process import score_task
 from georesolver.agent.schedule_process import schedule_task
 from georesolver.agent.ping_process import ping_task
 from georesolver.agent.insert_process import insert_task, insert_results
 from georesolver.agent.ecs_mapping_init import ecs_init
+from georesolver.common.files_utils import load_csv, load_json
+from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -96,7 +96,7 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
     logger.info("##########################################")
 
     # agent process definition
-    processes = []
+    processes: list[tuple[str, Process]] = []
     for process_definition in process_definitions:
         name = process_definition["name"]
         in_table = process_definition["in_table"]
@@ -129,6 +129,8 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
             )
         if name == ProcessNames.SCHEDULE_PROC.value:
             func = schedule_task
+            base_params.pop("hostname_file")
+            base_params.pop("batch_size")
             base_params.pop("agent_uuid")
         if name == ProcessNames.PING_PROC.value:
             func = ping_task
@@ -162,17 +164,15 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
         logger.info(f"Scheduled process {name}:: {in_table=}; {out_table=}")
 
     logger.info("##########################################")
-    logger.info("# Starting processes")
+    logger.info("# Starting agent")
     logger.info("##########################################")
-    process: Process = None
     for name, process in processes:
         logger.info(f"Starting {name} process")
         process.start()
 
     logger.info("##########################################")
-    logger.info("# Waiting for process to finish")
+    logger.info("# Waiting for agent processes")
     logger.info("##########################################")
-    process: Process = None
     for name, process in processes:
         process.join()
 

@@ -516,12 +516,12 @@ if __name__ == "__main__":
         # plot_per_vp_selection()
         plot_d_error_vs_latency()
 
-        # plot_end_to_end_results(
-        #     score_file=path_settings.RESULTS_PATH
-        #     / "tier5_evaluation/results__d_error_per_budget.pickle",
-        #     output_path="end_to_end_results",
-        #     metric_evaluated="d_error",
-        #     legend_pos="lower right",
-        #     legend_size=10,
-        #     legend_fontsize=10,
-        # )
+        plot_end_to_end_results(
+            score_file=path_settings.RESULTS_PATH
+            / "tier5_evaluation/results__d_error_per_budget.pickle",
+            output_path="end_to_end_results",
+            metric_evaluated="d_error",
+            legend_pos="lower right",
+            legend_size=10,
+            legend_fontsize=10,
+        )

@@ -34,7 +34,7 @@ from georesolver.common.files_utils import (
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
 
 
 async def filter_ecs_hostnames(output_table: str) -> None:
@@ -52,7 +52,7 @@ async def filter_ecs_hostnames(output_table: str) -> None:
 async def filter_anycast_hostnames(input_table: str) -> None:
     """get all answers, compare with anycatch database"""
     anycatch_db = load_anycatch_data()
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ch_settings.clickhouse) as client:
         ecs_hostnames = await GetDNSMapping().aio_execute(
             client=client, table_name=input_table
         )
@@ -113,7 +113,7 @@ async def get_hostname_cdn(input_table: str) -> None:
             if "asn" in row and "name" in row:
                 asn_to_org[int(row["asn"])] = row["name"]
 
-    async with AsyncClickHouseClient(**clickhouse_settings.clickhouse) as client:
+    async with AsyncClickHouseClient(**ch_settings.clickhouse) as client:
         resp = await GetHostnamesAnswerSubnet().aio_execute_iter(
             client=client,
             table_name=input_table,
@@ -143,7 +143,6 @@ async def get_hostname_cdn(input_table: str) -> None:
                         except KeyError:
                             org_per_hostname[hostname][org] = [bgp_prefix]
                     except KeyError:
-                        # logger.error(f"Cannot retrieve org for AS:: {asn}")
                         continue
 
         for hostname in org_per_hostname:
@@ -159,18 +158,18 @@ async def get_hostname_cdn(input_table: str) -> None:
 async def main() -> None:
     """init main"""
     # TODO: INIT HOSTNAMES
+    vps_subnet = load_vp_subnets(ch_settings.VPS_FILTERED_FINAL_TABLE)
     input_file = path_settings.DATASET / "vps_subnet.json"
+    dump_json(vps_subnet, input_file)
 
-    logger.info("Retrieving ECS hostnames")
-    await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
+    # logger.info("Retrieving ECS hostnames")
+    # await filter_ecs_hostnames(output_table="hostnames_1M_resolution")
 
-    logger.info("Get hostnames hosting organization")
+    # logger.info("Get hostnames hosting organization")
     await get_hostname_cdn(input_table="hostnames_1M_resolution")
 
     logger.info(f"ECS resolution on VPs subnets")
-    selected_hostnames = load_csv(
-        path_settings.DATASET / "internet_scale_hostnames.csv"
-    )
+    selected_hostnames = load_csv(path_settings.HOSTNAMES_GEORESOLVER)
 
     await run_dns_mapping(
         selected_hostnames=selected_hostnames,
@@ -178,61 +177,57 @@ async def main() -> None:
         output_table="vps_mapping_ecs_latest",
     )
 
-    logger.info(f"Resolving name servers")
-    await resolve_name_servers(
-        selected_hostnames=selected_hostnames,
-        output_table="name_servers_end_to_end",
-    )
+    # logger.info(f"Resolving name servers")
+    # await resolve_name_servers(
+    #     selected_hostnames=selected_hostnames,
+    #     output_table="name_servers_end_to_end",
+    # )
 
-    logger.info(f"Final ECS resolution on VP subnets")
-    await run_dns_mapping(
-        selected_hostnames_file=path_settings.DATASET
-        / "hostname_1M_max_bgp_prefix_per_cdn.csv",
-        output_table="time_of_day_evaluation",
-    )
+    # logger.info(f"Final ECS resolution on VP subnets")
+    # await run_dns_mapping(
+    #     selected_hostnames_file=path_settings.DATASET
+    #     / "hostname_1M_max_bgp_prefix_per_cdn.csv",
+    #     output_table="time_of_day_evaluation",
+    # )
 
 
-async def ecs_init(hostname_file: Path) -> None:
+async def ecs_init(
+    itterative: bool = False, vps_mapping_table: str = ch_settings.VPS_ECS_MAPPING_TABLE
+) -> None:
     """update vps ECS mapping"""
-    logger.info(
-        f"Starting VPs ECS mapping, output table:: {clickhouse_settings.VPS_ECS_MAPPING_TABLE}"
-    )
+    logger.info(f"Starting VPs ECS mapping, output table:: {vps_mapping_table}")
 
-    vps_subnets = load_vp_subnets(clickhouse_settings.VPS_FILTERED_FINAL_TABLE)
+    hostname_file = path_settings.HOSTNAMES_GEORESOLVER
+    vps_subnets = load_vp_subnets(ch_settings.VPS_FILTERED_FINAL_TABLE)
 
     # first change name
     tables_name = get_tables()
     new_table_name = (
-        clickhouse_settings.VPS_ECS_MAPPING_TABLE
-        + f"__{str(datetime.now()).split(' ')[0].replace('-', '_')}"
+        vps_mapping_table + f"_{str(datetime.now()).split(' ')[0].replace('-', '_')}"
     )
-    if (
-        new_table_name in tables_name
-        and clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
-    ):
-        logger.info("VPs ECS table should not be updated every day, skipping step")
+
+    if new_table_name in tables_name and vps_mapping_table in tables_name:
+        logger.warning("VPs ECS table should not be updated every day, skipping step")
         return
-    elif (
-        new_table_name in tables_name
-        and not clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
-    ):
+    elif new_table_name in tables_name and not vps_mapping_table in tables_name:
         logger.warning("Prev vps mapping table exists but not current one")
-    elif (
-        new_table_name not in tables_name
-        and not clickhouse_settings.VPS_ECS_MAPPING_TABLE in tables_name
-    ):
-        logger.info("Runnin VPs ECS mapping for the first time")
+    elif new_table_name not in tables_name and not vps_mapping_table in tables_name:
+        logger.info("Running VPs ECS mapping for the first time")
     else:
         logger.info("Renewing VPS ECS mapping table")
-        change_table_name(clickhouse_settings.VPS_ECS_MAPPING_TABLE, new_table_name)
+        change_table_name(vps_mapping_table, new_table_name)
 
     # finally run ECS mapping and output to default table
+    vps_subnets = vps_subnets[:1]
     await run_dns_mapping(
         subnets=vps_subnets,
         hostname_file=hostname_file,
-        output_table=clickhouse_settings.VPS_ECS_MAPPING_TABLE,
+        output_table=vps_mapping_table,
+        itterative=itterative,
     )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    itterative = True  # set to true use zdns own resolver instead of GPDNS
+    vps_mapping_table = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
+    asyncio.run(ecs_init(itterative, vps_mapping_table))

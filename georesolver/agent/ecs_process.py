@@ -20,6 +20,7 @@ async def run_dns_mapping(
     request_timout: float = 0.1,
     request_type: str = "A",
     output_logs: Path = None,
+    itterative: bool = False,
 ) -> None:
     """perform DNS mapping with zdns on VPs subnet"""
 
@@ -51,6 +52,7 @@ async def run_dns_mapping(
                 timeout=request_timout,
                 request_type=request_type,
                 output_logs=output_logs,
+                iterative=itterative,
             )
             await zdns.main()
 

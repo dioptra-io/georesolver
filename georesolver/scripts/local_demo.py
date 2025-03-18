@@ -1,15 +1,19 @@
 """run GeoResolver geolocation on a set of demo targets"""
 
+from random import sample
+
 from georesolver.agent.main import main
-from georesolver.common.files_utils import dump_json
+from georesolver.common.files_utils import load_csv, dump_csv, dump_json
 from georesolver.common.settings import PathSettings, RIPEAtlasSettings
 
 path_settings = PathSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
-LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
-LOCAL_DEMO_HOSTNAME_FILE = path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
+NB_ADDRS = 100
+USER_TARGET_FILE = path_settings.USER_DATASETS / "demo_targets.csv"
+LOCAL_DEMO_TARGET_FILE = path_settings.USER_DATASETS / "demo_targets_random.csv"
+LOCAL_DEMO_HOSTNAME_FILE = path_settings.USER_DATASETS / "hostnames_georesolver.csv"
 LOCAL_DEMO_CONFIG_PATH = path_settings.LOG_PATH / "local_demo"
 ECS_TABLE: str = "test_ecs"
 SCORE_TABLE: str = "test_score"
@@ -18,9 +22,20 @@ PING_TABLE: str = "test_ping"
 GEOLOC_TABLE: str = "test_geoloc"
 BATCH_SIZE = 10
 
+
+def generate_random_dataset() -> None:
+    """generate a random target IP addresses, output into target file"""
+    ip_addrs = load_csv(USER_TARGET_FILE)
+    sample_targets = sample(ip_addrs, NB_ADDRS)
+    dump_csv(sample_targets, LOCAL_DEMO_TARGET_FILE)
+
+
 if __name__ == "__main__":
+
+    generate_random_dataset()
+
     agent_config = {
-        "agent_uuid": "6d4b3d4f-9b21-41e1-8e00-d556a1a107f9",
+        "agent_uuid": "6d4b3d4f-9b22-41e1-8f00-d556a1a107f9",
         "experiment_name": "local_demo",
         "experiment_uuid": "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
@@ -60,7 +75,7 @@ if __name__ == "__main__":
                 "user": "hugo",
                 "host": "localhost",
                 "remote_dir": "/srv/hugo/georesolver",
-                "agent_uuid": "6d4b3d4f-9b21-41e1-8e00-d556a1a107f9",
+                "agent_uuid": "6d4b3d4f-9b22-41e1-8e00-d556a1a107f9",
                 "agent_processes": ["ecs_process", "score_process"],
             }
         ],
@@ -72,5 +87,5 @@ if __name__ == "__main__":
 
     main(
         path_settings.LOG_PATH / "local_demo/local_demo_config.json",
-        check_cached_measurements=True,
+        check_cached_measurements=False,
     )

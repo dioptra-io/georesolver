@@ -70,6 +70,7 @@ class ZDNS:
                 hostname_cmd
                 + " | "
                 + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
+                + " --threads 200 --timeout 3"
             )
         else:
             return (
@@ -116,17 +117,32 @@ class ZDNS:
         parsed_output = []
 
         try:
-            status = resp["status"]
-
-            if not status == ZDNS_STATUS.NOERROR.value:
-                return None
-
             hostname = resp["name"]
-            answers = answers = resp["data"]["answers"]
-            timestamp = self.parse_timestamp(resp["timestamp"])
-            source_scope = resp["data"]["additionals"][0]["csubnet"]["source_scope"]
 
-            if source_scope == 0:
+            # depending on the version of ZDNS, parding might defer
+            try:
+                if "results" in resp:
+                    results = resp["results"]["A"]
+                    answers = results["data"]["answers"]
+                    timestamp = self.parse_timestamp(results["timestamp"])
+                    source_scope = results["data"]["additionals"][0]["csubnet"][
+                        "source_scope"
+                    ]
+                    subnet = results["data"]["additionals"][0]["csubnet"]["address"]
+
+                else:
+                    answers = resp["data"]["answers"]
+                    timestamp = self.parse_timestamp(resp["timestamp"])
+                    source_scope = resp["data"]["additionals"][0]["csubnet"][
+                        "source_scope"
+                    ]
+                    subnet = resp["data"]["additionals"][0]["csubnet"]["address"]
+
+                if source_scope == 0:
+                    return None
+
+            except Exception as e:
+                logger.debug(f"Failed to parse data: {e}; {resp['name']}")
                 return None
 
         except KeyError:
@@ -145,7 +161,6 @@ class ZDNS:
                 answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
 
                 if not answer_asn or not answer_bgp_prefix:
-                    logger.debug(f"{answer}:: Could not retrieve ASN and BGP prefix")
                     answer_asn = -1
                     answer_bgp_prefix = "None"
 

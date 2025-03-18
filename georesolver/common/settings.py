@@ -32,27 +32,28 @@ class PathSettings(BaseSettings):
     SUDO_PWD: str = ""
 
     # main dataset dirs
-    DATASET: Path = DEFAULT / "../datasets/"
-    RESULTS_PATH: Path = DEFAULT / "../results"
-    FIGURE_PATH: Path = DEFAULT / "../figures"
     TMP_PATH: Path = DEFAULT / "../tmp/"
     LOG_PATH: Path = DEFAULT / "../logs"
-    EXPERIMENT_PATH: Path = DEFAULT / "../experiments"
+    DATASET: Path = DEFAULT / "../datasets/"
     CONFIG_PATH: Path = DEFAULT / "../config"
+    FIGURE_PATH: Path = DEFAULT / "../figures"
+    RESULTS_PATH: Path = DEFAULT / "../results"
+    USER_DATASETS: Path = DEFAULT / "../user_datasets"
+    EXPERIMENT_PATH: Path = DEFAULT / "../experiments"
 
     # Static files from other organization
     STATIC_FILES: Path = DATASET / "static_files/"
+    RIB_TABLE: Path = USER_DATASETS / "rib_table.dat"
     USER_HITLIST_FILE: Path = STATIC_FILES / "ipv4_hitlist.json"
-    RIB_TABLE: Path = STATIC_FILES / "rib_table.dat"
     ANYCATCH_DATA: Path = STATIC_FILES / "anycatch-v4-prefixes.csv"
     VERPOELOFTER: Path = STATIC_FILES / "responsive_addresses_per_subnet.fsdb"
     ADDRESS_FILE: Path = STATIC_FILES / "internet_address_hitlist_it106w-20231222.fsdb"
 
     # hostnames default input files
     HOSTNAME_FILES: Path = DATASET / "hostname_files/"
-    HOSTNAMES_MILLIONS: Path = HOSTNAME_FILES / "hostnames_1M.csv"
     HOSTNAMES_CDN: Path = HOSTNAME_FILES / "hostnames_cdn.csv"
     HOSTNAMES_ECS: Path = HOSTNAME_FILES / "hostnames_ecs.csv"
+    HOSTNAMES_MILLIONS: Path = HOSTNAME_FILES / "hostnames_1M.csv"
     HOSTNAMES_GEORESOLVER: Path = HOSTNAME_FILES / "hostnames_georesolver.csv"
 
     # default location countries

@@ -12,6 +12,11 @@ from georesolver.common.settings import ConstantSettings
 constant_settings = ConstantSettings()
 
 
+def get_max_theoretical_dst(min_rtt: float) -> float:
+    """compute the maximum theoretical distance between two IP addrs based on Speed of light"""
+    return (constant_settings.SPEED_OF_INTERNET * min_rtt / 1000) / 2
+
+
 def internet_speed(rtt, speed_threshold):
     if speed_threshold is not None:
         return 2 / 3
@@ -420,48 +425,64 @@ def get_continent(country_code, country_info: dict) -> str:
 
 
 def compute_remove_wrongly_geolocated_probes(
-    rtts_per_srcs_dst: dict,
+    ping_per_target_per_vp: dict[dict],
     vp_coordinates: dict,
     vp_distance_matrix: dict[dict],
+    vp_per_addr: dict[dict],
+    vp_per_id: dict[dict],
 ) -> set:
-    speed_of_internet_violations_per_ip = defaultdict(set)
+    soi_per_id = defaultdict(set)
+    for target_addr, ping_per_vp in ping_per_target_per_vp.items():
+        # get target id based on addr
+        try:
+            target = vp_per_addr[target_addr]
+        except KeyError:
+            raise RuntimeError(f"Cannot find anchor linked with {target_addr=}")
 
-    for dst, rtts_per_src in rtts_per_srcs_dst.items():
-        if dst not in vp_coordinates:
+        target_id = str(target["id"])
+
+        if target_id not in vp_coordinates:
+            logger.error(f"Could not find target {target_id} in vp_coordinates")
             continue
 
-        if dst not in vp_distance_matrix:
+        if target_id not in vp_distance_matrix:
+            logger.error(f"Could not find target {target_id} in vp_distance matrix")
             continue
 
-        for probe, min_rtt in rtts_per_src.items():
-            if probe not in vp_distance_matrix[dst]:
+        # get SOIs based on meshed pings associated with target
+        for vp_id, min_rtt in ping_per_vp.items():
+            vp_id = str(vp_id)
+            if vp_id not in vp_distance_matrix[target_id]:
                 continue
+
             max_theoretical_distance = (
                 constant_settings.SPEED_OF_INTERNET * min_rtt / 1000
             ) / 2
-            if vp_distance_matrix[dst][probe] > max_theoretical_distance:
+
+            if vp_distance_matrix[target_id][vp_id] > max_theoretical_distance:
                 # Impossible distance
-                speed_of_internet_violations_per_ip[dst].add(probe)
-                speed_of_internet_violations_per_ip[probe].add(dst)
+                soi_per_id[target_id].add(vp_id)
+                soi_per_id[vp_id].add(target_id)
 
-    # Greedily remove the IP address with the more SOI violations
-    n_violations = sum([len(x) for x in speed_of_internet_violations_per_ip.values()])
-    removed_probes = set()
+    # Greedily remove the vp_id with the more SOI violations
+    removed_vps = set()
+    n_violations = sum([len(x) for x in soi_per_id.values()])
+
     while n_violations > 0:
-        logger.info("Violations:", n_violations)
-        # Remove the IP address with the highest number of SOI violations
-        worse_ip, speed_of_internet_violations = max(
-            speed_of_internet_violations_per_ip.items(), key=lambda x: len(x[1])
-        )
-        for (
-            ip,
-            speed_of_internet_violations,
-        ) in speed_of_internet_violations_per_ip.items():
-            speed_of_internet_violations.discard(worse_ip)
-        del speed_of_internet_violations_per_ip[worse_ip]
-        removed_probes.add(worse_ip)
-        n_violations = sum(
-            [len(x) for x in speed_of_internet_violations_per_ip.values()]
-        )
+        logger.info(f"Violations: {n_violations}")
+        # Remove the vp id with the highest number of SOI violations
+        worse_vp_id, vps_soi = max(soi_per_id.items(), key=lambda x: len(x[1]))
 
-    return list(removed_probes)
+        # remove SOI previously associated with worse vp
+        for vp_id, vps_soi in soi_per_id.items():
+            vps_soi.discard(worse_vp_id)
+
+        # del worse vp from soi and save
+        del soi_per_id[worse_vp_id]
+        worse_vp = vp_per_id[worse_vp_id]
+        removed_vps.add((worse_vp_id, worse_vp["addr"]))
+
+        # recalculate total soi violations
+        n_violations = sum([len(x) for x in soi_per_id.values()])
+
+    return list(removed_vps)

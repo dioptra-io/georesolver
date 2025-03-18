@@ -1,23 +1,11 @@
-import httpx
-
 from loguru import logger
+from typing import Generator, Any
 from collections import defaultdict
 from pych_client import ClickHouseClient, AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
 from georesolver.clickhouse import (
-    GetTables,
     Query,
-    GetVPs,
-    GetVPsIds,
-    GetPingsPerTarget,
-    GetPingsPerTargetExtended,
-    GetPingsPerSrcDst,
-    GetDNSMappingHostnames,
-    GetECSResults,
-    GetDNSMappingPerHostnames,
-    GetVPsSubnets,
-    GetLastMileDelay,
     CreatePingTable,
     CreateScoreTable,
     CreateScheduleTable,
@@ -25,15 +13,26 @@ from georesolver.clickhouse import (
     CreateDNSMappingTable,
     CreateTracerouteTable,
     CreateNameServerTable,
+    GetTables,
     ChangeTableName,
     GetSubnets,
-    GetDstPrefix,
-    GetTargetScore,
+    GetTargets,
     GetMeasurementIds,
-    GetGeolocatedTargets,
-    GetShortestPingResults,
+    GetLastMileDelay,
     GetCachedTargets,
-    GetMeasurementIds,
+    GetVPs,
+    GetVPsIds,
+    GetVPsSubnets,
+    GetPingsPerSrcDst,
+    GetPingsPerTarget,
+    GetPingsPerTargetExtended,
+    GetShortestPingResults,
+    GetECSResults,
+    GetHostnames,
+    GetDNSMappingHostnames,
+    GetDNSMappingPerHostnames,
+    GetDNSMappingAnswers,
+    GetTargetScore,
 )
 from georesolver.common.files_utils import create_tmp_csv_file
 from georesolver.common.settings import ClickhouseSettings
@@ -51,6 +50,27 @@ def get_tables() -> list[str]:
     return tables
 
 
+def change_table_name(table_name: str, new_table_name: str) -> None:
+    """execute change table name query"""
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        # check if out table does not already exists
+        tables = get_tables()
+        if new_table_name in tables:
+            logger.warning(
+                f"Output table:: {new_table_name} already exists, skipping step"
+            )
+            return
+        if table_name not in tables:
+            logger.warning(f"Output table:: {table_name} already exists, skipping step")
+            return
+
+        ChangeTableName().execute(
+            client=client,
+            table_name=table_name,
+            new_table_name=new_table_name,
+        )
+
+
 def get_min_rtt_per_vp(table_name: str) -> dict:
     """get the minimum RTT per VP from 50 traceroutes samples"""
     last_mile_delay_per_vp = {}
@@ -61,7 +81,7 @@ def get_min_rtt_per_vp(table_name: str) -> dict:
         )
 
     for row in resp:
-        last_mile_delay_per_vp[row["src_addr"]] = row["min_rtt"]
+        last_mile_delay_per_vp[row["prb_id"]] = row["min_rtt"]
 
     return last_mile_delay_per_vp
 
@@ -107,16 +127,16 @@ def get_pings_per_target_extended(table_name: str, removed_vps: list = []) -> di
 
     try:
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-            resp = GetPingsPerTargetExtended().execute(
+            resp = GetPingsPerTargetExtended().execute_iter(
                 client=client,
                 table_name=table_name,
                 filtered_vps=removed_vps,
             )
 
-        for row in resp:
-            ping_vps_to_target[row["target"]] = row["pings"]
+            for row in resp:
+                ping_vps_to_target[row["target"]] = row["pings"]
 
-        logger.info(f"Retrived pings for {len(ping_vps_to_target)} targets")
+            logger.info(f"Retrived pings for {len(ping_vps_to_target)} targets")
 
     except ClickHouseException:
         logger.warning(
@@ -127,24 +147,54 @@ def get_pings_per_target_extended(table_name: str, removed_vps: list = []) -> di
     return ping_vps_to_target
 
 
-def load_geoloc(table_name: str) -> list[str]:
-    """load all target for which the geoloc is already known"""
-    targets_geoloc = []
-    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-
-        try:
-            resp = GetGeolocatedTargets().execute_iter(
-                client=client,
-                table_name=table_name,
+def get_targets(table_name: str, threshold: int = 300) -> int:
+    """count the number of targets from a table"""
+    targets = []
+    try:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            resp = GetTargets().execute_iter(
+                client=client, table_name=table_name, threshold=threshold
             )
 
             for row in resp:
-                targets_geoloc.append(row["addr"])
-        except ClickHouseException:
-            logger.warning(f"Table:: {table_name} does not exists")
-            pass
+                targets.append(row["target"])
 
-    return targets_geoloc
+            return targets
+
+    except ClickHouseException:
+        logger.warning(
+            f"Something went wrong. Probably that {table_name} does not exists"
+        )
+        pass
+
+
+def iter_pings_per_target(
+    table_name: str,
+    removed_vps: list = [],
+    threshold: int = 300,
+) -> Generator[Any, Any, list[dict]]:
+    """
+    return meshed ping for all targets
+    ping_vps_to_target[target_addr] = [(vp_addr,prb_id , min_rtt)]
+    """
+
+    try:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            resp = GetPingsPerTargetExtended().execute_iter(
+                client=client,
+                table_name=table_name,
+                filtered_vps=removed_vps,
+                threshold=threshold,
+            )
+
+            for row in resp:
+                yield row
+
+    except ClickHouseException:
+        logger.warning(
+            f"Something went wrong. Probably that {table_name} does not exists"
+        )
+        pass
 
 
 def load_target_geoloc(table_name: str) -> dict:
@@ -178,7 +228,7 @@ def get_pings_per_src_dst(
 ) -> dict:
     """
     return meshed ping for all targets
-    ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
+    ping_vps_to_target[target_addr] = [(vp_id, min_rtt)]
     """
     ping_vps_to_target = defaultdict(dict)
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
@@ -190,7 +240,7 @@ def get_pings_per_src_dst(
         )
 
     for row in resp:
-        ping_vps_to_target[row["dst"]][row["src"]] = row["min_rtt"]
+        ping_vps_to_target[row["dst"]][row["prb_id"]] = row["min_rtt"]
 
     return ping_vps_to_target
 
@@ -201,8 +251,14 @@ def load_vps(input_table: str) -> list:
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         rows = GetVPs().execute(client=client, table_name=input_table)
 
+    vps_id = set()
     for row in rows:
-        vps.append(row)
+        if row["id"] in vps_id:
+            continue
+        else:
+            vps.append(row)
+            vps_id.add(row["id"])
+
     return vps
 
 
@@ -212,13 +268,13 @@ def load_targets(input_table: str) -> list:
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         rows = GetVPs().execute(client=client, table_name=input_table, is_anchor=True)
 
-        target_addrs = set()
+        target_ids = set()
         for row in rows:
-            if row["addr"] in target_addrs:
+            if row["id"] in target_ids:
                 continue
             else:
                 targets.append(row)
-                target_addrs.add(row["addr"])
+                target_ids.add(row["id"])
 
     return targets
 
@@ -262,7 +318,7 @@ def get_measurement_ids(measurement_table: str) -> set:
     return measurement_ids
 
 
-def get_vps_ids(ping_table: str) -> set:
+def get_vps_ids_per_target(ping_table: str) -> set:
     """retrieve all VPs that participated to a measurement in the past"""
     vp_ids_per_target = {}
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
@@ -280,7 +336,7 @@ def get_subnets_mapping(
     subnets: list[str],
     hostname_filter: list[str] = None,
     print_error: bool = True,
-) -> dict:
+) -> dict[dict]:
     """get ecs-dns resolution per hostname for all input subnets"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetDNSMappingHostnames().execute_iter(
@@ -297,6 +353,7 @@ def get_subnets_mapping(
                 answers = row["answers"]
                 answer_subnets = row["answer_subnets"]
                 answer_bgp_prefixes = row["answer_bgp_prefixes"]
+                answer_asn = row["answer_asns"]
                 hostname = row["hostname"]
                 source_scope = row["source_scope"]
 
@@ -304,6 +361,7 @@ def get_subnets_mapping(
                     "answers": answers,
                     "answer_subnets": answer_subnets,
                     "answer_bgp_prefixes": answer_bgp_prefixes,
+                    "answer_asns": answer_asn,
                     "source_scope": source_scope,
                 }
 
@@ -315,6 +373,18 @@ def get_subnets_mapping(
             pass
 
     return subnets_mapping
+
+
+def get_mapping_answers(dns_table: str) -> list[str]:
+    """get all IP addresses from a table of DNS mapping"""
+    answers = set()
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        resp = GetDNSMappingAnswers().execute_iter(client=client, table_name=dns_table)
+
+        for row in resp:
+            answers.add(row["answer"])
+
+    return list(answers)
 
 
 def get_ecs_results(
@@ -376,19 +446,15 @@ def get_subnets(
     return target_subnets
 
 
-def get_dst_prefix(ping_table: str) -> list[str]:
-    """retrieve subnets from ping table"""
+def get_hostnames(dns_table: str) -> list[str]:
+    """retrieve all hostnames from DNS Mapping table"""
+    hostnames = []
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        rows = GetDstPrefix().execute(
-            client=client,
-            table_name=ping_table,
-        )
+        resp = GetHostnames().execute_iter(client=client, table_name=dns_table)
+        for row in resp:
+            hostnames.append(row["hostname"])
 
-    subnets = []
-    for row in rows:
-        subnets.append(row["dst_prefix"])
-
-    return subnets
+    return hostnames
 
 
 def get_mapping_per_hostname(
@@ -570,8 +636,16 @@ async def get_ping_measurement_ids(table_name: str) -> list[int]:
 def change_table_name(table_name: str, new_table_name: str) -> None:
     """execute change table name query"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        ChangeTableName().execute(
-            client=client,
-            table_name=table_name,
-            new_table_name=new_table_name,
-        )
+        # check if out table does not already exists
+        tables = get_tables()
+        if new_table_name in tables:
+            logger.warning(
+                f"Output table:: {new_table_name} already exists, skipping step"
+            )
+        else:
+
+            ChangeTableName().execute(
+                client=client,
+                table_name=table_name,
+                new_table_name=new_table_name,
+            )

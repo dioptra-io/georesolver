@@ -217,6 +217,13 @@ async def insert_results(
 
         if not measurement_to_insert:
             logger.info(f"{probing_tag} :: No measurement to insert")
+
+            # only insert latest measurements that were not yet inserted
+            if restart:
+                logger.info("No previous measurements to insert")
+                insert_done = True
+                break
+
             await asyncio.sleep(wait_time)
             continue
 
@@ -249,10 +256,6 @@ async def insert_results(
                 )
             else:
                 raise RuntimeError(f"{probing_type} not supported")
-
-        # only insert latest measurements that were not yet inserted
-        if restart:
-            insert_done = True
 
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
 

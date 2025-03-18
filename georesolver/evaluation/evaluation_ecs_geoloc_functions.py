@@ -210,7 +210,7 @@ def ecs_dns_vp_selection_eval(
     return results
 
 
-def get_shortest_ping_geo_resolver(
+def get_shortest_ping_geo_resolver_per_budget(
     targets: list[str],
     vps: list[dict],
     score_file: Path,
@@ -284,3 +284,76 @@ def get_shortest_ping_geo_resolver(
         geo_resolver_sp[budget] = targets_shortest_ping
 
     return geo_resolver_sp
+
+
+def get_shortest_ping_geo_resolver(
+    targets: list[str],
+    vps: list[dict],
+    score_file: Path,
+    ping_table: str,
+    removed_vps: list[str] = [],
+    probing_budgets: list[int] = 50,
+) -> dict:
+    geo_resolver_sp = defaultdict(list)
+
+    asndb = pyasn(str(path_settings.RIB_TABLE))
+    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
+
+    scores: TargetScores = load_pickle(score_file)
+    scores = scores.score_answer_subnets
+
+    last_mile_delay = get_min_rtt_per_vp(
+        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
+    )
+
+    ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
+
+    targets_shortest_ping = []
+    for target in tqdm(targets):
+        target_subnet = get_prefix_from_ip(target)
+        target_scores = scores[target_subnet]
+
+        # soi = detect_anycast(ping_vps_to_target[target], vp_distance_matrix)
+        # if soi:
+        #     logger.info(f"{target} is flagged as anycast")
+        #     continue
+
+        if not target_scores:
+            logger.error(f"{target_subnet} does not have score")
+
+        for _, target_score in target_scores.items():
+
+            # get vps, function of their subnet ecs score
+            ecs_vps = get_ecs_vps(
+                target_subnet,
+                target_score,
+                vps_per_subnet,
+                last_mile_delay,
+                5_00,
+            )
+
+            # remove vps that have a high last mile delay
+            ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
+
+            # take only one address per city and per AS
+            ecs_vps_per_budget = []
+            ecs_vps_per_budget = select_one_vp_per_as_city(
+                ecs_vps, vps_coordinates, last_mile_delay
+            )[:budget]
+
+            # SHORTEST PING GEOLOC
+            try:
+                vp_shortest_ping_addr, shortest_ping_rtt = shortest_ping(
+                    [vp_addr for vp_addr, _ in ecs_vps_per_budget],
+                    ping_vps_to_target[target],
+                )
+                if vp_shortest_ping_addr:
+                    targets_shortest_ping.append(
+                        (target, vp_shortest_ping_addr, shortest_ping_rtt)
+                    )
+
+            except KeyError as e:
+                logger.debug(f"No ping available for target:: {target}:: {e}")
+                continue
+
+    return targets_shortest_ping

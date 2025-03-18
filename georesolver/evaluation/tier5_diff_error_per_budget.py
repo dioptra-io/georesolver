@@ -27,7 +27,7 @@ from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
-os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
+# os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
 
 
 def compute_score(output_path: Path) -> None:
@@ -62,20 +62,19 @@ def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> No
     """calculate distance error and latency for each score"""
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
-    # if output_file.exists():
-    #     return
-
     logger.info(f"Running geresolver analysis from score file:: {score_file}")
 
-    targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
+    # removed_vps = load_json(
+    #     path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
+    # )
+
+    removed_vps = load_json(path_settings.DATASET / "removed_vps.json")
+    targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
-    removed_vps = load_json(
-        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
-    )
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+        ch_settings.VPS_MESHED_PINGS_TABLE, [addr for _, addr in removed_vps]
     )
 
     logger.info("Tier 5:: Distance error vs. VPs selection budget")
@@ -204,12 +203,12 @@ def plot_d_error_per_rank(
 
 
 def main() -> None:
-    compute_scores = False
-    evaluate_d_error_per_budget = False
+    compute_scores = True
+    evaluate_d_error_per_budget = True
     evaluate_d_error_per_rank = False
     make_figs = True
 
-    base_path = path_settings.RESULTS_PATH / "tier5_evaluation/"
+    base_path = path_settings.RESULTS_PATH / "conext_2024_figure_2_b/"
 
     if compute_scores:
         compute_score(output_path=base_path / f"scores.pickle")

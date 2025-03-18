@@ -818,11 +818,3 @@ def plot_internet_scale(
         legend_pos="lower right",
         legend_size=9,
     )
-
-
-if __name__ == "__main__":
-    plot_d_error_vs_latency(
-        score_file=path_settings.RESULTS_PATH
-        / "tier3_evaluation/results__best_hostname_geo_score.pickle",
-        output_path="d_error_vs_latency",
-    )

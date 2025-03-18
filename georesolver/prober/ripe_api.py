@@ -57,13 +57,16 @@ class RIPEAtlasAPI:
                     f"Too many VPs scheduled for target: {target} (nb vps: {len(vp_ids)}, max: {self.settings.MAX_VP})"
                 )
 
-    def get_ping_config(self, target: str, vp_ids: list[int], probing_tag: str) -> dict:
+    def get_ping_config(
+        self, target: str, vp_ids: list[int], probing_tag: str, protocol: str = "ICMP"
+    ) -> dict:
         return {
             "definitions": [
                 {
                     "target": target,
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
+                    "proto": protocol,
                     "size": 48,
                     "tags": ["dioptra", str(probing_tag)],
                     "description": f"Active Geolocation of {target}",
@@ -80,7 +83,13 @@ class RIPEAtlasAPI:
         }
 
     def get_traceroute_config(
-        self, target: str, vp_ids: list[int], probing_tag: str
+        self,
+        target: str,
+        vp_ids: list[int],
+        probing_tag: str,
+        min_ttl: int = 1,
+        max_hops: int = 32,
+        protocol: str = "ICMP",
     ) -> dict:
         return {
             "definitions": [
@@ -88,7 +97,9 @@ class RIPEAtlasAPI:
                     "target": target,
                     "af": self.settings.IP_VERSION,
                     "packets": self.settings.PING_NB_PACKETS,
-                    "protocol": self.settings.PROTOCOL,
+                    "first_hop": min_ttl,
+                    "max_hops": max_hops,
+                    "protocol": protocol,
                     "tags": ["dioptra", str(probing_tag)],
                     "description": f"Dioptra Traceroute of {target}",
                     "resolve_on_probe": False,
@@ -548,22 +559,42 @@ class RIPEAtlasAPI:
 
         return resp
 
-    async def get_traceroute_results(self, id: int) -> dict:
+    async def get_traceroute_results(
+        self,
+        id: int,
+        timeout: int = 30,
+        max_retry: int = 3,
+        wait_time: int = 30,
+    ) -> dict:
         """get all measurement"""
         url = f"{self.measurement_url}/{id}/results/"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=15)
-            resp = resp.json()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for i in range(max_retry):
+                try:
+                    resp = await client.get(url, headers=self.headers, timeout=timeout)
+                    resp = resp.json()
 
-        traceroute_results = self.parse_traceroute(resp)
+                    ping_results = self.parse_traceroute(resp)
+                    await asyncio.sleep(0.1)
+                except httpx.ReadTimeout as e:
+                    logger.error(f"{e}")
+                    logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
+                    await asyncio.sleep(wait_time)
+                except Exception as e:
+                    logger.error(f"Unsuported error:: {e}")
+                    await asyncio.sleep(wait_time)
 
-        return traceroute_results
+        return ping_results
 
     def parse_traceroute(self, traceroutes: list) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         traceroute_results = []
         for traceroute in traceroutes:
+
+            if not traceroute["from"] or not traceroute["dst_addr"]:
+                continue
+
             for ttl_results in traceroute["result"]:
                 ttl = ttl_results["hop"]
 
@@ -729,6 +760,7 @@ class RIPEAtlasAPI:
         max_retry: int = 3,
         timeout: int = 60 * 5,
         wait_time: int = 60 * 5,
+        protocol: str = "ICMP",
     ) -> int:
         """start ping measurement towards target from vps, return Atlas measurement id"""
 
@@ -739,7 +771,12 @@ class RIPEAtlasAPI:
                     resp = await client.post(
                         self.measurement_url,
                         headers=self.headers,
-                        json=self.get_ping_config(target, vp_ids, probing_tag),
+                        json=self.get_ping_config(
+                            target, vp_ids, probing_tag, protocol
+                        ),
+                        json=self.get_ping_config(
+                            target, vp_ids, probing_tag, protocol
+                        ),
                         timeout=timeout,
                     )
                     resp = resp.json()
@@ -774,19 +811,46 @@ class RIPEAtlasAPI:
         return id
 
     async def traceroute(
-        self, target: str, vp_ids: list[str], probing_tag: str, max_retry: int = 3
+        self,
+        target: str,
+        vp_ids: list[str],
+        probing_tag: str,
+        max_retry: int = 3,
+        timeout: int = 60 * 5,
+        wait_time: int = 60 * 5,
+        min_ttl: int = 1,
+        max_hops: int = 64,
+        protocol: str = "ICMP",
     ) -> int:
         id = None
-        async with httpx.AsyncClient(timeout=60) as client:
+        id = None
+        async with httpx.AsyncClient() as client:
             for _ in range(max_retry):
-                resp = await client.post(
-                    self.measurement_url,
-                    headers=self.headers,
-                    json=self.get_traceroute_config(target, vp_ids, probing_tag),
-                    timeout=60,
-                )
-
-                resp = resp.json()
+                try:
+                    resp = await client.post(
+                        self.measurement_url,
+                        headers=self.headers,
+                        json=self.get_traceroute_config(
+                            target, vp_ids, probing_tag, min_ttl, max_hops, protocol
+                        ),
+                        timeout=timeout,
+                    )
+                    resp = resp.json()
+                except httpx.ReadTimeout as e:
+                    logger.error(
+                        "Read timeout for post request, retrying, max retry = 3"
+                    )
+                    logger.error(f"{e}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                except json.decoder.JSONDecodeError as e:
+                    logger.error(f"Cannot parse response:: {e}, {resp}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                except Exception as e:
+                    logger.error(f"Unsuported error:: {e}")
+                    await asyncio.sleep(wait_time)
+                    continue
 
                 try:
                     id = resp["measurements"][0]
@@ -794,7 +858,8 @@ class RIPEAtlasAPI:
                 except KeyError as e:
                     logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
                     logger.error(f"{resp=}")
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(wait_time)
+                    break
             else:
                 raise Exception(
                     f"{probing_tag}:: Cannot perform measurement for target: {target}"

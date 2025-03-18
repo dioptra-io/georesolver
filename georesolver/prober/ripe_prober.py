@@ -22,6 +22,9 @@ class RIPEAtlasProber:
         uuid: str = None,
         dry_run: bool = False,
         output_logs: Path = None,
+        min_ttl: int = 1,
+        max_hops: int = 32,
+        protocol: str = "icmp",
     ) -> None:
         self.dry_run = dry_run
 
@@ -41,6 +44,11 @@ class RIPEAtlasProber:
         self.config: dict = None
         self.measurement_ids = []
         self.output_logs = output_logs
+
+        # only for traceroute
+        self.min_ttl = min_ttl
+        self.max_hops = max_hops
+        self.protocol = protocol
 
     async def init_prober(self) -> None:
         """get connected vps from measurement platform, insert in clickhouse"""
@@ -115,12 +123,16 @@ class RIPEAtlasProber:
                     target=target,
                     vp_ids=[vp_id for vp_id in vp_ids],
                     probing_tag=str(self.probing_tag),
+                    protocol=self.protocol,
                 )
             case "traceroute":
                 id = await self.api.traceroute(
                     target=target,
-                    vp_ids=[vp_id for vp_id in vp_ids ],
+                    vp_ids=[vp_id for vp_id in vp_ids],
                     probing_tag=str(self.probing_tag),
+                    min_ttl=self.min_ttl,
+                    max_hops=self.max_hops,
+                    protocol=self.protocol,
                 )
             case _:
                 raise RuntimeError(
