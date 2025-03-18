@@ -3,11 +3,11 @@
 import typer
 import asyncio
 
-from loguru import logger
+from enum import Enum
 from pathlib import Path
+from loguru import logger
 from multiprocessing import Process
 
-from georesolver.agent import ProcessNames
 from georesolver.agent.ripe_init import vps_init
 from georesolver.common.files_utils import load_csv, load_json
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
@@ -20,11 +20,18 @@ from georesolver.agent import (
     insert_results,
     ecs_init,
 )
-from georesolver.scheduler import create_agents
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
+
+
+class ProcessNames(Enum):
+    ECS_PROC = "ecs_process"
+    SCORE_PROC = "score_process"
+    SCHEDULE_PROC = "schedule_process"
+    PING_PROC = "ping_process"
+    INSERT_PROC = "insert_process"
 
 
 def main_processes(task, task_args) -> None:

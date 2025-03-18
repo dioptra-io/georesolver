@@ -11,7 +11,7 @@ from numpy import mean
 from tqdm import tqdm
 
 from georesolver.agent import retrieve_pings
-from georesolver.scheduler import create_agents
+from georesolver.georesolver_test import create_agents
 from georesolver.clickhouse.queries import (
     get_pings_per_target_extended,
     get_measurement_ids,
