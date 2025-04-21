@@ -75,6 +75,7 @@ def select_one_vp_per_as_city(
 def filter_vps_last_mile_delay(
     ecs_vps: list[tuple],
     last_mile_delay: dict,
+    vps_per_addr: dict,
     rtt_threshold: int = 4,
 ) -> list[tuple]:
     """remove vps that have a high last mile delay"""
@@ -82,6 +83,7 @@ def filter_vps_last_mile_delay(
     for vp_addr, score in ecs_vps:
         try:
             min_rtt = last_mile_delay[vp_addr]
+
             if min_rtt < rtt_threshold:
                 filtered_vps.append((vp_addr, score))
         except KeyError:
@@ -126,6 +128,7 @@ def ecs_dns_vp_selection_eval(
     last_mile_delay: dict,
     vps_coordinates: dict,
     probing_budgets: list,
+    vps_per_addr: dict,
     vps_country: dict[str] = None,
 ) -> tuple[dict, dict]:
     asndb = pyasn(str(path_settings.RIB_TABLE))
@@ -150,10 +153,11 @@ def ecs_dns_vp_selection_eval(
             )
 
             # remove vps that have a high last mile delay
-            ecs_vps = filter_vps_last_mile_delay(ecs_vps, last_mile_delay, 2)
+            ecs_vps = filter_vps_last_mile_delay(
+                ecs_vps, last_mile_delay, vps_per_addr, 2
+            )
 
             # take only one address per city and per AS
-            # TODO: select function of the last mile delay
             if type(probing_budgets[0]) == int:
                 ecs_vps_per_budget = {}
                 for budget in probing_budgets:

@@ -19,6 +19,7 @@ from georesolver.clickhouse import (
     GetTargets,
     GetMeasurementIds,
     GetLastMileDelay,
+    GetLastMileDelayPerId,
     GetCachedTargets,
     GetVPs,
     GetVPsIds,
@@ -71,6 +72,21 @@ def change_table_name(table_name: str, new_table_name: str) -> None:
         )
 
 
+def get_min_rtt_per_vp_per_id(table_name: str) -> dict:
+    """get the minimum RTT per VP from 50 traceroutes samples"""
+    last_mile_delay_per_vp = {}
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        resp = GetLastMileDelayPerId().execute(
+            client=client,
+            table_name=table_name,
+        )
+
+    for row in resp:
+        last_mile_delay_per_vp[row["prb_id"]] = row["min_rtt"]
+
+    return last_mile_delay_per_vp
+
+
 def get_min_rtt_per_vp(table_name: str) -> dict:
     """get the minimum RTT per VP from 50 traceroutes samples"""
     last_mile_delay_per_vp = {}
@@ -81,7 +97,7 @@ def get_min_rtt_per_vp(table_name: str) -> dict:
         )
 
     for row in resp:
-        last_mile_delay_per_vp[row["prb_id"]] = row["min_rtt"]
+        last_mile_delay_per_vp[row["vp_addr"]] = row["min_rtt"]
 
     return last_mile_delay_per_vp
 

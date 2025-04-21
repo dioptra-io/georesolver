@@ -2,8 +2,9 @@
 
 import asyncio
 
-from loguru import logger
+from tqdm import tqdm
 from pathlib import Path
+from loguru import logger
 from random import choice
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -12,12 +13,13 @@ from georesolver.clickhouse.queries import (
     load_vps,
     get_mapping_answers,
     get_measurement_ids,
+    get_pings_per_target_extended,
 )
 from georesolver.zdns.zmap import zmap
-from georesolver.prober import RIPEAtlasProber, RIPEAtlasAPI
 from georesolver.agent.insert_process import retrieve_pings
-from georesolver.common.files_utils import load_csv, dump_csv
+from georesolver.prober import RIPEAtlasProber, RIPEAtlasAPI
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
+from georesolver.common.files_utils import load_csv, dump_csv, load_json
 from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
@@ -147,12 +149,39 @@ async def insert_measurements(
         await asyncio.sleep(wait_time)
 
 
-async def meshed_ping_cdns() -> None:
+async def meshed_ping_cdns(prev_schedule: Path) -> None:
     """
     perform pings towards one IP address
     for each /24 prefix present in VPs ECS mapping redirection
     """
-    measurement_schedule = get_measurement_schedule()
+
+    if not prev_schedule:
+        measurement_schedule = get_measurement_schedule()
+    else:
+        measurement_schedule = []
+
+        # filter based on existing schedule/meaasurement
+        cached_measurement_schedule = load_json(prev_schedule)
+        # load existing measurement
+        cached_measurements = get_pings_per_target_extended(OUTPUT_TABLE)
+
+        logger.info(f"{len(cached_measurements)=}")
+
+        for target, vp_ids in tqdm(cached_measurement_schedule):
+            # retrieve pings for target, if exists
+            try:
+                cached_ping = cached_measurements[target]
+            except KeyError:
+                continue
+
+            # only keep vp ids not in cached measurements
+            cached_vp_ids = [vp_id for _, vp_id, _ in cached_ping]
+            remaning_vp_ids = list(set(vp_ids).difference(cached_vp_ids))
+
+            measurement_schedule.append((target, remaning_vp_ids))
+
+        logger.info(f"{len(measurement_schedule)=}")
+
     prober = RIPEAtlasProber(
         probing_type="ping",
         probing_tag=MEASURMENT_TAG,
@@ -193,8 +222,13 @@ def main() -> None:
     do_latency_eval: bool = False
     do_geo_eval: bool = True
 
+    prev_schedule_path: Path = (
+        path_settings.MEASUREMENTS_SCHEDULE
+        / "meshed_cdns_pings_test__2a0cc0c3-cb91-42bb-bf8b-20ef887390ed.json"
+    )
+
     if do_measurement:
-        asyncio.run(meshed_ping_cdns())
+        asyncio.run(meshed_ping_cdns(prev_schedule_path))
     if do_latency_eval:
         latency_eval()
     if do_geo_eval:

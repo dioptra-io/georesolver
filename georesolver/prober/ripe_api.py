@@ -774,9 +774,6 @@ class RIPEAtlasAPI:
                         json=self.get_ping_config(
                             target, vp_ids, probing_tag, protocol
                         ),
-                        json=self.get_ping_config(
-                            target, vp_ids, probing_tag, protocol
-                        ),
                         timeout=timeout,
                     )
                     resp = resp.json()

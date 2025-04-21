@@ -252,6 +252,10 @@ def compute_score(
     output_path: Path, hostname_file: Path, vps_ecs_mapping_table: str
 ) -> None:
     """calculate score for each organization/ns pair"""
+
+    if output_path.exists():
+        return
+
     targets_table = ch_settings.VPS_FILTERED_FINAL_TABLE
     vps_table = ch_settings.VPS_FILTERED_FINAL_TABLE
     targets_ecs_table = vps_ecs_mapping_table
@@ -278,6 +282,10 @@ def compute_score(
 
 def select_vps(score_file: Path, output_file: Path) -> None:
     """perform georesolver vp selection based on score calculation"""
+
+    # if output_file.exists():
+    #     return
+
     asndb = pyasn(str(path_settings.RIB_TABLE))
 
     logger.info(f"Running geresolver analysis from score file:: {score_file}")
@@ -291,7 +299,10 @@ def select_vps(score_file: Path, output_file: Path) -> None:
         ch_settings.VPS_MESHED_PINGS_TABLE, [addr for _, addr in removed_vps]
     )
 
-    logger.info("Tier 5:: Distance error vs. VPs selection budget")
+    vps_per_addr = {}
+    for vp in vps:
+        vps_per_addr[vp["addr"]] = vp
+
     scores: TargetScores = load_pickle(score_file)
 
     results_answer_subnets = ecs_dns_vp_selection_eval(
@@ -301,6 +312,7 @@ def select_vps(score_file: Path, output_file: Path) -> None:
         ping_vps_to_target=ping_vps_to_target,
         last_mile_delay=last_mile_delay,
         vps_coordinates=vps_coordinates,
+        vps_per_addr=vps_per_addr,
         probing_budgets=[50],
     )
 
@@ -333,30 +345,31 @@ def plot_iterative_results(
     all_cdfs.append(ref_cdf)
 
     # georesolver results
+    d_errors = []
     georesolver_results: EvalResults = load_pickle(georesolver_results_path)
-
     for _, target_results in georesolver_results.results_answer_subnets.items():
         try:
             results = target_results["result_per_metric"]["jaccard"]
-            d_errors: dict = results["ecs_shortest_ping_vp_per_budget"][50]["d_error"]
+            d_errors.append(results["ecs_shortest_ping_vp_per_budget"][50]["d_error"])
+
         except KeyError:
             continue
 
-        x, y = ecdf(d_errors)
-        all_cdfs.append((x, y, "GPDNS resolver (GeoResolver)"))
+    x, y = ecdf(d_errors)
+    all_cdfs.append((x, y, "GPDNS resolver (GeoResolver)"))
 
     # iterative results
+    d_errors = []
     iterative_results: EvalResults = load_pickle(iterative_results_path)
-
     for _, target_results in iterative_results.results_answer_subnets.items():
         try:
             results = target_results["result_per_metric"]["jaccard"]
-            d_errors: dict = results["ecs_shortest_ping_vp_per_budget"][50]["d_error"]
+            d_errors.append(results["ecs_shortest_ping_vp_per_budget"][50]["d_error"])
         except KeyError:
             continue
 
-        x, y = ecdf(d_errors)
-        all_cdfs.append((x, y, "ZDNS resolver"))
+    x, y = ecdf(d_errors)
+    all_cdfs.append((x, y, "ZDNS resolver"))
 
     plot_multiple_cdf(
         cdfs=all_cdfs,
@@ -379,7 +392,9 @@ def evaluation(hostname_file: Path, vps_ecs_mapping_table: str) -> None:
 
     # 1. compute scores
     compute_score(
-        output_path=results_path / "score.pickle", hostname_file=hostname_file
+        output_path=results_path / "score.pickle",
+        hostname_file=hostname_file,
+        vps_ecs_mapping_table=vps_ecs_mapping_table,
     )
 
     # 2. select VPs

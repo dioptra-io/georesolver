@@ -300,7 +300,7 @@ class GetShortestPingResults(Query):
         """
 
 
-class GetLastMileDelay(Query):
+class GetLastMileDelayPerId(Query):
     def statement(self, table_name: str) -> str:
         return f"""
         SELECT 
@@ -313,6 +313,22 @@ class GetLastMileDelay(Query):
             AND dst_addr != src_addr
         GROUP BY 
             prb_id
+        """
+
+
+class GetLastMileDelay(Query):
+    def statement(self, table_name: str) -> str:
+        return f"""
+        SELECT 
+            toString(src_addr) as vp_addr,
+            arrayMin(groupArray(min)) as min_rtt
+        FROM 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        WHERE
+            min > -1 
+            AND dst_addr != src_addr
+        GROUP BY 
+            src_addr
         """
 
 
