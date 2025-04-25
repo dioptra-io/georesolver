@@ -224,11 +224,17 @@ class GetPingsPerTargetExtended(Query):
         self, table_name: str, filtered_vps: list = [], threshold: int = 300, **kwargs
     ) -> str:
         filter_vps_statement = ""
+        filtered_vps_ids = [id for id, _ in filtered_vps]
+        filtered_vps_addr = [addr for _, addr in filtered_vps]
+
         if filtered_vps:
-            in_clause = f"".join([f",toIPv4('{p}')" for p in filtered_vps])[1:]
-            filter_vps_statement = (
-                f"AND dst_addr not in ({in_clause}) AND src_addr not in ({in_clause})"
-            )
+            in_clause_id = f"".join([f",{id}" for id in filtered_vps_ids])[1:]
+            in_clause_ip = f"".join(
+                [f",toIPv4('{addr}')" for addr in filtered_vps_addr]
+            )[1:]
+
+            filter_vps_statement = f"AND prb_id not in ({in_clause_id}) AND dst_addr not in ({in_clause_ip})"
+
         filter_latency_statement = ""
         if threshold:
             filter_latency_statement = f"AND min < {threshold}"
@@ -239,7 +245,7 @@ class GetPingsPerTargetExtended(Query):
 
         return f"""
         SELECT 
-            DISTINCT toString(dst_addr) as target,
+            toString(dst_addr) as target,
             groupArray((toString(src_addr), prb_id, min)) as pings
         FROM 
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
@@ -272,7 +278,19 @@ class GetCachedTargets(Query):
 
 
 class GetShortestPingResults(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(self, table_name: str, removed_vps: list[str]) -> str:
+        filter_vps_statement = ""
+        filtered_vps_ids = [id for id, _ in removed_vps]
+        filtered_vps_addr = [addr for _, addr in removed_vps]
+
+        if removed_vps:
+            in_clause_id = f"".join([f",{id}" for id in filtered_vps_ids])[1:]
+            in_clause_ip = f"".join(
+                [f",toIPv4('{addr}')" for addr in filtered_vps_addr]
+            )[1:]
+
+            filter_vps_statement = f"AND prb_id not in ({in_clause_id}) AND dst_addr not in ({in_clause_ip})"
+
         return f"""
         SELECT
             dst_addr,
@@ -280,21 +298,22 @@ class GetShortestPingResults(Query):
                 'argMin', 
                 arrayMap(
                     x -> (x.1, x.3), 
-                    groupUniqArray((src_addr, min, msm_id, prb_id))
+                    groupUniqArray((src_addr, min, prb_id, msm_id))
                 ), 
                 arrayMap(
                     x -> (x.2), 
-                    groupUniqArray((src_addr, min, msm_id, prb_id))
+                    groupUniqArray((src_addr, min, prb_id,  msm_id))
                 )
             ) AS shortest_ping,
             arrayMin(
                 x -> (x.2), 
-                groupUniqArray((src_addr, min, msm_id, prb_id))
+                groupUniqArray((src_addr, min, prb_id, msm_id))
             ) AS min_rtt
         FROM
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         WHERE 
             min > -1
+            {filter_vps_statement}
         GROUP BY 
             dst_addr
         """
@@ -431,7 +450,11 @@ class GetDNSMappingHostnames(Query):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
             subnet_filter = f"subnet IN ({subnet_filter})"
         else:
-            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+            subnet_filter = ""
+
+        where_clause = ""
+        if subnet_filter or hostname_filter:
+            where_clause = f"WHERE {subnet_filter} {hostname_filter}"
 
         return f"""
         SELECT
@@ -444,9 +467,7 @@ class GetDNSMappingHostnames(Query):
             groupUniqArray((answer_asn)) as answer_asns
         FROM
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
-        WHERE 
-            {subnet_filter}
-            {hostname_filter}
+        {where_clause}
         GROUP BY
             (subnet, hostname, source_scope)
         """
@@ -459,6 +480,19 @@ class GetDNSMappingAnswers(Query):
             DISTINCT answer
         FROM 
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        """
+
+
+class GetAnswersPerHostname(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        return f"""
+        SELECT
+            hostname,
+            groupUniqArray(answer) as answers
+        FROM 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        GROUP BY
+            hostname
         """
 
 
@@ -497,13 +531,17 @@ class GetECSResults(Query):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
             subnet_filter = f"subnet IN ({subnet_filter})"
         else:
-            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+            subnet_filter = ""
 
         if hostname_filter := kwargs.get("hostname_filter"):
             hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
             hostname_filter = f"AND hostname IN ({hostname_filter})"
         else:
             hostname_filter = ""
+
+        where_clause = ""
+        if subnet_filter or hostname_filter:
+            where_clause = f"WHERE {subnet_filter} {hostname_filter}"
 
         return f"""
         SELECT
@@ -512,9 +550,7 @@ class GetECSResults(Query):
             groupUniqArray((answer_subnet)) as answer_subnets
         FROM
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
-        WHERE 
-            {subnet_filter}
-            {hostname_filter}
+        {where_clause}
         GROUP BY
             (subnet, hostname)
         """

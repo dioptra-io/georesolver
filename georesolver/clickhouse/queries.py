@@ -33,6 +33,7 @@ from georesolver.clickhouse import (
     GetDNSMappingHostnames,
     GetDNSMappingPerHostnames,
     GetDNSMappingAnswers,
+    GetAnswersPerHostname,
     GetTargetScore,
 )
 from georesolver.common.files_utils import create_tmp_csv_file
@@ -213,7 +214,7 @@ def iter_pings_per_target(
         pass
 
 
-def load_target_geoloc(table_name: str) -> dict:
+def load_target_geoloc(table_name: str, removed_vps: list[str] = []) -> dict:
     """
     return shortest ping results for all targets
     """
@@ -223,6 +224,7 @@ def load_target_geoloc(table_name: str) -> dict:
             resp = GetShortestPingResults().execute(
                 client=client,
                 table_name=table_name,
+                removed_vps=removed_vps,
             )
         except:
             logger.error(f"Table:: {table_name} does not exists")
@@ -231,10 +233,10 @@ def load_target_geoloc(table_name: str) -> dict:
     for row in resp:
         target_addr = row["dst_addr"]
         vp_addr = row["shortest_ping"][0]
-        msm_id = row["shortest_ping"][1]
+        prb_id = row["shortest_ping"][1]
         min_rtt = row["min_rtt"]
 
-        targets_geoloc[target_addr] = (vp_addr, msm_id, min_rtt)
+        targets_geoloc[target_addr] = (vp_addr, prb_id, min_rtt)
 
     return targets_geoloc
 
@@ -349,7 +351,7 @@ def get_vps_ids_per_target(ping_table: str) -> set:
 
 def get_subnets_mapping(
     dns_table: str,
-    subnets: list[str],
+    subnets: list[str] = [],
     hostname_filter: list[str] = None,
     print_error: bool = True,
 ) -> dict[dict]:
@@ -403,12 +405,26 @@ def get_mapping_answers(dns_table: str) -> list[str]:
     return list(answers)
 
 
+def get_answers_per_hostname(dns_table: str) -> dict[list[str]]:
+    """get all IP addresses from a table of DNS mapping"""
+    answers_per_hostname = {}
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        resp = GetAnswersPerHostname().execute_iter(client=client, table_name=dns_table)
+
+        for row in resp:
+            hostname = row["hostname"]
+            answers = row["answers"]
+            answers_per_hostname[hostname] = answers
+
+    return answers_per_hostname
+
+
 def get_ecs_results(
     dns_table: str,
-    subnets: list[str],
+    subnets: list[str] = [],
     hostname_filter: list[str] = None,
     print_error: bool = True,
-) -> dict:
+) -> dict[dict[list[str]]]:
     """get ecs-dns resolution per hostname for all input subnets"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetECSResults().execute_iter(
@@ -654,12 +670,16 @@ def change_table_name(table_name: str, new_table_name: str) -> None:
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         # check if out table does not already exists
         tables = get_tables()
+        if table_name not in tables:
+            logger.warning(
+                f"Old table {table_name} did not exists, no need for name change"
+            )
+            return
         if new_table_name in tables:
             logger.warning(
                 f"Output table:: {new_table_name} already exists, skipping step"
             )
         else:
-
             ChangeTableName().execute(
                 client=client,
                 table_name=table_name,

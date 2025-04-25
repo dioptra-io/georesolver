@@ -44,6 +44,9 @@ ch_settings = ClickhouseSettings()
 ITERATIVE_GEORESOLVER_PATH = (
     path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames.csv"
 )
+ITERATIVE_GEORESOLVER_PATH = (
+    path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames_bgp_10_ns_5.csv"
+)
 ITERATIVE_HOSTNAMES_TABLE = "iterative_ecs_hostnames"
 ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
 
@@ -131,7 +134,7 @@ def get_hostnames_org_and_ns_threshold(
     while preserving (NS/ORG) pair diversity
     """
     bgp_threshold = 10
-    ns_org_threshold = 10
+    ns_org_threshold = 5
 
     filtered_hostnames_per_org_per_ns = defaultdict(dict)
     for ns in best_hostnames_per_org_per_ns:
@@ -253,8 +256,8 @@ def compute_score(
 ) -> None:
     """calculate score for each organization/ns pair"""
 
-    if output_path.exists():
-        return
+    # if output_path.exists():
+    #     return
 
     targets_table = ch_settings.VPS_FILTERED_FINAL_TABLE
     vps_table = ch_settings.VPS_FILTERED_FINAL_TABLE
@@ -290,7 +293,7 @@ def select_vps(score_file: Path, output_file: Path) -> None:
 
     logger.info(f"Running geresolver analysis from score file:: {score_file}")
 
-    removed_vps = load_json(path_settings.DATASET / "removed_vps.json")
+    removed_vps = load_json(path_settings.REMOVED_VPS)
     targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
@@ -419,7 +422,7 @@ def main() -> None:
         - perform VPs ECS mapping using new selected hostnames
         - evaluation on meshed pings
     """
-    do_get_iterative_georesolver_hostnames: bool = False
+    do_get_iterative_georesolver_hostnames: bool = True
     do_eval: bool = True
 
     if do_get_iterative_georesolver_hostnames:

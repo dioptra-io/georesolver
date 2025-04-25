@@ -1,8 +1,12 @@
 """study and evaluate CDNs redirection strategies"""
 
+import json
 import asyncio
+import numpy as np
+import pandas as pd
 
 from tqdm import tqdm
+from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
 from random import choice
@@ -11,27 +15,40 @@ from datetime import datetime, timedelta
 
 from georesolver.clickhouse.queries import (
     load_vps,
-    get_mapping_answers,
+    get_tables,
+    get_ecs_results,
+    load_target_geoloc,
     get_measurement_ids,
+    get_mapping_answers,
+    get_answers_per_hostname,
     get_pings_per_target_extended,
 )
 from georesolver.zdns.zmap import zmap
+from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.agent.insert_process import retrieve_pings
 from georesolver.prober import RIPEAtlasProber, RIPEAtlasAPI
-from georesolver.common.ip_addresses_utils import get_prefix_from_ip
-from georesolver.common.files_utils import load_csv, dump_csv, load_json
+from georesolver.evaluation.evaluation_score_functions import load_scores
+from georesolver.evaluation.evaluation_plot_functions import ecdf, plot_cdf
+from georesolver.common.ip_addresses_utils import (
+    get_prefix_from_ip,
+    route_view_bgp_prefix,
+)
+from georesolver.common.geoloc import is_within_cirle
+from georesolver.common.files_utils import load_csv, dump_csv, load_json, dump_json
 from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
     RIPEAtlasSettings,
 )
 
-MEASURMENT_TAG = "meshed-cdns-pings-test"
-OUTPUT_TABLE = "meshed_cdns_pings_test"
-
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
+
+MEASURMENT_TAG = "meshed-cdns-pings-test"
+PING_TABLE = "meshed_cdns_pings_test"
+ECS_TABLE = "meshed_cdns_ecs"
+RESULTS_PATH = path_settings.RESULTS_PATH / "pop_redirection_eval"
 
 
 def get_responsive_answers(answers: list[str], output_path: Path) -> list[str]:
@@ -141,7 +158,13 @@ async def insert_measurements(
             continue
 
         # insert measurement
-        await retrieve_pings(measurement_to_insert, output_table)
+        batch_size = 1_000
+        for i in range(0, len(measurement_to_insert), batch_size):
+            logger.info(
+                f"Batch {i // batch_size}/{len(measurement_to_insert) // batch_size}"
+            )
+            batch_measurement_ids = list(measurement_to_insert)[i : i + batch_size]
+            await retrieve_pings(batch_measurement_ids, output_table)
 
         cached_measurement_ids.update(measurement_to_insert)
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
@@ -149,7 +172,7 @@ async def insert_measurements(
         await asyncio.sleep(wait_time)
 
 
-async def meshed_ping_cdns(prev_schedule: Path) -> None:
+async def meshed_ping_cdns(prev_schedule: Path = None) -> None:
     """
     perform pings towards one IP address
     for each /24 prefix present in VPs ECS mapping redirection
@@ -162,8 +185,10 @@ async def meshed_ping_cdns(prev_schedule: Path) -> None:
 
         # filter based on existing schedule/meaasurement
         cached_measurement_schedule = load_json(prev_schedule)
+        # get the minimum of scheduled vps for a measurement
+        min_nb_vps = len(min(cached_measurement_schedule, key=lambda x: len(x[-1]))[-1])
         # load existing measurement
-        cached_measurements = get_pings_per_target_extended(OUTPUT_TABLE)
+        cached_measurements = get_pings_per_target_extended(PING_TABLE)
 
         logger.info(f"{len(cached_measurements)=}")
 
@@ -180,35 +205,279 @@ async def meshed_ping_cdns(prev_schedule: Path) -> None:
 
             measurement_schedule.append((target, remaning_vp_ids))
 
+        # filter targets for which measurement was done, but not all vps responded
+        filtered_measurement_schedule = []
+        logger.info(f"Filtering measurements under min nb vp ids:: {min_nb_vps}")
+        for target, vp_ids in measurement_schedule:
+            if len(vp_ids) < min_nb_vps:
+                continue
+
+            filtered_measurement_schedule.append((target, vp_ids))
+
+        measurement_schedule = filtered_measurement_schedule
+
         logger.info(f"{len(measurement_schedule)=}")
 
     prober = RIPEAtlasProber(
         probing_type="ping",
         probing_tag=MEASURMENT_TAG,
-        output_table=OUTPUT_TABLE,
+        output_table=PING_TABLE,
         protocol="ICMP",
     )
 
     await asyncio.gather(
-        prober.main(measurement_schedule),
+        # prober.main(measurement_schedule),
         insert_measurements(
             measurement_schedule,
             probing_tags=["dioptra", MEASURMENT_TAG],
-            output_table=OUTPUT_TABLE,
+            output_table=PING_TABLE,
         ),
     )
 
     logger.info("Meshed CDNs pings measurement done")
 
 
+def compute_percentile_rank(redirected_latency, all_latencies):
+    sorted_latencies = sorted(all_latencies)
+    # Percentile rank: proportion of latencies less than or equal to redirected
+    rank = np.searchsorted(sorted_latencies, redirected_latency, side="right") / len(
+        sorted_latencies
+    )
+    return rank * 100  # in percent
+
+
 def latency_eval() -> None:
     """evaluate if the redirected PoP was the most optimal based on ping measurements"""
-    pass
+    # 1. load data
+    vps_ecs_mapping = get_ecs_results(ch_settings.VPS_ECS_MAPPING_TABLE)
+    answers_per_hostname = get_answers_per_hostname(ch_settings.VPS_ECS_MAPPING_TABLE)
+    pings_per_target = get_pings_per_target_extended(PING_TABLE)
+
+    # get subnets answer to hostaname
+    hostname_per_answer_subnet = {}
+    for hostname, answers in answers_per_hostname.items():
+        for answer in answers:
+            answer_subnet = get_prefix_from_ip(answer)
+            hostname_per_answer_subnet[answer_subnet] = hostname
+
+    # 2. get ping per vp to target subnet
+    pings_per_vp_hostname = defaultdict(dict)
+    pings_per_vp = defaultdict(dict)
+    for target_addr, pings in pings_per_target.items():
+        target_subnet = get_prefix_from_ip(target_addr)
+        hostname = hostname_per_answer_subnet[target_subnet]
+        for vp_addr, _, min_rtt in pings:
+            try:
+                pings_per_vp[vp_addr][target_subnet].append((target_addr, min_rtt))
+            except KeyError:
+                pings_per_vp[vp_addr][target_subnet] = [(target_addr, min_rtt)]
+            try:
+                pings_per_vp_hostname[vp_addr][hostname].append(min_rtt)
+            except KeyError:
+                pings_per_vp_hostname[vp_addr][hostname] = [min_rtt]
+
+    # 3. get redirection ping and calculate rank per pair (hostname; vp)
+    percentile_per_hostname = defaultdict(list)
+    for vp_addr, pings_per_hostname in tqdm(pings_per_vp_hostname.items()):
+        for hostname, all_hostname_pings in pings_per_hostname.items():
+            try:
+                # retrieved all answer subnets, if exists
+                answer_subnets = vps_ecs_mapping[get_prefix_from_ip(vp_addr)][hostname]
+            except KeyError:
+                continue
+            for answer_subnet in answer_subnets:
+                try:
+                    # get redirection ping, if exists
+                    redirection_pings = pings_per_vp[vp_addr][answer_subnet]
+                    for _, min_rtt in redirection_pings:
+                        # get rank of redirection ping
+                        percentile = compute_percentile_rank(
+                            min_rtt, all_hostname_pings
+                        )
+                        # save percentile per hostname
+                        percentile_per_hostname[hostname].append(percentile)
+
+                except KeyError:
+                    continue
+
+    print(f"{len(percentile_per_hostname)=}")
+
+    # get avg percentile per hostname
+    avg_percentiles = []
+    for hostname, percentiles in percentile_per_hostname.items():
+        avg_percentiles.append(np.average(percentiles))
+
+    x, y = ecdf(avg_percentiles)
+    plot_cdf(
+        x=x,
+        y=y,
+        x_lim_left=0,
+        output_path="cdf_avg_percentile_latency_per_hostname",
+        x_label="avg latency percentile \n accross VPs subnet",
+        y_label="fraction of hostnames",
+    )
+
+
+def load_as_to_org(input_path: Path, providers: list[str] = None) -> dict:
+    """parse original CAIDA txt file to a dict, return ASN to org data"""
+    if not input_path.exists():
+        # load raw file
+        raw_data_path = path_settings.STATIC_FILES / "20250401.as-org2info.jsonl"
+        asn_to_org_name = {}
+        with raw_data_path.open("r") as f:
+            for row in tqdm(f.readlines()):
+                row = json.loads(row)
+                # get org info
+                if "asn" in row and "name" in row:
+                    try:
+                        asn = row["asn"]
+                        org_name = row["name"]
+
+                        # parse main CDNs orgs (ex: GOOGLER-FIBER -> GOOGLE)
+                        for provider in providers:
+                            if provider in org_name:
+                                org_name = provider
+
+                        asn_to_org_name[asn] = org_name
+                    except KeyError as e:
+                        logger.error(f"{row}")
+                        raise RuntimeError(f"{e}")
+
+        # save data
+        dump_json(asn_to_org_name, input_path)
+        return asn_to_org_name
+
+    asn_to_org_name = load_json(input_path)
+    return asn_to_org_name
 
 
 def geo_eval() -> None:
     """check if the redirected PoP was the closest one or not"""
-    pass
+    rows_providers_geoloc = load_csv(
+        path_settings.STATIC_FILES / "providers_geoloc.csv"
+    )
+    providers_geoloc = defaultdict(dict)
+    for row in rows_providers_geoloc[1:]:
+        row = row.split(",")
+        providers_geoloc[row[0].upper()][row[1]] = {
+            "lat": row[2],
+            "lon": row[3],
+        }
+
+    asndb = pyasn(str(path_settings.STATIC_FILES / "rib_table_2025_04_24.dat"))
+    asn_to_org = load_as_to_org(
+        path_settings.STATIC_FILES / "asn_to_org_name.json", providers_geoloc.keys()
+    )
+    asn_to_org = {int(asn): org_name for asn, org_name in asn_to_org.items()}
+
+    # load DNS mapping data
+    answers = get_mapping_answers(ch_settings.VPS_ECS_MAPPING_TABLE)
+    # get answer org
+    org_per_answer = {}
+    for answer in answers:
+        # get asn
+        asn, _ = route_view_bgp_prefix(answer, asndb)
+        # get org name
+        try:
+            org_name = asn_to_org[asn]
+            org_per_answer[answer] = org_name
+        except KeyError:
+            continue
+
+    # get pings per target and vps
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    pop_geoloc = load_target_geoloc(PING_TABLE, removed_vps)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    vps_per_id = {}
+    for vp in vps:
+        vps_per_id[vp["id"]] = vp
+
+    candidates_pop_per_target = defaultdict(list)
+    missing_orgs = set()
+    missing_provider = set()
+    missing_pop = set()
+    under_2ms = set()
+    logger.info(f"{len(pop_geoloc)=}")
+    for target_addr, (_, vp_id, min_rtt) in pop_geoloc.items():
+        if min_rtt < 2:
+            under_2ms.add(target_addr)
+        try:
+            # get org for target, if exists
+            org_target = org_per_answer[target_addr]
+            # get provider geoloc, if exists
+            provider_geoloc: dict = providers_geoloc[org_target]
+        except KeyError:
+            missing_orgs.add(target_addr)
+            continue
+
+        # get vp_lat, vp_lon
+        vp = vps_per_id[vp_id]
+        candidates = []
+        # check if pop geolocs are within area of presence around vp
+        for code, geoloc in provider_geoloc.items():
+            pop_lat, pop_lon = float(geoloc["lat"]), float(geoloc["lon"])
+            if is_within_cirle((vp["lat"], vp["lon"]), min_rtt, (pop_lat, pop_lon)):
+                candidates.append(
+                    {
+                        "provider": org_target,
+                        "code": code,
+                        "geoloc": geoloc,
+                        "min_rtt": min_rtt,
+                        "vp": vp,
+                    }
+                )
+
+        if not provider_geoloc:
+            missing_provider.add(target_addr)
+            if not candidates:
+                missing_pop.add(target_addr)
+
+            continue
+
+        candidates_pop_per_target[target_addr] = candidates
+
+    logger.info(f"{len(missing_orgs)=}")
+    logger.info(f"{len(under_2ms)=}")
+    logger.info(f"{len(missing_provider)=}")
+    logger.info(f"{len(missing_pop)=}")
+    logger.info(f"{len(candidates_pop_per_target)=}")
+
+    dump_json(
+        candidates_pop_per_target, RESULTS_PATH / "candidates_pop_per_target.json"
+    )
+
+
+async def ecs_cdns_answers() -> None:
+    """perform GeoResolver ECS-DNS resolution on VPs mapping answers"""
+    answers = get_mapping_answers(ch_settings.VPS_ECS_MAPPING_TABLE)
+    answer_subnets = list(set([get_prefix_from_ip(a) for a in answers]))
+
+    await run_dns_mapping(
+        subnets=answer_subnets,
+        hostname_file=path_settings.HOSTNAMES_GEORESOLVER,
+        output_table="meshed_cdns_ecs",
+        itterative=False,
+    )
+
+
+def cdn_meshed_vs_georesolver() -> None:
+    """plot latency results between meshed pings and georesolver on CDNs IP addresses"""
+    tables = get_tables()
+    if ECS_TABLE not in tables:
+        asyncio.run(ecs_cdns_answers())
+
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
+    scores = load_scores(
+        output_path=RESULTS_PATH / "score.pickle",
+        hostname_file=path_settings.HOSTNAMES_GEORESOLVER,
+        target_ecs_table=ECS_TABLE,
+        vps_ecs_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE,
+    )
+
+    meshed_latencies = []
+    for target_addr, pings in pings_per_target.items():
+        meshed_latencies = min(pings, key=lambda x: x[-1])
 
 
 def main() -> None:
@@ -218,9 +487,10 @@ def main() -> None:
         - evaluate redirection latency
         - evaluate max distance based on exact position + geolocation area of presence
     """
-    do_measurement: bool = True
-    do_latency_eval: bool = False
-    do_geo_eval: bool = True
+    do_measurement: bool = False
+    do_latency_eval: bool = True
+    do_geo_eval: bool = False
+    do_georesolver_comparison: bool = False
 
     prev_schedule_path: Path = (
         path_settings.MEASUREMENTS_SCHEDULE
@@ -228,11 +498,14 @@ def main() -> None:
     )
 
     if do_measurement:
-        asyncio.run(meshed_ping_cdns(prev_schedule_path))
+        asyncio.run(meshed_ping_cdns())
+        # asyncio.run(meshed_ping_cdns(prev_schedule_path))
     if do_latency_eval:
         latency_eval()
     if do_geo_eval:
         geo_eval()
+    if do_georesolver_comparison:
+        cdn_meshed_vs_georesolver()
 
 
 if __name__ == "__main__":

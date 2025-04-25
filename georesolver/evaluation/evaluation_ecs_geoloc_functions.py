@@ -7,6 +7,8 @@ from collections import defaultdict
 from georesolver.clickhouse.queries import (
     get_pings_per_target,
     get_min_rtt_per_vp,
+    load_targets,
+    load_vps,
 )
 from georesolver.common.utils import (
     get_parsed_vps,
@@ -15,14 +17,15 @@ from georesolver.common.utils import (
     parse_target,
     get_ecs_vps,
     TargetScores,
+    EvalResults,
 )
 from georesolver.common.geoloc import distance
-from georesolver.common.files_utils import load_pickle
+from georesolver.common.files_utils import load_pickle, dump_pickle, load_json
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
 
 
 def select_one_vp_per_as_city(
@@ -214,6 +217,105 @@ def ecs_dns_vp_selection_eval(
     return results
 
 
+def georesolver_latency(
+    targets: list,
+    vps_per_subnet: dict,
+    subnet_scores: dict,
+    ping_vps_to_target: dict,
+    last_mile_delay: dict,
+    vps_coordinates: dict,
+    probing_budgets: list,
+    vps_per_addr: dict,
+    vps_country: dict[str] = None,
+) -> tuple[dict, dict]:
+
+    results = {}
+    for target_addr in tqdm(targets):
+        target_subnet = get_prefix_from_ip(target_addr)
+        try:
+            target_scores: dict = subnet_scores[target_subnet]
+        except KeyError:
+            logger.error(f"cannot find target score for subnet : {target_subnet}")
+            continue
+
+        result_per_metric = {}
+        for metric, target_score in target_scores.items():
+
+            # get vps, function of their subnet ecs score
+            ecs_vps = get_ecs_vps(
+                target_subnet, target_score, vps_per_subnet, last_mile_delay, 10_000
+            )
+
+            # remove vps that have a high last mile delay
+            ecs_vps = filter_vps_last_mile_delay(
+                ecs_vps, last_mile_delay, vps_per_addr, 2
+            )
+
+            # take only one address per city and per AS
+            if type(probing_budgets[0]) == int:
+                ecs_vps_per_budget = {}
+                for budget in probing_budgets:
+                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )[:budget]
+            else:
+                ecs_vps_per_budget = {}
+                for budget in probing_budgets:
+                    ecs_vps_per_budget[budget] = select_one_vp_per_as_city(
+                        ecs_vps, vps_coordinates, last_mile_delay
+                    )[budget[0] : budget[1]]
+
+            # SHORTEST PING GEOLOC
+            try:
+                ecs_shortest_ping_per_budget = {}
+                for budget, ecs_vps in ecs_vps_per_budget.items():
+                    ecs_shortest_ping_per_budget[budget] = shortest_ping(
+                        [addr for addr, _ in ecs_vps],
+                        ping_vps_to_target[target_addr],
+                    )
+
+            except KeyError:
+                logger.debug(f"No ping available for target:: {target_addr}")
+                continue
+
+            ecs_shortest_ping_vp_per_budget = {}
+            for budget, (
+                ecs_shortest_ping_addr,
+                ecs_min_rtt,
+            ) in ecs_shortest_ping_per_budget.items():
+                if not ecs_shortest_ping_addr:
+                    continue
+
+                try:
+                    lat, lon, _, _ = vps_coordinates[ecs_shortest_ping_addr]
+                except KeyError:
+                    logger.debug(
+                        f"{ecs_shortest_ping_addr} present into pings but not in original VPs"
+                    )
+                    continue
+
+                ecs_shortest_ping_vp = {
+                    "addr": ecs_shortest_ping_addr,
+                    "subnet": get_prefix_from_ip(ecs_shortest_ping_addr),
+                    "lat": lat,
+                    "lon": lon,
+                    "rtt": ecs_min_rtt,
+                    "score": target_score,
+                }
+
+                ecs_shortest_ping_vp_per_budget[budget] = ecs_shortest_ping_vp
+
+            result_per_metric[metric] = {
+                "ecs_shortest_ping_vp_per_budget": ecs_shortest_ping_vp_per_budget,
+                "ecs_scores": ecs_vps_per_budget[budget],
+                "ecs_vps": ecs_vps,
+            }
+
+        results[target_addr] = {"result_per_metric": result_per_metric}
+
+    return results
+
+
 def get_shortest_ping_geo_resolver_per_budget(
     targets: list[str],
     vps: list[dict],
@@ -230,9 +332,7 @@ def get_shortest_ping_geo_resolver_per_budget(
     scores: TargetScores = load_pickle(score_file)
     scores = scores.score_answer_subnets
 
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
+    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
 
     ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
 
@@ -306,9 +406,7 @@ def get_shortest_ping_geo_resolver(
     scores: TargetScores = load_pickle(score_file)
     scores = scores.score_answer_subnets
 
-    last_mile_delay = get_min_rtt_per_vp(
-        clickhouse_settings.VPS_MESHED_TRACEROUTE_TABLE
-    )
+    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
 
     ping_vps_to_target = get_pings_per_target(ping_table, removed_vps)
 
@@ -361,3 +459,57 @@ def get_shortest_ping_geo_resolver(
                 continue
 
     return targets_shortest_ping
+
+
+def select_vps(score_file: Path, output_file: Path, targets: list[str]) -> None:
+    """perform georesolver vp selection based on score calculation"""
+
+    if not output_file.exists():
+
+        asndb = pyasn(str(path_settings.RIB_TABLE))
+
+        logger.info(f"Running geresolver analysis from score file:: {score_file}")
+
+        removed_vps = load_json(path_settings.REMOVED_VPS)
+        targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
+        vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+        vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
+        last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
+        ping_vps_to_target = get_pings_per_target(
+            ch_settings.VPS_MESHED_PINGS_TABLE, [addr for _, addr in removed_vps]
+        )
+
+        vps_per_addr = {}
+        for vp in vps:
+            vps_per_addr[vp["addr"]] = vp
+
+        scores: TargetScores = load_pickle(score_file)
+
+        results_answer_subnets = ecs_dns_vp_selection_eval(
+            targets=targets,
+            vps_per_subnet=vps_per_subnet,
+            subnet_scores=scores.score_answer_subnets,
+            ping_vps_to_target=ping_vps_to_target,
+            last_mile_delay=last_mile_delay,
+            vps_coordinates=vps_coordinates,
+            vps_per_addr=vps_per_addr,
+            probing_budgets=[50],
+        )
+
+        results = EvalResults(
+            target_scores=scores,
+            results_answers=None,
+            results_answer_subnets=results_answer_subnets,
+            results_answer_bgp_prefixes=None,
+        )
+
+        logger.info(f"output file:: {output_file}")
+
+        dump_pickle(
+            data=results,
+            output_file=output_file,
+        )
+        return results
+
+    results = load_pickle(output_file)
+    return results

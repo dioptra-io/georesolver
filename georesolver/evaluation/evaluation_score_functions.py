@@ -5,7 +5,7 @@ from loguru import logger
 from collections import defaultdict
 from pathlib import Path
 
-from georesolver.common.files_utils import dump_pickle, load_json, load_pickle
+from georesolver.common.files_utils import dump_pickle, load_json, load_pickle, load_csv
 from georesolver.common.utils import TargetScores
 from georesolver.clickhouse.queries import (
     get_subnets_mapping,
@@ -15,7 +15,7 @@ from georesolver.clickhouse.queries import (
 from georesolver.common.settings import ClickhouseSettings, PathSettings
 
 path_settings = PathSettings()
-clickhouse_settings = ClickhouseSettings()
+ch_settings = ClickhouseSettings()
 
 
 def intersection_score(target_mapping: set, vp_mapping: set) -> float:
@@ -463,6 +463,44 @@ def get_scores(score_config: dict) -> None:
     )
 
     dump_pickle(data=score, output_file=Path(score_config["output_path"]))
+    return score
+
+
+def load_scores(
+    output_path: Path,
+    hostname_file: Path,
+    target_ecs_table: str,
+    vps_ecs_mapping_table: str,
+) -> None:
+    """calculate score for each organization/ns pair"""
+
+    if not output_path.exists():
+        targets_table = ch_settings.VPS_FILTERED_FINAL_TABLE
+        vps_table = ch_settings.VPS_FILTERED_FINAL_TABLE
+        targets_ecs_table = target_ecs_table
+        vps_ecs_table = vps_ecs_mapping_table
+
+        selected_hostnames = load_csv(hostname_file)
+
+        score_config = {
+            "targets_table": targets_table,
+            "main_org_threshold": 0.0,
+            "bgp_prefixes_threshold": 0.0,
+            "vps_table": vps_table,
+            "selected_hostnames": selected_hostnames,
+            "targets_ecs_table": targets_ecs_table,
+            "vps_ecs_table": vps_ecs_table,
+            "hostname_selection": "max_bgp_prefix",
+            "score_metric": ["jaccard"],
+            "answer_granularities": ["answer_subnets"],
+            "output_path": output_path,
+        }
+
+        score = get_scores(score_config)
+        return score
+
+    score = load_pickle(output_path)
+    return score
 
 
 if __name__ == "__main__":

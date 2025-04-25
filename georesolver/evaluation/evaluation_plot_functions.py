@@ -110,7 +110,7 @@ def plot_cdf(
     output_path: str,
     x_label: str,
     y_label: str,
-    x_lim_right: int = 1,
+    x_lim_right: int = None,
     x_lim_left: int = None,
     y_lim: int = 1,
     legend_outside: str = False,

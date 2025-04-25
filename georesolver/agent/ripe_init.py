@@ -401,7 +401,7 @@ async def update_vps_filtered_table(
 async def filter_low_connectivity_vps(delay_threshold: int = 2) -> None:
     """filter all VPs for which the measured minimum last mile delay above 2ms"""
     targets = load_targets(ch_settings.VPS_RAW_TABLE)
-    vps = load_vps(ch_settings.VPS_RAW_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
     last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
     vps.extend(targets)
 
@@ -412,7 +412,7 @@ async def filter_low_connectivity_vps(delay_threshold: int = 2) -> None:
     filtered_vps = []
     for vp in vps:
         try:
-            min_rtt = last_mile_delay[vp["id"]]
+            min_rtt = last_mile_delay[vp["addr"]]
             if min_rtt <= delay_threshold:
                 filtered_vps.append((vp["id"], vp["addr"]))
         except KeyError:
@@ -429,75 +429,7 @@ async def update_vps_filtered_final(
     """update vps filtered final table"""
 
     filtered_vps_ids = [vp_id for vp_id, _ in filtered_vps]
-    vps = load_vps(ch_settings.VPS_RAW_TABLE)
-
-    csv_data = []
-    for vp in vps:
-        if vp["id"] not in filtered_vps_ids:
-            continue
-
-        row = []
-        for val in vp.values():
-            row.append(f"{val}")
-
-        row = ",".join(row)
-        csv_data.append(row)
-
-    # archive old table
-    change_table_name(
-        ch_settings.VPS_FILTERED_FINAL_TABLE,
-        ch_settings.VPS_FILTERED_FINAL_TABLE + "_" + suffixe_table,
-    )
-
-    async with AsyncClickHouseClient(**ch_settings.clickhouse) as client:
-        tmp_file_path = create_tmp_csv_file(csv_data)
-
-        await CreateVPsTable().aio_execute(
-            client=client,
-            table_name=ch_settings.VPS_FILTERED_TABLE,
-        )
-
-        Query().execute_insert(
-            client=client,
-            table_name=ch_settings.VPS_FILTERED_TABLE,
-            in_file=tmp_file_path,
-        )
-
-        tmp_file_path.unlink()
-
-
-async def filter_low_connectivity_vps(delay_threshold: int = 2) -> None:
-    """filter all VPs for which the measured minimum last mile delay above 2ms"""
-    targets = load_targets(ch_settings.VPS_RAW_TABLE)
-    vps = load_vps(ch_settings.VPS_RAW_TABLE)
-    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    vps.extend(targets)
-
-    logger.info(f"Original number of VPs:: {len(vps)}")
-    logger.info(f"NB vps traceroutes:: {len(last_mile_delay)}")
-
-    # only keep vps with a last mile delay under threshold
-    filtered_vps = []
-    for vp in vps:
-        try:
-            min_rtt = last_mile_delay[vp["id"]]
-            if min_rtt <= delay_threshold:
-                filtered_vps.append((vp["id"], vp["addr"]))
-        except KeyError:
-            continue
-
-    logger.info(f"Remaining VPs after last mile delay filtering:: {len(filtered_vps)}")
-
-    return filtered_vps
-
-
-async def update_vps_filtered_final(
-    filtered_vps: list[dict], suffixe_table: str
-) -> None:
-    """update vps filtered final table"""
-
-    filtered_vps_ids = [vp_id for vp_id, _ in filtered_vps]
-    vps = load_vps(ch_settings.VPS_RAW_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
 
     csv_data = []
     for vp in vps:
@@ -527,7 +459,7 @@ async def update_vps_filtered_final(
 
         Query().execute_insert(
             client=client,
-            table_name=ch_settings.VPS_FILTERED_TABLE,
+            table_name=ch_settings.VPS_FILTERED_FINAL_TABLE,
             in_file=tmp_file_path,
         )
 
@@ -637,24 +569,23 @@ async def vps_init(old_table_suffixe: str) -> None:
     """perform all georesolver ripe atlas init related functions"""
 
     # 1. download all VPs
-    await update_vps_table(old_table_suffixe)
+    # await update_vps_table(old_table_suffixe)
 
-    # 2. update vps meshed pings table
-    config_path = await update_meshed_pings(old_table_suffixe)
-    await insert_pings(config_path)
+    # # 2. update vps meshed pings table
+    # config_path = await update_meshed_pings(old_table_suffixe)
+    # await insert_pings(config_path)
 
-    # 3. filter VPs with default geoloc and SOI violation
-    removed_vps = await filter_vps()
-    await update_vps_filtered_table(old_table_suffixe, removed_vps)
+    # # 3. filter VPs with default geoloc and SOI violation
+    # removed_vps = await filter_vps()
+    # await update_vps_filtered_table(old_table_suffixe, removed_vps)
 
-    # # 4. perform meshed traceroutes
-    config_path = await update_meshed_traceroutes(old_table_suffixe)
-    await insert_traceroutes(config_path)
-    config_path = await update_meshed_traceroutes(old_table_suffixe)
-    await insert_traceroutes(config_path)
+    # # # 4. perform meshed traceroutes
+    # config_path = await update_meshed_traceroutes(old_table_suffixe)
+    # await insert_traceroutes(config_path)
 
-    # # 5. create a table with only VPs with last myle delay under 2 ms
-    await filter_low_connectivity_vps(delay_threshold=2)
+    # 5. create a table with only VPs with last myle delay under 2 ms
+    vps_filtered = await filter_low_connectivity_vps(delay_threshold=2)
+    await update_vps_filtered_final(vps_filtered, suffixe_table="None")
 
 
 # debugging, testing
