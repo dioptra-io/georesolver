@@ -279,209 +279,73 @@ def get_ecs_vps(
     return ecs_vps
 
 
-def get_no_ping_vp(
-    target,
-    target_score: list,
-    vps_per_subnet: dict,
-    vps_coordinates: dict,
-    major_country: str = None,
-) -> dict:
-    """return VP with maximum score"""
-    target_subnet = get_prefix_from_ip(target["addr"])
+def get_d_errors_ref(
+    pings_per_target: dict[list],
+    vps_coordinates: dict[dict],
+) -> list[float]:
+    d_errors = []
+    for target_addr, pings in pings_per_target.items():
+        # get shortest ping using all vps
+        vp_addr, _, _ = min(pings, key=lambda x: x[-1])
 
-    subnet, _ = target_score[0]
-
-    for subnet, _ in target_score:
-        if subnet == target_subnet:
+        # get target/vps coordinates
+        try:
+            target = vps_coordinates[target_addr]
+            vp = vps_coordinates[vp_addr]
+        except KeyError:
             continue
-        else:
-            vp_addr = vps_per_subnet[subnet][0]
-            break
 
-    return get_vp_info(
-        target, target_score, vp_addr, vps_coordinates, major_country=major_country
-    )
+        # get dst
+        d_error = distance(target["lat"], vp["lat"], target["lon"], vp["lon"])
+        d_errors.append(d_error)
 
-
-def get_geographic_mapping(subnets: dict, vps_per_subnet: dict) -> tuple[list, list]:
-    """get vps country and continent for a given hostname bgp prefix"""
-    mapping_countries = []
-    for subnet in subnets:
-        for vp in vps_per_subnet[subnet]:
-            country_code = vp[-1]
-            mapping_countries.append(country_code)
-
-    return mapping_countries
+    return d_errors
 
 
-def get_geographic_ratio(geographic_mapping: list) -> float:
-    """return the ratio of the most represented geographic granularity (country/continent)"""
-    try:
-        return max(
-            [
-                geographic_mapping.count(region) / len(geographic_mapping)
-                for region in geographic_mapping
-            ]
-        )
-    except ValueError:
-        return 0
+def get_d_errors_georesolver(
+    pings_per_target: dict[list],
+    vp_selection_per_target: dict[list],
+    vps_coordinates: dict[dict],
+    probing_budget: int = 50,
+) -> tuple[list[float], list[float]]:
+    """return distance errors based on a set of targets with known geolocation"""
+    d_errors = []
+    for target_addr, pings in pings_per_target.items():
 
-
-def filter_on_geo_distribution(
-    bgp_prefix_country_ratio: list[float],
-    hostnames_geo_mapping: dict[list],
-    threshold_country: float = 0.7,
-) -> dict:
-    """
-    get hostnames and their major geographical region of influence.
-    Return True if the average ratio for each hostname's BGP prefix is above
-    a given threshold (80% of VPs in the same region by default)
-    """
-    valid_hostnames = []
-    invalid_hostnames = []
-    for country_ratio in hostnames_geo_mapping.items():
-        avg_ratio_country = []
-
-        for major_country_ratio in bgp_prefix_country_ratio:
-            avg_ratio_country.append(major_country_ratio)
-
-        avg_ratio_country = mean(avg_ratio_country)
-        if avg_ratio_country > threshold_country:
-            valid_hostnames.append((avg_ratio_country))
-        else:
-            invalid_hostnames.append((avg_ratio_country))
-
-    return valid_hostnames, invalid_hostnames
-
-
-def select_one_vp_per_as_city(
-    raw_vp_selection: list,
-    vp_coordinates: dict,
-    threshold: int = 40,
-) -> list:
-    """from a list of VP, select one per AS and per city"""
-    filtered_vp_selection = []
-    vps_per_as = defaultdict(list)
-    for vp_addr, score in raw_vp_selection:
-        vp_lat, vp_lon, vp_asn = vp_coordinates[vp_addr]
-
-        vps_per_as[vp_asn].append((vp_addr, score))
-
-    # select one VP per AS, take maximum VP score in AS
-    selected_vps_per_as = defaultdict(list)
-    for asn, vps in vps_per_as.items():
-        vps_per_as[asn] = sorted(vps, key=lambda x: x[-1])
-        for vp_i, score in vps_per_as[asn]:
-            vp_i_lat, vp_i_lon, _ = vp_coordinates[vp_i]
-
-            if not selected_vps_per_as[asn]:
-                selected_vps_per_as[asn].append((vp_i, score))
-                filtered_vp_selection.append((vp_i, score))
+        # geoResolver shortest ping
+        try:
+            if type(probing_budget) == int:
+                vp_selection = vp_selection_per_target[target_addr][:probing_budget]
+            elif type(probing_budget) == tuple:
+                vp_selection = vp_selection_per_target[target_addr][
+                    probing_budget[0] : probing_budget[1]
+                ]
             else:
-                already_found = False
+                raise RuntimeError(
+                    f"Unsupported type {type(probing_budget)} for parameter probing_budget"
+                )
 
-                for vp_j, score in selected_vps_per_as[asn]:
-
-                    vp_j_lat, vp_j_lon, _ = vp_coordinates[vp_j]
-
-                    d = distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
-
-                    if d < threshold:
-                        already_found = True
-                        break
-
-                if not already_found:
-                    selected_vps_per_as[asn].append((vp_i, score))
-                    filtered_vp_selection.append((vp_i, score))
-
-    return filtered_vp_selection
-
-
-def get_ecs_pings(
-    target_associated_vps: list,
-    ping_to_target: list,
-) -> list:
-    vp_selection = []
-
-    # filter out all vps not included by ecs-dns methodology
-    for vp_addr, min_rtt in ping_to_target:
-        if vp_addr in target_associated_vps:
-            vp_selection.append((vp_addr, min_rtt))
-
-    return vp_selection
-
-
-def get_vp_weight(
-    vp_i: str, vps_assigned: list[str], vps_coordinate: dict[tuple]
-) -> float:
-    """
-    get vp weight for centroid calculation.
-    we take w = 1 / sum(d_i_j)
-    """
-    sum_d = 0
-    vp_i_lat, vp_i_lon = vps_coordinate[vp_i]
-    for vp_j in vps_assigned:
-        if vp_j == vp_i:
-            continue
-        try:
-            vp_j_lat, vp_j_lon = vps_coordinate[vp_j]
         except KeyError:
             continue
 
-        sum_d += distance(vp_i_lat, vp_j_lat, vp_i_lon, vp_j_lon)
+        vp_selection = [v for v, _ in vp_selection]
 
-    if not sum_d:
-        return 0
-
-    return 1 / sum_d
-
-
-def weighted_ecs_target_geoloc(
-    vps_assigned: list[str], vps_coordinate: dict[tuple]
-) -> tuple[float, float]:
-    """
-    from a list of selected vps selected with ecs-dns,
-    return an estimation of the target ip address
-    """
-    points = []
-    for vp_addr in vps_assigned:
+        # get georesolver shortest ping
+        georesolver_pings = []
+        for vp_addr, vp_id, min_rtt in pings:
+            if vp_addr in vp_selection:
+                georesolver_pings.append((vp_addr, vp_id, min_rtt))
         try:
-            vp_lat, vp_lon = vps_coordinate[vp_addr]
-            vp_weight = get_vp_weight(vp_addr, vps_assigned, vps_coordinate)
-            points.append((vp_lat, vp_lon, vp_weight))
+            vp_addr, _, _ = min(georesolver_pings, key=lambda x: x[-1])
+        except:
+            continue
 
-        except KeyError:
-            logger.info(f"{vp_addr} missing from ripe atlas set")
+        # get target/vps coordinates
+        target = vps_coordinates[target_addr]
+        vp = vps_coordinates[vp_addr]
 
-    if points:
-        return weighted_centroid(points)
+        # get dst
+        d_error = distance(target["lat"], vp["lat"], target["lon"], vp["lon"])
+        d_errors.append(d_error)
 
-    return None, None
-
-
-async def retrieve_pings(
-    ids: list[int], output_table: str, wait_time: int = 0.1
-) -> None:
-    """retrieve all ping measurements from a list of measurement ids"""
-    csv_data = []
-    for id in tqdm(ids):
-        ping_results = await RIPEAtlasAPI().get_ping_results(id)
-        csv_data.extend(ping_results)
-
-        await asyncio.sleep(wait_time)
-
-    await insert_pings(csv_data, output_table)
-
-
-async def retrieve_traceroutes(
-    ids: list[int], output_table: str, wait_time: float = 0.1
-) -> list[dict]:
-    """retrieve all traceroutes from a list of ids"""
-    csv_data = []
-    for id in tqdm(ids):
-        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
-        csv_data.extend(traceroute_result)
-
-        await asyncio.sleep(wait_time)
-
-    await insert_traceroutes(csv_data, output_table)
+    return d_errors

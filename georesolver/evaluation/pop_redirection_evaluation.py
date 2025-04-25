@@ -3,7 +3,6 @@
 import json
 import asyncio
 import numpy as np
-import pandas as pd
 
 from tqdm import tqdm
 from pyasn import pyasn
@@ -27,8 +26,16 @@ from georesolver.zdns.zmap import zmap
 from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.agent.insert_process import retrieve_pings
 from georesolver.prober import RIPEAtlasProber, RIPEAtlasAPI
-from georesolver.evaluation.evaluation_score_functions import load_scores
-from georesolver.evaluation.evaluation_plot_functions import ecdf, plot_cdf
+from georesolver.evaluation.evaluation_georesolver_functions import (
+    get_scores,
+    get_vp_selection_per_target,
+)
+from georesolver.evaluation.evaluation_plot_functions import (
+    ecdf,
+    plot_cdf,
+    plot_multiple_cdf,
+    get_proportion_under,
+)
 from georesolver.common.ip_addresses_utils import (
     get_prefix_from_ip,
     route_view_bgp_prefix,
@@ -226,7 +233,7 @@ async def meshed_ping_cdns(prev_schedule: Path = None) -> None:
     )
 
     await asyncio.gather(
-        # prober.main(measurement_schedule),
+        prober.main(measurement_schedule),
         insert_measurements(
             measurement_schedule,
             probing_tags=["dioptra", MEASURMENT_TAG],
@@ -467,17 +474,66 @@ def cdn_meshed_vs_georesolver() -> None:
         asyncio.run(ecs_cdns_answers())
 
     removed_vps = load_json(path_settings.REMOVED_VPS)
+    vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
     pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
-    scores = load_scores(
+
+    # load score similarity between vps and targets
+    scores = get_scores(
         output_path=RESULTS_PATH / "score.pickle",
-        hostname_file=path_settings.HOSTNAMES_GEORESOLVER,
+        hostnames=load_csv(path_settings.HOSTNAMES_GEORESOLVER),
+        target_subnets=[get_prefix_from_ip(t) for t in pings_per_target.keys()],
+        vp_subnets=[v["subnet"] for v in vps],
         target_ecs_table=ECS_TABLE,
-        vps_ecs_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE,
+        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
     )
 
-    meshed_latencies = []
+    vp_selection_per_target = get_vp_selection_per_target(
+        output_path=RESULTS_PATH / "vp_selection.pickle",
+        scores=scores,
+        targets=pings_per_target.keys(),
+        vps=vps,
+    )
+
+    meshed_shortest_pings = []
+    georesolver_shortest_pings = []
     for target_addr, pings in pings_per_target.items():
-        meshed_latencies = min(pings, key=lambda x: x[-1])
+        # get shortest ping using all vps
+        meshed_shortest_ping = min(pings, key=lambda x: x[-1])
+        meshed_shortest_pings.append(meshed_shortest_ping)
+
+        # get shortest ping using georesolver VPs
+        georesolver_vp_selection = vp_selection_per_target[target_addr][:50]
+        georesolver_vp_selection = [v for v, _ in georesolver_vp_selection]
+        georesolver_pings = []
+        for vp_addr, vp_id, ping in pings:
+            if vp_addr in georesolver_vp_selection:
+                georesolver_pings.append((vp_addr, vp_id, ping))
+
+        try:
+            georesolver_shortest_ping = min(georesolver_pings, key=lambda x: x[-1])
+            georesolver_shortest_pings.append(georesolver_shortest_ping)
+        except:
+            continue
+
+    # plot latencies cdfs
+    cdfs = []
+    # all vps shortest pings
+    x, y = ecdf([rtt for _, _, rtt in meshed_shortest_pings])
+    cdfs.append([x, y, "Shortest ping, all VPs"])
+    frac_under = round(get_proportion_under(x, y, 2), 2)
+    logger.info(f"Meshed pings :: {frac_under=}")
+
+    # georesolver shortesting ping
+    x, y = ecdf([rtt for _, _, rtt in georesolver_shortest_pings])
+    cdfs.append([x, y, "GeoResolver"])
+    frac_under = round(get_proportion_under(x, y, 2), 2)
+    logger.info(f"GeoResolver pings :: {frac_under=}")
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="cdns_latencies_comparison",
+        metric_evaluated="rtt",
+    )
 
 
 def main() -> None:
@@ -488,9 +544,9 @@ def main() -> None:
         - evaluate max distance based on exact position + geolocation area of presence
     """
     do_measurement: bool = False
-    do_latency_eval: bool = True
+    do_latency_eval: bool = False
     do_geo_eval: bool = False
-    do_georesolver_comparison: bool = False
+    do_georesolver_comparison: bool = True
 
     prev_schedule_path: Path = (
         path_settings.MEASUREMENTS_SCHEDULE

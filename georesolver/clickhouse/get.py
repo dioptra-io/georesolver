@@ -25,7 +25,7 @@ class GetVPs(Query):
         SELECT
             toString(address_v4) as addr,
             toString(subnet_v4) as subnet,
-            asn_v4,
+            asn_v4 as asn,
             toString(bgp_prefix) as bgp_prefix,
             country_code,
             lat,

@@ -1,227 +1,205 @@
-import os
+import numpy as np
 
-from pathlib import Path
-from pyasn import pyasn
 from loguru import logger
 from collections import defaultdict
 
 from georesolver.clickhouse.queries import (
-    get_pings_per_target,
-    get_min_rtt_per_vp,
-    load_targets,
+    get_pings_per_target_extended,
     load_vps,
+    load_targets,
 )
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
     plot_multiple_cdf,
-    plot_ref,
+    get_proportion_under,
 )
-from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
-    ecs_dns_vp_selection_eval,
+from georesolver.evaluation.evaluation_georesolver_functions import (
+    get_scores,
+    get_vp_selection_per_target,
 )
-from georesolver.evaluation.evaluation_score_functions import get_scores
-from georesolver.common.utils import get_parsed_vps, EvalResults, TargetScores
-from georesolver.common.files_utils import load_json, load_pickle, dump_pickle, load_csv
+from georesolver.common.files_utils import load_json, load_pickle, load_csv
+from georesolver.common.utils import get_d_errors_georesolver, get_d_errors_ref
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
-# os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
+
+TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
+VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
+TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+VPS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+RESULTS_PATH = path_settings.RESULTS_PATH / "tier5_evaluation"
 
 
-def compute_score(output_path: Path) -> None:
-    """calculate score for each organization/ns pair"""
-    targets_table = ch_settings.VPS_FILTERED_FINAL_TABLE
-    vps_table = ch_settings.VPS_FILTERED_FINAL_TABLE
-    targets_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
-    vps_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
-
-    selected_hostnames = load_csv(
-        path_settings.HOSTNAME_FILES / "hostnames_georesolver.csv"
+def plot_per_budget() -> None:
+    """plot georesolver results function of the probing budget"""
+    cdfs = []
+    budgets = [500, 100, 50, 10, 1]
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    targets = load_targets(TARGETS_TABLE)
+    vps = load_vps(VPS_TABLE)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
 
-    score_config = {
-        "targets_table": targets_table,
-        "main_org_threshold": 0.0,
-        "bgp_prefixes_threshold": 0.0,
-        "vps_table": vps_table,
-        "selected_hostnames": selected_hostnames,
-        "targets_ecs_table": targets_ecs_table,
-        "vps_ecs_table": vps_ecs_table,
-        "hostname_selection": "max_bgp_prefix",
-        "score_metric": ["jaccard"],
-        "answer_granularities": ["answer_subnets"],
-        "output_path": output_path,
-    }
-
-    get_scores(score_config)
-
-
-def evaluate(score_file: Path, output_file: Path, probing_parameter: list) -> None:
-    """calculate distance error and latency for each score"""
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    logger.info(f"Running geresolver analysis from score file:: {score_file}")
-
-    # removed_vps = load_json(
-    #     path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
-    # )
-
-    removed_vps = load_json(path_settings.DATASET / "removed_vps.json")
-    targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
-    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
-    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_MESHED_PINGS_TABLE, [addr for _, addr in removed_vps]
+    # load score similarity between vps and targets
+    scores = get_scores(
+        output_path=RESULTS_PATH / "score.pickle",
+        hostnames=load_csv(path_settings.HOSTNAMES_GEORESOLVER),
+        target_subnets=[t["addr"] for t in targets],
+        vp_subnets=[v["subnet"] for v in vps],
+        target_ecs_table=TARGETS_ECS_TABLE,
+        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
     )
 
-    logger.info("Tier 5:: Distance error vs. VPs selection budget")
-    scores: TargetScores = load_pickle(score_file)
-
-    results_answer_subnets = ecs_dns_vp_selection_eval(
-        targets=targets,
-        vps_per_subnet=vps_per_subnet,
-        subnet_scores=scores.score_answer_subnets,
-        ping_vps_to_target=ping_vps_to_target,
-        last_mile_delay=last_mile_delay,
-        vps_coordinates=vps_coordinates,
-        probing_budgets=probing_parameter,
-        vps_country=None,
+    vp_selection_per_target = get_vp_selection_per_target(
+        output_path=RESULTS_PATH / "vp_selection.pickle",
+        scores=scores,
+        targets=pings_per_target.keys(),
+        vps=vps,
     )
 
-    results = EvalResults(
-        target_scores=scores,
-        results_answers=None,
-        results_answer_subnets=results_answer_subnets,
-        results_answer_bgp_prefixes=None,
-    )
+    # add reference
+    d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)
+    x, y = ecdf(d_errors_ref)
+    cdfs.append((x, y, "Shortest ping, all VPs"))
 
-    logger.info(f"output file:: {output_file}")
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
 
-    dump_pickle(
-        data=results,
-        output_file=output_file,
-    )
+    logger.info(f"Shortest Ping all VPs:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"Shortest Ping all VPs::: median_error={round(m_error, 2)} [km]")
 
+    # add georesolver results
+    for budget in budgets:
 
-def plot_d_error_per_budget(
-    output_path: str = "tier5_per_budget",
-    metric_evaluated: str = "d_error",
-    legend_pos: str = "lower right",
-) -> None:
-    all_cdfs = []
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-
-    eval: EvalResults = load_pickle(
-        path_settings.RESULTS_PATH
-        / "tier5_evaluation/results__d_error_per_budget.pickle"
-    )
-
-    d_errors_per_budget = defaultdict(list)
-    for _, target_results in eval.results_answer_subnets.items():
-        try:
-            results = target_results["result_per_metric"]["jaccard"]
-            shortest_ping_vp_per_budget: dict = results[
-                "ecs_shortest_ping_vp_per_budget"
-            ]
-        except KeyError:
-            continue
-
-        for budget, shortest_ping_vp in shortest_ping_vp_per_budget.items():
-            d_errors_per_budget[budget].append(shortest_ping_vp[metric_evaluated])
-
-    # get cdf for each budget/rank
-    for budget, d_errors in d_errors_per_budget.items():
-        x, y = ecdf(d_errors)
-        label = ""
-        if budget == 1:
-            label = f"{budget} VP"
-        elif budget == 50:
-            label = f"{budget} VPs (GeoResolver)"
-        else:
-            label = f"{budget} VPs"
-        all_cdfs.append((x, y, label))
-
-    plot_multiple_cdf(
-        cdfs=all_cdfs,
-        output_path=output_path,
-        metric_evaluated=metric_evaluated,
-        legend_pos=legend_pos,
-    )
-
-
-def plot_d_error_per_rank(
-    output_path: str = "tier5_per_rank",
-    metric_evaluated: str = "d_error",
-    legend_pos: str = "lower right",
-) -> None:
-    all_cdfs = []
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-
-    eval: EvalResults = load_pickle(
-        path_settings.RESULTS_PATH / "tier5_evaluation/results__d_error_per_rank.pickle"
-    )
-
-    d_errors_per_budget = defaultdict(list)
-    for _, target_results in eval.results_answer_subnets.items():
-        try:
-            results = target_results["result_per_metric"]["jaccard"]
-            shortest_ping_vp_per_budget: dict = results[
-                "ecs_shortest_ping_vp_per_budget"
-            ]
-        except KeyError:
-            continue
-
-        for budget, shortest_ping_vp in shortest_ping_vp_per_budget.items():
-            d_errors_per_budget[budget].append(shortest_ping_vp[metric_evaluated])
-
-    # get cdf for each budget/rank
-    for budget, d_errors in d_errors_per_budget.items():
-        x, y = ecdf(d_errors)
-        all_cdfs.append(
-            (
-                x,
-                y,
-                (
-                    f"{budget[0]}:{budget[1]} VPs"
-                    if budget[0] != 0
-                    else f"{budget[0]}:{budget[1]} VPs (GeoResolver)"
-                ),
-            )
+        d_errors = get_d_errors_georesolver(
+            pings_per_target=pings_per_target,
+            vp_selection_per_target=vp_selection_per_target,
+            vps_coordinates=vps_coordinates,
+            probing_budget=budget,
         )
 
+        # get label
+        if budget == 1:
+            label = "1 VP"
+        elif budget == 50:
+            label = "50 VPs (GeoResolver)"
+        else:
+            label = f"{budget} VPs"
+
+        # plot georesolver results
+        x, y = ecdf(d_errors)
+        cdfs.append((x, y, label))
+
+        m_error = round(np.median(x), 2)
+        proportion_of_ip = get_proportion_under(x, y)
+
+        logger.info(f"GeoResolver:: {budget=}: <40km={round(proportion_of_ip, 2)}")
+        logger.info(f"GeoResolver:: {budget=}: median_error={round(m_error, 2)} [km]")
+
     plot_multiple_cdf(
-        cdfs=all_cdfs,
-        output_path=output_path,
-        metric_evaluated=metric_evaluated,
-        legend_pos=legend_pos,
+        cdfs=cdfs,
+        output_path="tier5_per_budget",
+        metric_evaluated="d_error",
+    )
+
+
+def plot_d_error_per_rank() -> None:
+    """
+    plot georesolver per VPs rank batch (ex: first 50,
+    vps ranked from 50 to 100, etc.)
+    """
+    cdfs = []
+    ranks = [
+        (0, 50),
+        (50, 100),
+        (100, 500),
+        (500, 1_000),
+        (1_000, 2_000),
+        (2_000, 10_000),
+    ]
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    targets = load_targets(TARGETS_TABLE)
+    vps = load_vps(VPS_TABLE)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+    )
+
+    # load score similarity between vps and targets
+    scores = get_scores(
+        output_path=RESULTS_PATH / "score.pickle",
+        hostnames=load_csv(path_settings.HOSTNAMES_GEORESOLVER),
+        target_subnets=[t["addr"] for t in targets],
+        vp_subnets=[v["subnet"] for v in vps],
+        target_ecs_table=TARGETS_ECS_TABLE,
+        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
+    )
+
+    vp_selection_per_target = get_vp_selection_per_target(
+        output_path=RESULTS_PATH / "vp_selection.pickle",
+        scores=scores,
+        targets=pings_per_target.keys(),
+        vps=vps,
+    )
+
+    # add reference
+    d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)
+    x, y = ecdf(d_errors_ref)
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"Shortest Ping all VPs:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"Shortest Ping all VPs::: median_error={round(m_error, 2)} [km]")
+
+    # add georesolver results
+    for rank in ranks:
+
+        d_errors = get_d_errors_georesolver(
+            pings_per_target=pings_per_target,
+            vp_selection_per_target=vp_selection_per_target,
+            vps_coordinates=vps_coordinates,
+            probing_budget=rank,
+        )
+
+        # get label
+        if rank[0] == 0:
+            label = f"{rank[0]}:{rank[1]} VPs"
+        else:
+            label = (
+                f"{rank[0]}:{rank[1]} VPs" + " (GeoResolver)" if rank[0] == 0 else ""
+            )
+
+        # plot georesolver results
+        x, y = ecdf(d_errors)
+        cdfs.append((x, y, label))
+
+        m_error = round(np.median(x), 2)
+        proportion_of_ip = get_proportion_under(x, y)
+
+        logger.info(f"GeoResolver:: {rank=}: <40km={round(proportion_of_ip, 2)}")
+        logger.info(f"GeoResolver:: {rank=}: median_error={round(m_error, 2)} [km]")
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="tier5_per_rank",
+        metric_evaluated="d_error",
     )
 
 
 def main() -> None:
-    compute_scores = True
-    evaluate_d_error_per_budget = True
-    evaluate_d_error_per_rank = False
-    make_figs = True
+    do_plot_per_budget = True
+    do_plot_per_rank = False
 
-    base_path = path_settings.RESULTS_PATH / "conext_2024_figure_2_b/"
+    if do_plot_per_budget:
+        plot_per_budget()
 
-    if compute_scores:
-        compute_score(output_path=base_path / f"scores.pickle")
-    if evaluate_d_error_per_budget:
-
-        probing_parameter = [1, 10, 50, 100, 500]
-        evaluate(
-            score_file=base_path / f"scores.pickle",
-            output_file=base_path / f"results__d_error_per_budget.pickle",
-            probing_parameter=probing_parameter,
-        )
-
-    if evaluate_d_error_per_rank:
+    if do_plot_per_rank:
         probing_parameter = [
             (0, 50),
             (50, 100),
@@ -230,15 +208,11 @@ def main() -> None:
             (1_000, 2_000),
             (2_000, 10_000),
         ]
-        evaluate(
+        plot_per_rank(
             score_file=base_path / f"scores.pickle",
             output_file=base_path / f"results__d_error_per_rank.pickle",
             probing_parameter=probing_parameter,
         )
-
-    if make_figs:
-        plot_d_error_per_budget()
-        plot_d_error_per_rank()
 
 
 if __name__ == "__main__":

@@ -1,44 +1,36 @@
 import os
+import numpy as np
 
-from collections import defaultdict
 from loguru import logger
-from pyasn import pyasn
-from pathlib import Path
-from pprint import pprint
+from collections import defaultdict
 
 from georesolver.clickhouse.queries import (
-    get_pings_per_target,
-    get_min_rtt_per_vp,
-    load_targets,
     load_vps,
-)
-from georesolver.common.utils import (
-    get_parsed_vps,
-    EvalResults,
-    TargetScores,
+    load_targets,
+    get_pings_per_target_extended,
 )
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
-    plot_ref,
-    geo_resolver_cdfs,
     plot_multiple_cdf,
     get_proportion_under,
 )
-from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
-    ecs_dns_vp_selection_eval,
+from georesolver.evaluation.evaluation_georesolver_functions import (
+    get_scores,
+    get_vp_selection_per_target,
 )
-from georesolver.evaluation.evaluation_score_functions import get_scores
-from georesolver.common.files_utils import (
-    load_json,
-    dump_json,
-    load_pickle,
-    dump_pickle,
-)
+from georesolver.common.files_utils import load_json, load_pickle
+from georesolver.common.utils import get_d_errors_georesolver, get_d_errors_ref
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 os.environ["CLICKHOUSE_DATABASE"] = ch_settings.CLICKHOUSE_DATABASE_EVAL
+
+TARGES_TABLE = ch_settings.VPS_FILTERED_TABLE
+VPS_TABLE = ch_settings.VPS_FILTERED_TABLE
+TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+VPS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+RESULTS_PATH = path_settings.RESULTS_PATH / "tier2_evaluation"
 
 HG_ORGS = [
     "AMAZON",
@@ -55,7 +47,7 @@ HG_ORGS = [
 ]
 
 
-def load_hostnames() -> tuple[dict]:
+def load_hostnames() -> tuple[dict, dict, dict, dict]:
     # select hostnames with: 1) only one large hosting organization, 2) at least two bgp prefixes
     best_hostnames_per_org_per_ns = load_json(
         path_settings.HOSTNAME_FILES
@@ -86,38 +78,10 @@ def load_hostnames() -> tuple[dict]:
     return hg_hostnames, no_hg_hostnames, all_orgs_hostnames, each_hg
 
 
-def score_per_config(hostnames_per_org: dict[str], output_path: Path) -> None:
-    targets_table = ch_settings.VPS_FILTERED_TABLE
-    vps_table = ch_settings.VPS_FILTERED_TABLE
-    targets_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
-    vps_ecs_table = ch_settings.VPS_ECS_MAPPING_TABLE
-
-    selected_hostnames = set()
-    for org, hostnames in hostnames_per_org.items():
-        logger.debug(f"{org=}, {len(hostnames)=}")
-        selected_hostnames.update(hostnames)
-
-    logger.info(f"{len(selected_hostnames)=}")
-
-    score_config = {
-        "targets_table": targets_table,
-        "main_org_threshold": 0.0,
-        "bgp_prefixes_threshold": 0.0,
-        "vps_table": vps_table,
-        "hostname_per_cdn": hostnames_per_org,
-        "targets_ecs_table": targets_ecs_table,
-        "vps_ecs_table": vps_ecs_table,
-        "hostname_/storage/hugo/georesolver/georesolver/tmpselection": "max_bgp_prefix",
-        "score_metric": ["jaccard"],
-        "answer_granularities": ["answer_subnets"],
-        "output_path": output_path,
-    }
-
-    get_scores(score_config)
-
-
 def compute_score(ordered_hg: list = None) -> None:
     """calculate score for each organization/ns pair"""
+    targets = load_targets(TARGES_TABLE)
+    vps = load_vps(VPS_TABLE)
 
     hg_hostnames, no_hg_hostnames, all_orgs_hostnames, each_hg = load_hostnames()
 
@@ -125,38 +89,53 @@ def compute_score(ordered_hg: list = None) -> None:
     logger.info("Calculating scores for each HG separately")
     for hg, hostnames in each_hg.items():
         logger.info(f"{hg}:: {len(each_hg)} hostnames")
-        output_path = (
-            path_settings.RESULTS_PATH / f"tier2_evaluation/scores__{hg}.pickle"
+        output_path = RESULTS_PATH / f"scores__{hg}.pickle"
+        get_scores(
+            output_path=output_path,
+            hostnames=hostnames,
+            target_subnets=[t["subnet"] for t in targets],
+            vp_subnets=[v["subnet"] for v in vps],
+            target_ecs_table=TARGETS_ECS_TABLE,
+            vps_ecs_table=VPS_ECS_TABLE,
         )
-        if not output_path.exists():
-            score_per_config({hg: hostnames}, output_path)
 
     ##############################################################################################################################
     logger.info(f"All HG hostnames:: {len(hg_hostnames)} orgs")
-    output_path = (
-        path_settings.RESULTS_PATH / f"tier2_evaluation/scores__hg_orgs.pickle"
+    output_path = RESULTS_PATH / f"scores__hg_orgs.pickle"
+    get_scores(
+        output_path=output_path,
+        hostnames=hg_hostnames,
+        target_subnets=[t["subnet"] for t in targets],
+        vp_subnets=[v["subnet"] for v in vps],
+        target_ecs_table=TARGETS_ECS_TABLE,
+        vps_ecs_table=VPS_ECS_TABLE,
     )
-    if not output_path.exists():
-        score_per_config(hg_hostnames, output_path)
 
     ##############################################################################################################################
     logger.info(f"No HG hostnames:: {len(no_hg_hostnames)} orgs")
-    output_path = (
-        path_settings.RESULTS_PATH / f"tier2_evaluation/scores__no_hg_orgs.pickle"
+    output_path = RESULTS_PATH / f"scores__no_hg_orgs.pickle"
+    get_scores(
+        output_path=output_path,
+        hostnames=no_hg_hostnames,
+        target_subnets=[t["subnet"] for t in targets],
+        vp_subnets=[v["subnet"] for v in vps],
+        target_ecs_table=TARGETS_ECS_TABLE,
+        vps_ecs_table=VPS_ECS_TABLE,
     )
-    if not output_path.exists():
-        score_per_config(no_hg_hostnames, output_path)
 
     ##############################################################################################################################
     logger.info(f"All orgs hostnames:: {len(all_orgs_hostnames)} orgs")
-    output_path = (
-        path_settings.RESULTS_PATH / f"tier2_evaluation/scores__all_orgs.pickle"
+    output_path = RESULTS_PATH / f"scores__all_orgs.pickle"
+    get_scores(
+        output_path=output_path,
+        hostnames=all_orgs_hostnames,
+        target_subnets=[t["subnet"] for t in targets],
+        vp_subnets=[v["subnet"] for v in vps],
+        target_ecs_table=TARGETS_ECS_TABLE,
+        vps_ecs_table=VPS_ECS_TABLE,
     )
-    if not output_path.exists():
-        score_per_config(all_orgs_hostnames, output_path)
 
     #############################################################################################################################
-    hostname_configs = []
     if ordered_hg:
         # create a list of hostname selection (remove one new org each time)
         for i in range(len(ordered_hg) - 1):
@@ -168,7 +147,6 @@ def compute_score(ordered_hg: list = None) -> None:
                 new_config_hostnames[org] = hostnames
 
             # add config for score calculation
-            hostname_configs.append(new_config_hostnames)
             logger.info(f"nb orgs for hostnames:: {len(new_config_hostnames.keys())}")
 
             # save config for checking
@@ -178,41 +156,27 @@ def compute_score(ordered_hg: list = None) -> None:
                 path_settings.RESULTS_PATH
                 / f"tier2_evaluation/hostnames__georesolver_minus_{removed_hg}.json"
             )
-            dump_json(new_config_hostnames, output_path)
 
-        for i, hostname_config in enumerate(hostname_configs):
-            removed_hg = "_".join([ordered_hg[j] for j in range(0, i + 1)])
+            hostnames = set()
+            for org_hostnames in new_config_hostnames.values():
+                hostnames.update(org_hostnames)
 
-            logger.info(f"Georesolver minus {removed_hg}:: {len(hostname_config)} orgs")
-
-            output_path = (
-                path_settings.RESULTS_PATH
-                / f"tier2_evaluation/scores__georesolver_minus_{removed_hg}.pickle"
+            get_scores(
+                output_path=output_path,
+                hostnames=hostnames,
+                target_subnets=[t["subnet"] for t in targets],
+                vp_subnets=[v["subnet"] for v in vps],
+                target_ecs_table=TARGETS_ECS_TABLE,
+                vps_ecs_table=VPS_ECS_TABLE,
             )
-
-            if not output_path.exists():
-                score_per_config(hostname_config, output_path)
 
 
 def evaluate(only_hgs: bool = False) -> None:
-    """calculate distance error and latency for each score"""
-    probing_budgets = [50]
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-    removed_vps = load_json(
-        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
-    )
+    """perform vp selection based on targets/vps ecs redirection similarities"""
+
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE)
-    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb, removed_vps)
-    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
 
-    score_dir = path_settings.RESULTS_PATH / "tier2_evaluation"
-
-    for score_file in score_dir.iterdir():
+    for score_file in RESULTS_PATH.iterdir():
 
         if "scores" not in score_file.name:
             continue
@@ -223,178 +187,140 @@ def evaluate(only_hgs: bool = False) -> None:
                 continue
 
         output_file = (
-            path_settings.RESULTS_PATH
-            / f"tier2_evaluation/{'results' + str(score_file).split('scores')[-1]}"
+            RESULTS_PATH / f"{'results' + str(score_file).split('scores')[-1]}"
         )
 
-        if output_file.exists():
-            continue
+        scores = load_pickle(score_file)
 
-        logger.info(f"ECS evaluation for score:: {score_file}")
-        scores: TargetScores = load_pickle(path_settings.RESULTS_PATH / score_file)
-
-        results_answer_subnets = ecs_dns_vp_selection_eval(
-            targets=targets,
-            vps_per_subnet=vps_per_subnet,
-            subnet_scores=scores.score_answer_subnets,
-            ping_vps_to_target=ping_vps_to_target,
-            last_mile_delay=last_mile_delay,
-            vps_coordinates=vps_coordinates,
-            probing_budgets=probing_budgets,
-        )
-
-        results = EvalResults(
-            target_scores=scores,
-            results_answers=None,
-            results_answer_subnets=results_answer_subnets,
-            results_answer_bgp_prefixes=None,
-        )
-
-        logger.info(f"output file:: {output_file}")
-
-        dump_pickle(
-            data=results,
-            output_file=output_file,
+        get_vp_selection_per_target(
+            output_path=output_file,
+            scores=scores,
+            targets=[t["addr"] for t in targets],
         )
 
 
-def plot(
-    output_path=path_settings.FIGURE_PATH / "hg_vs_no_hg_vs_all.png",
-    metric_evaluated="d_error",
-    legend_pos="lower right",
-) -> None:
-    all_cdfs = []
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
+def plot() -> None:
+    cdfs = []
 
     eval_files = {
         "results__all_orgs.pickle": "All (GeoResolver)",
         "results__hg_orgs.pickle": "Only Hypergiants",
-        # "results__georesolver_minus_CDN77.pickle": "8 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON.pickle": "7 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA.pickle": "6 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK.pickle": "5 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI.pickle": "4 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE.pickle": "3 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE_GOOGLE.pickle": "2 Hypergiants",
-        # "results__georesolver_minus_CDN77_AMAZON_INCAPSULA_FACEBOOK_AKAMAI_APPLE_GOOGLE_OVH.pickle": "1 Hypergiants",
         "results__no_hg_orgs.pickle": "No Hypergiants",
     }
 
+    removed_vps = load_json(path_settings.REMOVED_VPS)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE,
+        removed_vps,
+    )
+
+    # add reference
+    d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)
+    x, y = ecdf(d_errors_ref)
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"Shortest Ping all VPs:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"Shortest Ping all VPs:: median_error={round(m_error, 2)} [km]")
+
     for file, label in eval_files.items():
 
-        eval: EvalResults = load_pickle(
-            path_settings.RESULTS_PATH / f"tier2_evaluation/{file}"
+        logger.info(f"GeoResolver from vp selection file:: {file}")
+
+        vp_selection_per_target = load_pickle(RESULTS_PATH / file)
+
+        d_errors = get_d_errors_georesolver(
+            pings_per_target=pings_per_target,
+            vp_selection_per_target=vp_selection_per_target,
+            vps_coordinates=vps_coordinates,
         )
 
-        score_config = eval.target_scores.score_config
-        selected_hostnames_per_cdn = score_config["hostname_per_cdn"]
-        nb_orgs = len(selected_hostnames_per_cdn)
+        # plot georesolver results
+        x, y = ecdf(d_errors)
+        cdfs.append((x, y, label))
 
-        selected_hostnames = set()
-        for _, hostnames in selected_hostnames_per_cdn.items():
-            selected_hostnames.update(hostnames)
+        m_error = round(np.median(x), 2)
+        proportion_of_ip = get_proportion_under(x, y)
 
-        nb_hostnames = len(selected_hostnames)
+        logger.info(f"GeoResolver:: {label}: <40km={round(proportion_of_ip, 2)}")
+        logger.info(f"GeoResolver:: {label}: median_error={round(m_error, 2)} [km]")
 
-        logger.info(f"{file=} loaded")
-        logger.info(f"{nb_orgs} orgs, {nb_hostnames} hostnames")
-
-        cdfs = geo_resolver_cdfs(
-            results=eval.results_answer_subnets,
-            metric_evaluated=metric_evaluated,
-            label=label,
-        )
-        all_cdfs.extend(cdfs)
-
-    plot_multiple_cdf(all_cdfs, output_path, metric_evaluated, False, legend_pos)
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="hg_vs_no_hg_vs_all",
+        metric_evaluated="d_error",
+        legend_pos="lower right",
+    )
 
 
 def order_hg() -> list:
     """order HG based on the fraction of IP addresses geolocated under 40km"""
-    results_path = path_settings.RESULTS_PATH / "tier2_evaluation"
+    removed_vps = load_json(
+        path_settings.DATASET / "imc2024_generated_files/removed_vps.json"
+    )
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE,
+        removed_vps,
+    )
 
     frac_under_40_per_hg = {}
+    for i, file in enumerate(RESULTS_PATH.iterdir()):
 
-    for i, file in enumerate(results_path.iterdir()):
         if "results" not in file.name:
             continue
 
         hg = file.name.split("_")[-1].split(".")[0]
-
         if hg not in HG_ORGS:
             continue
 
-        logger.info(f"Analysing results for {hg}")
+        logger.info(f"Evaluation for {hg}")
 
-        eval: EvalResults = load_pickle(file)
-        d_errors_per_budget = defaultdict(list)
-        for _, target_results in eval.results_answer_subnets.items():
-            try:
-                results = target_results["result_per_metric"]["jaccard"]
-                shortest_ping_vp_per_budget: dict = results[
-                    "ecs_shortest_ping_vp_per_budget"
-                ]
-            except KeyError:
-                continue
+        vp_selection_per_target = load_pickle(RESULTS_PATH / file)
 
-            for budget, shortest_ping_vp in shortest_ping_vp_per_budget.items():
-                d_errors_per_budget[budget].append(shortest_ping_vp["d_error"])
+        d_errors = get_d_errors_georesolver(
+            pings_per_target=pings_per_target,
+            vp_selection_per_target=vp_selection_per_target,
+            vps_coordinates=vps_coordinates,
+        )
 
-        # get cdf for each budget/rank
-        cdfs = []
-        for budget, d_errors in d_errors_per_budget.items():
-            x, y = ecdf(d_errors)
-            cdfs.append((x, y, f"{hg}"))
+        x, y = ecdf(d_errors)
+        frac_under_40km = round(get_proportion_under(x, y, 40), 2)
+        logger.info(f"{hg} :: {frac_under_40km=}")
 
-            frac_under_40km = round(get_proportion_under(x, y, 40), 2)
-            frac_under_2ms = round(get_proportion_under(x, y, 2), 2)
-
-            logger.info(f"{hg} :: {frac_under_40km=}")
-            logger.info(f"{hg} :: {frac_under_2ms=}")
-
-            frac_under_40_per_hg[hg] = frac_under_40km
-
-    plot_multiple_cdf(
-        cdfs=cdfs,
-        output_path="tire1_hg_ordering",
-        metric_evaluated="d_error",
-    )
-
-    frac_under_40_per_hg = sorted(
-        frac_under_40_per_hg.items(), key=lambda x: x[-1], reverse=True
-    )
-
-    logger.info(f"{frac_under_40_per_hg=}")
+        frac_under_40_per_hg[hg] = frac_under_40km
 
     return frac_under_40_per_hg
 
 
 if __name__ == "__main__":
-    per_hg = False
-    compute_scores = False
-    evaluation = False
+    compute_scores = True
+    evaluation = True
     make_figure = True
 
-    if per_hg:
-        compute_score()
-        evaluate(only_hgs=True)
-
     if compute_scores:
-        # evaluate()
-        # frac_under_40_per_hg = order_hg()
-        frac_under_40_per_hg = [
-            ("CDN77", 0.69),
-            ("AMAZON", 0.62),
-            ("INCAPSULA", 0.6),
-            ("FACEBOOK", 0.54),
-            ("AKAMAI", 0.47),
-            ("APPLE", 0.46),
-            ("GOOGLE", 0.46),
-            ("OVH", 0.35),
-            ("ALIBABA-CN-NET", 0.23),
-        ]
-        ordered_hg = [hg for hg, _ in frac_under_40_per_hg]
+        frac_under_40_per_hg = []
+        do_order_hg: bool = False
+        if do_order_hg:
+            frac_under_40_per_hg = order_hg()
+            # frac_under_40_per_hg = [
+            #     ("CDN77", 0.69),
+            #     ("AMAZON", 0.62),
+            #     ("INCAPSULA", 0.6),
+            #     ("FACEBOOK", 0.54),
+            #     ("AKAMAI", 0.47),
+            #     ("APPLE", 0.46),
+            #     ("GOOGLE", 0.46),
+            #     ("OVH", 0.35),
+            #     ("ALIBABA-CN-NET", 0.23),
+            # ]
+            ordered_hg = [hg for hg, _ in frac_under_40_per_hg]
+
         compute_score(ordered_hg)
 
     if evaluation:

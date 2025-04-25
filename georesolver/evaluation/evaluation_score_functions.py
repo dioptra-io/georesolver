@@ -469,6 +469,7 @@ def get_scores(score_config: dict) -> None:
 def load_scores(
     output_path: Path,
     hostname_file: Path,
+    target_table: str,
     target_ecs_table: str,
     vps_ecs_mapping_table: str,
 ) -> None:
