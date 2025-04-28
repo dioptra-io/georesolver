@@ -156,7 +156,7 @@ def plot_cdf(
 def plot_multiple_cdf(
     cdfs: list,
     output_path: str,
-    metric_evaluated: str,
+    metric_evaluated: str = "",
     legend_outside: str = False,
     legend_pos: str = "upper left",
     legend_size: int = 10,

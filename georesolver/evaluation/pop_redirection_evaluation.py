@@ -285,8 +285,13 @@ def latency_eval() -> None:
 
     # 3. get redirection ping and calculate rank per pair (hostname; vp)
     percentile_per_hostname = defaultdict(list)
+    percentile_per_hostname_vp = defaultdict(list)
     for vp_addr, pings_per_hostname in tqdm(pings_per_vp_hostname.items()):
         for hostname, all_hostname_pings in pings_per_hostname.items():
+            # some vps do not have enought measurements to a given hostname
+            if len(all_hostname_pings) < 10:
+                continue
+
             try:
                 # retrieved all answer subnets, if exists
                 answer_subnets = vps_ecs_mapping[get_prefix_from_ip(vp_addr)][hostname]
@@ -296,12 +301,16 @@ def latency_eval() -> None:
                 try:
                     # get redirection ping, if exists
                     redirection_pings = pings_per_vp[vp_addr][answer_subnet]
+
                     for _, min_rtt in redirection_pings:
                         # get rank of redirection ping
                         percentile = compute_percentile_rank(
                             min_rtt, all_hostname_pings
                         )
                         # save percentile per hostname
+                        percentile_per_hostname_vp[(hostname, vp_addr)].append(
+                            percentile
+                        )
                         percentile_per_hostname[hostname].append(percentile)
 
                 except KeyError:
@@ -314,11 +323,21 @@ def latency_eval() -> None:
     for hostname, percentiles in percentile_per_hostname.items():
         avg_percentiles.append(np.average(percentiles))
 
+    avg_percentiles_per_hostname_vp = []
+    for percentiles in percentile_per_hostname_vp.values():
+        avg_percentiles_per_hostname_vp.extend(percentiles)
+
+    cdfs = []
+    # accross subnet (per hostname) results
     x, y = ecdf(avg_percentiles)
-    plot_cdf(
-        x=x,
-        y=y,
-        x_lim_left=0,
+    cdfs.append((x, y, "Per hostname"))
+    # per pair (hostname; vp)
+    x, y = ecdf(avg_percentiles_per_hostname_vp)
+    cdfs.append((x, y, "pair (hostname; vp)"))
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        x_limit_left=0,
         output_path="cdf_avg_percentile_latency_per_hostname",
         x_label="avg latency percentile \n accross VPs subnet",
         y_label="fraction of hostnames",
@@ -533,6 +552,7 @@ def cdn_meshed_vs_georesolver() -> None:
         cdfs=cdfs,
         output_path="cdns_latencies_comparison",
         metric_evaluated="rtt",
+        legend_pos="lower right",
     )
 
 
@@ -545,8 +565,8 @@ def main() -> None:
     """
     do_measurement: bool = False
     do_latency_eval: bool = False
-    do_geo_eval: bool = False
-    do_georesolver_comparison: bool = True
+    do_geo_eval: bool = True
+    do_georesolver_comparison: bool = False
 
     prev_schedule_path: Path = (
         path_settings.MEASUREMENTS_SCHEDULE

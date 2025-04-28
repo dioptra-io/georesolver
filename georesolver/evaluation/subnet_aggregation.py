@@ -313,7 +313,7 @@ def plot_latency_diff(georesolver_results: dict, reduced_results: dict) -> None:
 
 def main() -> None:
     """
-    we ought to evaluate three thinks:
+    we ought to evaluate three things:
         1. The fraction of IP addresses we geolocate within the same area within each /24
         (using latency and elected VP)
         2. Evaluate the same metric but for each AS type (as we did for continental geoloc)
