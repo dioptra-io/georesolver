@@ -12,15 +12,14 @@ ripe_atlas_settings = RIPEAtlasSettings()
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 NB_ADDRS = 100
 USER_TARGET_FILE = path_settings.USER_DATASETS / "demo_targets.csv"
-LOCAL_DEMO_TARGET_FILE = path_settings.USER_DATASETS / "demo_targets_random.csv"
+LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "itdk/random_sample_private_db.csv"
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.USER_DATASETS / "hostnames_georesolver.csv"
-LOCAL_DEMO_CONFIG_PATH = path_settings.LOG_PATH / "local_demo"
-ECS_TABLE: str = "test_ecs"
-SCORE_TABLE: str = "test_score"
-SCHEDULE_TABLE: str = "test_schedule"
-PING_TABLE: str = "test_ping"
-GEOLOC_TABLE: str = "test_geoloc"
-BATCH_SIZE = 10
+ECS_TABLE: str = "georesolver_itdk_sample_ecs"
+SCORE_TABLE: str = "georesolver_itdk_sample_score"
+SCHEDULE_TABLE: str = "georesolver_itdk_sample_schedule"
+PING_TABLE: str = "georesolver_itdk_sample_ping"
+GEOLOC_TABLE: str = "georesolver_itdk_sample_geoloc"
+BATCH_SIZE = 1_000
 
 
 def generate_random_dataset() -> None:
@@ -32,17 +31,17 @@ def generate_random_dataset() -> None:
 
 if __name__ == "__main__":
 
-    generate_random_dataset()
+    # generate_random_dataset()
 
     agent_config = {
         "agent_uuid": "6d4b3d4f-9b22-41e1-8f00-d556a1a107f9",
-        "experiment_name": "local_demo",
+        "experiment_name": "georesolver_itdk_sample",
         "experiment_uuid": "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": BATCH_SIZE,
         "init_ecs_mapping": False,
-        "log_path": f"{(path_settings.LOG_PATH / 'local_demo/').resolve()}",
+        "log_path": f"{(path_settings.LOG_PATH / 'georesolver_itdk_sample/').resolve()}",
         "processes": [
             {
                 "name": "ecs_process",

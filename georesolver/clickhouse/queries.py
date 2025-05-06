@@ -26,6 +26,7 @@ from georesolver.clickhouse import (
     GetVPsSubnets,
     GetPingsPerSrcDst,
     GetPingsPerTarget,
+    GetPingsPerVP,
     GetPingsPerTargetExtended,
     GetShortestPingResults,
     GetECSResults,
@@ -135,7 +136,7 @@ def get_pings_per_target(
     return ping_vps_to_target
 
 
-def get_pings_per_target_extended(table_name: str, removed_vps: list = []) -> dict:
+def get_pings_per_target_extended(table_name: str, removed_vps: list = [], latency_threshold: int = 300) -> dict:
     """
     return meshed ping for all targets
     ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
@@ -148,6 +149,7 @@ def get_pings_per_target_extended(table_name: str, removed_vps: list = []) -> di
                 client=client,
                 table_name=table_name,
                 filtered_vps=removed_vps,
+                latency_threshold=latency_threshold
             )
 
             for row in resp:
@@ -198,6 +200,35 @@ def iter_pings_per_target(
     try:
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
             resp = GetPingsPerTargetExtended().execute_iter(
+                client=client,
+                table_name=table_name,
+                filtered_vps=removed_vps,
+                threshold=threshold,
+            )
+
+            for row in resp:
+                yield row
+
+    except ClickHouseException:
+        logger.warning(
+            f"Something went wrong. Probably that {table_name} does not exists"
+        )
+        pass
+
+
+def iter_pings_per_vp(
+    table_name: str,
+    removed_vps: list = [],
+    threshold: int = 300,
+) -> Generator[Any, Any, list[dict]]:
+    """
+    return meshed ping for all targets
+    ping_vps_to_target[target_addr] = [(vp_addr,prb_id , min_rtt)]
+    """
+
+    try:
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            resp = GetPingsPerVP().execute_iter(
                 client=client,
                 table_name=table_name,
                 filtered_vps=removed_vps,

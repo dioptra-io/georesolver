@@ -4,11 +4,12 @@ import json
 import asyncio
 import numpy as np
 
+
 from tqdm import tqdm
 from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
-from random import choice
+from random import choice, sample
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -21,6 +22,7 @@ from georesolver.clickhouse.queries import (
     get_mapping_answers,
     get_answers_per_hostname,
     get_pings_per_target_extended,
+    iter_pings_per_vp,
 )
 from georesolver.zdns.zmap import zmap
 from georesolver.agent.ecs_process import run_dns_mapping
@@ -258,7 +260,7 @@ def latency_eval() -> None:
     # 1. load data
     vps_ecs_mapping = get_ecs_results(ch_settings.VPS_ECS_MAPPING_TABLE)
     answers_per_hostname = get_answers_per_hostname(ch_settings.VPS_ECS_MAPPING_TABLE)
-    pings_per_target = get_pings_per_target_extended(PING_TABLE)
+    pings_per_vp = iter_pings_per_vp(PING_TABLE)
 
     # get subnets answer to hostaname
     hostname_per_answer_subnet = {}
@@ -267,56 +269,105 @@ def latency_eval() -> None:
             answer_subnet = get_prefix_from_ip(answer)
             hostname_per_answer_subnet[answer_subnet] = hostname
 
-    # 2. get ping per vp to target subnet
-    pings_per_vp_hostname = defaultdict(dict)
-    pings_per_vp = defaultdict(dict)
-    for target_addr, pings in pings_per_target.items():
-        target_subnet = get_prefix_from_ip(target_addr)
-        hostname = hostname_per_answer_subnet[target_subnet]
-        for vp_addr, _, min_rtt in pings:
-            try:
-                pings_per_vp[vp_addr][target_subnet].append((target_addr, min_rtt))
-            except KeyError:
-                pings_per_vp[vp_addr][target_subnet] = [(target_addr, min_rtt)]
-            try:
-                pings_per_vp_hostname[vp_addr][hostname].append(min_rtt)
-            except KeyError:
-                pings_per_vp_hostname[vp_addr][hostname] = [min_rtt]
+    pings_per_vp_path = (
+        path_settings.RESULTS_PATH
+        / "pop_redirection_eval/pings_per_vp_per_hostname.json"
+    )
 
-    # 3. get redirection ping and calculate rank per pair (hostname; vp)
+    if pings_per_vp_path.exists():
+        pings_per_vp_per_hostname = load_json(pings_per_vp_path)
+    else:
+
+        pings_per_vp_per_hostname = defaultdict(dict)
+        for row in tqdm(pings_per_vp, total=4668):
+            vp_addr = row["vp_addr"]
+            pings = row["pings"]
+            for target_addr, min_rtt in pings:
+                target_subnet = get_prefix_from_ip(target_addr)
+                hostname = hostname_per_answer_subnet[target_subnet]
+
+                try:
+                    pings_per_vp_per_hostname[vp_addr][hostname].append(
+                        (target_addr, min_rtt)
+                    )
+                except:
+                    pings_per_vp_per_hostname[vp_addr][hostname] = [
+                        (target_addr, min_rtt)
+                    ]
+
+        dump_json(pings_per_vp_per_hostname, pings_per_vp_path)
+
+    # 2. get ping per vp to target subnet
+    latency_thresholds = [2, 5, 10, 50, 100]
     percentile_per_hostname = defaultdict(list)
     percentile_per_hostname_vp = defaultdict(list)
-    for vp_addr, pings_per_hostname in tqdm(pings_per_vp_hostname.items()):
-        for hostname, all_hostname_pings in pings_per_hostname.items():
-            # some vps do not have enought measurements to a given hostname
-            if len(all_hostname_pings) < 10:
+    percentile_per_hostname_vp_per_min_lat = defaultdict(dict)
+    for vp_addr, pings_per_hostname in tqdm(pings_per_vp_per_hostname.items()):
+        vp_subnet = get_prefix_from_ip(vp_addr)
+
+        try:
+            answer_subnets = vps_ecs_mapping[vp_subnet][hostname]
+        except:
+            continue
+
+        for hostname, pings in pings_per_hostname.items():
+            all_pings = []
+            assigned_pings = []
+
+            if hostname in [
+                "m.dcdapp.com",
+                "www.lynkco.com.cn",
+                "global.web.b.mi.com",
+                "mobile.12306.cn",
+                "mbizhi.cheetahfun.com",
+            ]:
                 continue
 
-            try:
-                # retrieved all answer subnets, if exists
-                answer_subnets = vps_ecs_mapping[get_prefix_from_ip(vp_addr)][hostname]
-            except KeyError:
+            for target_addr, min_rtt in pings:
+                target_subnet = get_prefix_from_ip(target_addr)
+                if target_subnet in answer_subnets:
+                    assigned_pings.append(min_rtt)
+                all_pings.append(min_rtt)
+
+            # avoid counting outliers, i.e. vp; hostname pairs without enought pings
+            if (
+                len(answers_per_hostname[hostname])
+                < 10
+                # or len(all_pings) <= len(answers_per_hostname[hostname]) * 0.1
+            ):
                 continue
-            for answer_subnet in answer_subnets:
-                try:
-                    # get redirection ping, if exists
-                    redirection_pings = pings_per_vp[vp_addr][answer_subnet]
 
-                    for _, min_rtt in redirection_pings:
-                        # get rank of redirection ping
-                        percentile = compute_percentile_rank(
-                            min_rtt, all_hostname_pings
-                        )
-                        # save percentile per hostname
-                        percentile_per_hostname_vp[(hostname, vp_addr)].append(
-                            percentile
-                        )
-                        percentile_per_hostname[hostname].append(percentile)
+            min_latency = min(all_pings)
 
-                except KeyError:
-                    continue
+            for min_rtt in assigned_pings:
+                all_pings = sorted(all_pings)
+                percentile = compute_percentile_rank(min_rtt, all_pings)
 
-    print(f"{len(percentile_per_hostname)=}")
+                # debug
+                if percentile > 50:
+                    print(f"{vp_addr=}")
+                    print(f"{hostname=}")
+                    print(f"{min_rtt=}")
+                    print(f"{assigned_pings=}")
+                    print(f"{min_latency=}")
+                    print(f"{all_pings=}")
+
+                percentile_per_hostname_vp[(vp_addr, hostname)].append(percentile)
+                percentile_per_hostname[hostname].append(percentile)
+
+                # save function of lowest latency
+                for t in latency_thresholds:
+                    if min_latency < t:
+                        try:
+                            percentile_per_hostname_vp_per_min_lat[t][
+                                (vp_addr, hostname)
+                            ].append(percentile)
+                        except:
+                            percentile_per_hostname_vp_per_min_lat[t][
+                                (vp_addr, hostname)
+                            ] = [percentile]
+
+    logger.info(f"Number of pairs:: {len(percentile_per_hostname_vp)}")
 
     # get avg percentile per hostname
     avg_percentiles = []
@@ -327,20 +378,33 @@ def latency_eval() -> None:
     for percentiles in percentile_per_hostname_vp.values():
         avg_percentiles_per_hostname_vp.extend(percentiles)
 
+    avg_percentiles_per_hostname_vp_per_threshold = defaultdict(list)
+    for (
+        threshold,
+        percentiles_per_vp_hostname,
+    ) in percentile_per_hostname_vp_per_min_lat.items():
+        for percentiles in percentiles_per_vp_hostname.values():
+            avg_percentiles_per_hostname_vp_per_threshold[threshold].extend(percentiles)
+
     cdfs = []
     # accross subnet (per hostname) results
-    x, y = ecdf(avg_percentiles)
-    cdfs.append((x, y, "Per hostname"))
+    # x, y = ecdf(avg_percentiles)
+    # cdfs.append((x, y, "Per hostname"))
     # per pair (hostname; vp)
     x, y = ecdf(avg_percentiles_per_hostname_vp)
-    cdfs.append((x, y, "pair (hostname; vp)"))
+    cdfs.append((x, y, "all pairs"))
+    # per pair, function of threshold
+    for t in latency_thresholds:
+        x, y = ecdf(avg_percentiles_per_hostname_vp_per_threshold[t])
+        cdfs.append((x, y, f"min possible rtt<={t}"))
 
     plot_multiple_cdf(
         cdfs=cdfs,
         x_limit_left=0,
+        legend_size=8,
         output_path="cdf_avg_percentile_latency_per_hostname",
-        x_label="avg latency percentile \n accross VPs subnet",
-        y_label="fraction of hostnames",
+        x_label="latency percentile",
+        y_label="fraction of pairs (VP; hostname)",
     )
 
 
@@ -556,6 +620,49 @@ def cdn_meshed_vs_georesolver() -> None:
     )
 
 
+def cdns_coverage_eval() -> None:
+    """evaluate the coverage of CDNs /24 prefix discovery with vp subnets vs. itdk subnets"""
+    # load itdk redirection
+    itdk_mapping = get_ecs_results("itdk_ecs")
+    # load itdk subnets
+    itdk_subnets = [s for s in itdk_mapping]
+    # get sample
+    sample_sizes = [i for i in range(10_000, len(itdk_mapping), 10_000)]
+    nb_samples = 10
+    avg_discovered_subnets_per_sample_size = {}
+    for sample_size in sample_sizes:
+        logger.info(f"{sample_size=}")
+        nb_discovered_subnets = []
+        for _ in range(nb_samples):
+            itdk_subnets_sample = sample(
+                itdk_subnets,
+                sample_size if sample_size < len(itdk_mapping) else len(itdk_mapping),
+            )
+            # get discovered answer subnets
+            sample_answer_subnets = set()
+            for subnet in itdk_subnets_sample:
+                subnet_mapping = itdk_mapping[subnet]
+                for answer_subnets in subnet_mapping.values():
+                    sample_answer_subnets.update(answer_subnets)
+
+            nb_discovered_subnets.append(len(sample_answer_subnets))
+
+        avg_discovered_subnets_per_sample_size[sample_size] = np.average(
+            nb_discovered_subnets
+        )
+
+        # debug
+        break
+
+    plot_cdf(
+        x=list(avg_discovered_subnets_per_sample_size.keys()),
+        y=list(avg_discovered_subnets_per_sample_size.values()),
+        output_path="cdns_pop_coverage",
+        x_label="number of target subnets",
+        y_label="avg discovered /24 prefixes",
+    )
+
+
 def main() -> None:
     """
     entry point:
@@ -564,16 +671,17 @@ def main() -> None:
         - evaluate max distance based on exact position + geolocation area of presence
     """
     do_measurement: bool = False
-    do_latency_eval: bool = False
-    do_geo_eval: bool = True
+    do_latency_eval: bool = True
+    do_geo_eval: bool = False
     do_georesolver_comparison: bool = False
-
-    prev_schedule_path: Path = (
-        path_settings.MEASUREMENTS_SCHEDULE
-        / "meshed_cdns_pings_test__2a0cc0c3-cb91-42bb-bf8b-20ef887390ed.json"
-    )
+    do_cdn_coverage: bool = False
 
     if do_measurement:
+        prev_schedule_path: Path = (
+            path_settings.MEASUREMENTS_SCHEDULE
+            / "meshed_cdns_pings_test__2a0cc0c3-cb91-42bb-bf8b-20ef887390ed.json"
+        )
+
         asyncio.run(meshed_ping_cdns())
         # asyncio.run(meshed_ping_cdns(prev_schedule_path))
     if do_latency_eval:
@@ -582,6 +690,8 @@ def main() -> None:
         geo_eval()
     if do_georesolver_comparison:
         cdn_meshed_vs_georesolver()
+    if do_cdn_coverage:
+        cdns_coverage_eval()
 
 
 if __name__ == "__main__":
