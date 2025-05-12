@@ -21,10 +21,11 @@ async def run_dns_mapping(
     request_type: str = "A",
     output_logs: Path = None,
     itterative: bool = False,
+    ipv6: bool = False,
 ) -> None:
     """perform DNS mapping with zdns on VPs subnet"""
 
-    subnets = [subnet + "/24" for subnet in subnets]
+    subnets = [subnet + "/24" if not ipv6 else subnet + "/24" for subnet in subnets]
 
     with hostname_file.open("r") as f:
         all_hostnames = f.readlines()

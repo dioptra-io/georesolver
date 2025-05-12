@@ -15,12 +15,14 @@ from pych_client import AsyncClickHouseClient
 from georesolver.clickhouse import (
     Query,
     CreateDNSMappingTable,
+    CreateIPv6DNSMappingTable,
     CreateNameServerTable,
 )
 
 from georesolver.common.files_utils import dump_csv, create_tmp_csv_file
 from georesolver.common.ip_addresses_utils import (
     is_valid_ipv4,
+    is_valid_ipv6,
     get_prefix_from_ip,
     route_view_bgp_prefix,
 )
@@ -61,17 +63,25 @@ class ZDNS:
 
         self.settings = ZDNSSettings()
 
-    def get_zdns_cmd(self, subnet: str) -> str:
+    def get_zdns_cmd(self, subnet: str, hostname=None) -> str:
         """parse zdns cmd for a given subnet"""
         hostname_cmd = f"cat {self.hostname_file}"
 
         if self.iterative:
-            return (
-                hostname_cmd
-                + " | "
-                + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
-                + " --threads 200 --timeout 3"
-            )
+            if not hostname:
+                return (
+                    hostname_cmd
+                    + " | "
+                    + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
+                    + " --threads 200"
+                )
+            else:
+                return (
+                    f"echo {hostname}"
+                    + " | "
+                    + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
+                    + " --threads 200"
+                )
         else:
             return (
                 hostname_cmd
@@ -80,11 +90,12 @@ class ZDNS:
                 + " --threads 200 --timeout 3"
             )
 
-    async def query(self, subnet: str) -> dict:
+    async def query(self, subnet: str, hostname: str = None) -> dict:
         """run zdns tool and return raw results"""
         query_results = []
 
-        zdns_cmd = self.get_zdns_cmd(subnet)
+        zdns_cmd = self.get_zdns_cmd(subnet, hostname)
+        print(zdns_cmd)
 
         ps = await asyncio.subprocess.create_subprocess_shell(
             zdns_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -112,33 +123,30 @@ class ZDNS:
 
         return timestamp
 
-    def parse_a_records(self, resp: dict, subnet: str, asndb) -> str:
+    async def parse_a_records(
+        self, resp: dict, subnet: str, asndb, hostname: str = None
+    ) -> str:
         """parse A records from ZDNS output"""
         parsed_output = []
 
         try:
-            hostname = resp["name"]
+            if not hostname:
+                hostname = resp["name"]
+
+            # check status
+            if resp["status"] != "NOERROR":
+                logger.error(f"{resp=}")
+                return None
 
             # depending on the version of ZDNS, parding might defer
             try:
-                if "results" in resp:
-                    results = resp["results"]["A"]
-                    answers = results["data"]["answers"]
-                    timestamp = self.parse_timestamp(results["timestamp"])
-                    source_scope = results["data"]["additionals"][0]["csubnet"][
-                        "source_scope"
-                    ]
-                    subnet = results["data"]["additionals"][0]["csubnet"]["address"]
-
-                else:
-                    answers = resp["data"]["answers"]
-                    timestamp = self.parse_timestamp(resp["timestamp"])
-                    source_scope = resp["data"]["additionals"][0]["csubnet"][
-                        "source_scope"
-                    ]
-                    subnet = resp["data"]["additionals"][0]["csubnet"]["address"]
+                answers = resp["data"]["answers"]
+                timestamp = self.parse_timestamp(resp["timestamp"])
+                source_scope = resp["data"]["additionals"][0]["csubnet"]["source_scope"]
+                subnet = resp["data"]["additionals"][0]["csubnet"]["address"]
 
                 if source_scope == 0:
+                    logger.error(f"{hostname} does not support ECS")
                     return None
 
             except Exception as e:
@@ -149,40 +157,53 @@ class ZDNS:
             return None
 
         for answer in answers:
-
-            # check answer type
-            if answer["type"] != "A":
-                continue
+            print(f"{answer}")
+            if answer["type"] != "A" and not self.request_type == "AAAA":
+                if self.iterative and answer["type"] == "CNAME":
+                    cname = answer["answer"]
+                    subnet = subnet + "/24" if not "/24" in subnet else subnet
+                    query_results, subnet = await self.query(subnet, hostname=cname)
+                    for result in query_results:
+                        cname_parsed_output = await self.parse_a_records(
+                            result, subnet, asndb, hostname=cname
+                        )
+                        if cname_parsed_output:
+                            parsed_output.extend(cname_parsed_output)
+                else:
+                    continue
 
             answer = answer["answer"]
-            if is_valid_ipv4(answer):
+            if is_valid_ipv4(answer) and self.request_type == "A":
                 subnet_addr = get_prefix_from_ip(subnet)
                 answer_subnet = get_prefix_from_ip(answer)
-                answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
+            elif is_valid_ipv6(answer) and self.request_type == "AAAA":
+                print("hello")
+                subnet_addr = get_prefix_from_ip(subnet, ipv6=True)
+                answer_subnet = get_prefix_from_ip(answer, ipv6=True)
+            else:
+                continue
 
-                if not answer_asn or not answer_bgp_prefix:
-                    answer_asn = -1
-                    answer_bgp_prefix = "None"
+            answer_asn, answer_bgp_prefix = route_view_bgp_prefix(answer, asndb)
 
-                parsed_output.append(
-                    f"{int(timestamp)},\
-                    {subnet_addr},\
-                    24,\
-                    {hostname},\
-                    {answer},\
-                    {answer_subnet},\
-                    {answer_bgp_prefix},\
-                    {answer_asn},\
-                    {source_scope}"
-                )
+            if not answer_asn or not answer_bgp_prefix:
+                answer_asn = -1
+                answer_bgp_prefix = "None"
+
+            parsed_output.append(
+                f"{int(timestamp)},\
+                {subnet_addr},\
+                {24 if self.request_type == 'AAAA' else 56},\
+                {hostname},\
+                {answer},\
+                {answer_subnet},\
+                {answer_bgp_prefix},\
+                {answer_asn},\
+                {source_scope}"
+            )
 
         return parsed_output
 
-    def parse_ns_records(
-        self,
-        resp: dict,
-        subnet: str,
-    ) -> str:
+    def parse_ns_records(self, resp: dict, subnet: str) -> str:
         """parse NS records from ZDNS output"""
         parsed_output = []
         try:
@@ -236,14 +257,14 @@ class ZDNS:
 
         return parsed_output
 
-    def parse(self, subnet: str, query_results: list, asndb) -> list:
+    async def parse(self, subnet: str, query_results: list, asndb) -> list:
         """return resolution server ip addr"""
         parsed_data = []
         for resp in query_results:
 
             # filter answers that are not IP addresses
-            if self.request_type == "A":
-                data = self.parse_a_records(resp, subnet, asndb)
+            if self.request_type == "A" or self.request_type == "AAAA":
+                data = await self.parse_a_records(resp, subnet, asndb)
 
             elif self.request_type == "NS":
                 data = self.parse_ns_records(resp, subnet)
@@ -275,7 +296,7 @@ class ZDNS:
             query_results = await asyncio.gather(*tasks)
 
             for result, subnet in query_results:
-                parsed_data = self.parse(subnet, result, asndb)
+                parsed_data = await self.parse(subnet, result, asndb)
                 zdns_data.extend(parsed_data)
 
         if output_file:
@@ -298,6 +319,10 @@ class ZDNS:
             async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
                 if self.request_type == "A":
                     await CreateDNSMappingTable().aio_execute(
+                        client=client, table_name=self.output_table
+                    )
+                if self.request_type == "AAAA":
+                    await CreateIPv6DNSMappingTable().aio_execute(
                         client=client, table_name=self.output_table
                     )
                 elif self.request_type == "NS":

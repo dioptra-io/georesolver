@@ -49,11 +49,28 @@ ITERATIVE_GEORESOLVER_PATH = (
 )
 ITERATIVE_HOSTNAMES_TABLE = "iterative_ecs_hostnames"
 ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
+ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative_new"
 
 
-def get_iterative_ecs_hostnames(input_table: Path) -> list[str]:
+def get_cisco_ecs_hostnames(input_table: str) -> list[str]:
+    """get ECS hostnames using Cisco open DNS"""
+    host_addr = get_host_ip_addr()
+    host_subnet = get_prefix_from_ip(host_addr)
+    ecs_hostnames_path = path_settings.HOSTNAMES_GEORESOLVER
+
+    asyncio.run(
+        run_dns_mapping(
+            subnets=[host_subnet],
+            hostname_file=ecs_hostnames_path,
+            output_table=input_table,
+            # itterative=True,
+        )
+    )
+
+
+def get_iterative_ecs_hostnames(input_table: str) -> list[str]:
     """use ZDNS resolver to filter hostnames"""
-    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_GPDNS"
+    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_GPDNS.csv"
 
     tables = get_tables()
 
@@ -81,13 +98,13 @@ def get_iterative_ecs_hostnames(input_table: Path) -> list[str]:
             run_dns_mapping(
                 subnets=[host_subnet],
                 hostname_file=ecs_hostnames_path,
-                output_table=ITERATIVE_HOSTNAMES_TABLE,
+                output_table=input_table,
                 itterative=True,
             )
         )
 
     # load hostnames from table
-    iterative_ecs_hostnames = get_hostnames(ITERATIVE_HOSTNAMES_TABLE)
+    iterative_ecs_hostnames = get_hostnames(input_table)
 
     logger.info(
         f"Retrieved {len(iterative_ecs_hostnames)} hostnames supporting ECS with ZDNS resolver"
@@ -387,7 +404,7 @@ def evaluation(hostname_file: Path, vps_ecs_mapping_table: str) -> None:
     results_path = path_settings.RESULTS_PATH / "iterative_eval"
     georesolver_results_path = (
         path_settings.RESULTS_PATH
-        / "tier5_evaluation/results__d_error_per_budget.pickle"
+        / "tier5_evaluation/results__d_error_per_budget_new.pickle"
     )
 
     # 0. perform VPs mapping
@@ -395,22 +412,22 @@ def evaluation(hostname_file: Path, vps_ecs_mapping_table: str) -> None:
 
     # 1. compute scores
     compute_score(
-        output_path=results_path / "score.pickle",
+        output_path=results_path / "score_new.pickle",
         hostname_file=hostname_file,
         vps_ecs_mapping_table=vps_ecs_mapping_table,
     )
 
     # 2. select VPs
     select_vps(
-        score_file=results_path / "score.pickle",
-        output_file=results_path / "vp_selection.pickle",
+        score_file=results_path / "score_new.pickle",
+        output_file=results_path / "vp_selection_new.pickle",
     )
 
     # 3. make cdfs
     plot_iterative_results(
         georesolver_results_path=georesolver_results_path,
-        iterative_results_path=results_path / "vp_selection.pickle",
-        output_path="iterative_resolver_evaluation",
+        iterative_results_path=results_path / "vp_selection_new.pickle",
+        output_path="iterative_resolver_evaluation_new",
     )
 
 
@@ -422,14 +439,16 @@ def main() -> None:
         - perform VPs ECS mapping using new selected hostnames
         - evaluation on meshed pings
     """
-    do_get_iterative_georesolver_hostnames: bool = True
+    do_get_iterative_georesolver_hostnames: bool = False
     do_eval: bool = True
 
     if do_get_iterative_georesolver_hostnames:
         get_iterative_georesolver_hostnames(ITERATIVE_GEORESOLVER_PATH)
 
     if do_eval:
-        evaluation(ITERATIVE_GEORESOLVER_PATH, ITERATIVE_VPS_ECS_MAPPING_TABLES)
+        evaluation(
+            path_settings.HOSTNAMES_GEORESOLVER, ITERATIVE_VPS_ECS_MAPPING_TABLES
+        )
 
 
 if __name__ == "__main__":

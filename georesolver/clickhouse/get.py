@@ -38,6 +38,29 @@ class GetVPs(Query):
         """
 
 
+class GetIPv6VPs(Query):
+    def statement(self, table_name: str, is_anchor: bool = False) -> str:
+        if is_anchor:
+            anchor_statement = "WHERE is_anchor == true"
+        else:
+            anchor_statement = ""
+        return f"""
+        SELECT
+            toString(address_v6) as addr,
+            toString(subnet_v6) as subnet,
+            asn_v6 as asn,
+            toString(bgp_prefix) as bgp_prefix,
+            country_code,
+            lat,
+            lon,
+            id,
+            is_anchor
+        FROM
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        {anchor_statement}
+        """
+
+
 class GetSubnets(Query):
     def statement(self, table_name: str, **kwargs) -> str:
 

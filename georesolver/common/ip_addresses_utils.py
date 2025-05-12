@@ -8,7 +8,9 @@ from ipwhois import IPWhois
 from loguru import logger
 from ipaddress import (
     IPv4Address,
+    IPv6Address,
     IPv4Network,
+    IPv6Network,
     ip_network,
 )
 from georesolver.common.settings import PathSettings
@@ -18,7 +20,8 @@ path_settings = PathSettings()
 
 def filter_anycast() -> list[str]:
     """remove all prefix present in anycatch db"""
-    
+
+
 def load_subnet_to_asn(subnets: list[str]) -> dict:
     """get the AS number for each subnet in the input list, return dict"""
     asndb = pyasn(str(path_settings.RIB_TABLE.resolve()))
@@ -56,6 +59,17 @@ def is_valid_ipv4(ip_addr: str) -> str:
     return False
 
 
+def is_valid_ipv6(ip_addr: str) -> str:
+    try:
+        ip_addr: IPv6Address = IPv6Address(ip_addr)
+        if not ip_addr.is_private:
+            return True
+    except ValueError:
+        pass
+
+    return False
+
+
 def get_cidr_prefix(addr: str) -> str:
     """return cidr prefix of a given IPv4 addr"""
     w = IPWhois(addr)
@@ -64,12 +78,30 @@ def get_cidr_prefix(addr: str) -> str:
     return r["network"]["cidr"]
 
 
-def get_prefix_from_ip(addr: str):
+def get_prefix_from_ip(addr: str, ipv6: bool = False):
     """from an ip addr return /24 prefix"""
-    prefix = addr.split(".")[:-1]
-    prefix.append("0")
-    prefix = ".".join(prefix)
-    return prefix
+    # Create an IPv6Address object
+    if not ipv6:
+        ip = IPv4Address(addr)
+
+        # Create the /56 network containing the IP address
+        network = IPv4Network((ip, 24), strict=False)
+
+        return str(network.network_address)
+    else:
+        ip = IPv6Address(addr)
+
+        # Create the /56 network containing the IP address
+        network = IPv6Network((ip, 56), strict=False)
+
+        return str(network.network_address)
+
+    # if not ipv6:
+    #     prefix = addr.split(".")[:-1]
+    #     prefix.append("0")
+    #     prefix = ".".join(prefix)
+
+    # return prefix
 
 
 def to_ipv6(ipv4_addr: str) -> str:
@@ -159,18 +191,30 @@ def route_view_bgp_prefix(ip_addr: str, asndb) -> tuple[int, str]:
     return asn, bgp_prefix
 
 
-def get_host_ip_addr() -> str:
+def get_host_ip_addr(ipv6: bool = False) -> str:
     """get current public IP addr"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("8.8.8.8", 80))
-    ip_addr = str(s.getsockname()[0])
+    if not ipv6:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip_addr = str(s.getsockname()[0])
 
-    # check that we got a public IPv4 addr
+        # check that we got a public IPv4 addr
 
-    if IPv4Address(ip_addr) and not IPv4Address(ip_addr).is_private:
-        return ip_addr
+        if IPv4Address(ip_addr) and not IPv4Address(ip_addr).is_private:
+            return ip_addr
+        else:
+            raise RuntimeError("could not retrieve user IPv4 addr")
     else:
-        raise RuntimeError("could not retrieve user IPv4 addr")
+        s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        s.connect(("2001:4860:4860::8888", 80))
+        ip_addr = str(s.getsockname()[0])
+
+        # check that we got a public IPv4 addr
+
+        if IPv6Address(ip_addr) and not IPv6Address(ip_addr).is_private:
+            return ip_addr
+        else:
+            raise RuntimeError("could not retrieve user IPv6 addr")
 
 
 # generate_subnets("0.0.0.0/0", 24, DATASET_DIR / "all_24_subnets.csv")

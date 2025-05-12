@@ -14,6 +14,30 @@ class ChangeTableName(Query):
         """
 
 
+class CreateIPv6VPsTable(Query):
+    def statement(self, table_name: str) -> str:
+        """returns anchors mapping table query"""
+        sorting_key = "address_v4, address_v6,  asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            (
+                address_v4         IPv4,
+                address_v6         IPv6,
+                subnet_v4          IPv4,
+                subnet_v6          IPv6,
+                asn_v4             Int32,
+                bgp_prefix         String,
+                country_code       String,
+                lat                Float32,
+                lon                Float32,
+                id                 Int32,
+                is_anchor          Bool                
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
 class CreateVPsTable(Query):
     def statement(self, table_name: str) -> str:
         """returns anchors mapping table query"""
@@ -157,6 +181,28 @@ class CreateDNSMappingTable(Query):
             answer_bgp_prefix      String,
             answer_asn             Int32,
             source_scope           UInt8
+        )
+        ENGINE MergeTree
+        ORDER BY ({sorting_key})
+        """
+
+
+class CreateIPv6DNSMappingTable(Query):
+    def statement(self, table_name: str) -> str:
+        """returns anchors mapping table query"""
+        sorting_key = "subnet, netmask, hostname, timestamp"
+        return f"""
+        CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        (
+            timestamp              DateTime(),
+            subnet                 IPv6,
+            netmask                UInt8,
+            hostname               String,
+            answer                 IPv6,
+            answer_subnet          IPv6,
+            answer_bgp_prefix      String,
+            answer_asn             Int32,
+            source_scope           UInt16
         )
         ENGINE MergeTree
         ORDER BY ({sorting_key})

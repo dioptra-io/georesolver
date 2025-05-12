@@ -190,14 +190,15 @@ async def run_measurement(
     # in case measurement failed previously
     if check_cache:
         # retrieve previously ongoing measurements
-        await insert_measurements(
-            measurement_schedule,
-            probing_tags=["dioptra", measurement_tag],
-            output_table=output_table,
-        )
+        # await insert_measurements(
+        #     measurement_schedule,
+        #     probing_tags=["dioptra", measurement_tag],
+        #     output_table=output_table,
+        #     only_once=True,
+        # )
 
         logger.info("Filtering measurement schedule")
-        logger.info(f"Original schedule: {measurement_schedule} targets")
+        logger.info(f"Original schedule: {len(measurement_schedule)} targets")
 
         # filter measurement schedule
         targets = get_targets(output_table)
@@ -208,7 +209,7 @@ async def run_measurement(
 
             filtered_measurement_schedule.append((target_addr, vp_ids))
 
-        logger.info(f"Filtered schedule: {measurement_schedule} targets")
+        logger.info(f"Filtered schedule: {len(measurement_schedule)} targets")
 
         measurement_schedule = filtered_measurement_schedule
 
@@ -305,7 +306,7 @@ def main() -> None:
                 measurement_schedule,
                 "ipinfo-closest-vp-seed-new",
                 "ipinfo_closest_vp_seed_pings",
-                # check_cache=True,
+                check_cache=True,
             )
         )
 

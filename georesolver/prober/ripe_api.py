@@ -226,7 +226,7 @@ class RIPEAtlasAPI:
     async def get_raw_vps(self, url: str = "https://atlas.ripe.net/api/v2/probes/"):
         """get request url atlas endpoint"""
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url)
+            resp = await client.get(url, params={"status": [1]})
             resp = resp.json()
 
             for vp in resp["results"]:
@@ -674,7 +674,7 @@ class RIPEAtlasAPI:
 
         return False
 
-    async def get_vps(self, probes_only: bool = False) -> list:
+    async def get_vps(self, probes_only: bool = False, ipV6: bool = False) -> list:
         """return all RIPE Atlas VPs (set probe_only to remove anchors)"""
         vps = []
         rejected = 0
@@ -694,6 +694,9 @@ class RIPEAtlasAPI:
                     rejected += 1
                     continue
 
+                if ipV6 and vp.get("address_v6") is None:
+                    continue
+
                 reduced_vp = {
                     "address_v4": vp["address_v4"],
                     "asn_v4": vp["asn_v4"],
@@ -704,6 +707,21 @@ class RIPEAtlasAPI:
                     "id": vp["id"],
                     "is_anchor": vp["is_anchor"],
                 }
+
+                if ipV6:
+                    reduced_vp = {
+                        "address_v4": vp["address_v4"],
+                        "address_v4": vp["address_v6"],
+                        "asn_v4": vp["asn_v4"],
+                        "asn_v4": vp["asn_v6"],
+                        "country_code": vp["country_code"],
+                        "geometry": vp["geometry"],
+                        "lat": vp["geometry"]["coordinates"][1],
+                        "lon": vp["geometry"]["coordinates"][0],
+                        "id": vp["id"],
+                        "is_anchor": vp["is_anchor"],
+                    }
+
                 vps.append(reduced_vp)
 
         logger.info(f"Retrieved {len(vps)} VPs connected on RIPE Atlas")

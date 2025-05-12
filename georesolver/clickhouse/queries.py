@@ -22,6 +22,7 @@ from georesolver.clickhouse import (
     GetLastMileDelayPerId,
     GetCachedTargets,
     GetVPs,
+    GetIPv6VPs,
     GetVPsIds,
     GetVPsSubnets,
     GetPingsPerSrcDst,
@@ -136,7 +137,9 @@ def get_pings_per_target(
     return ping_vps_to_target
 
 
-def get_pings_per_target_extended(table_name: str, removed_vps: list = [], latency_threshold: int = 300) -> dict:
+def get_pings_per_target_extended(
+    table_name: str, removed_vps: list = [], latency_threshold: int = 300
+) -> dict:
     """
     return meshed ping for all targets
     ping_vps_to_target[target_addr] = [(vp_addr, min_rtt)]
@@ -149,7 +152,7 @@ def get_pings_per_target_extended(table_name: str, removed_vps: list = [], laten
                 client=client,
                 table_name=table_name,
                 filtered_vps=removed_vps,
-                latency_threshold=latency_threshold
+                latency_threshold=latency_threshold,
             )
 
             for row in resp:
@@ -294,11 +297,14 @@ def get_pings_per_src_dst(
     return ping_vps_to_target
 
 
-def load_vps(input_table: str) -> list:
+def load_vps(input_table: str, ipv6: bool = False) -> list:
     """retrieve all VPs from clickhouse"""
     vps = []
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        rows = GetVPs().execute(client=client, table_name=input_table)
+        if not ipv6:
+            rows = GetVPs().execute(client=client, table_name=input_table)
+        else:
+            rows = GetIPv6VPs().execute(client=client, table_name=input_table)
 
     vps_id = set()
     for row in rows:
