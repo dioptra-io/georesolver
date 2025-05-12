@@ -569,19 +569,19 @@ async def vps_init(old_table_suffixe: str) -> None:
     """perform all georesolver ripe atlas init related functions"""
 
     # 1. download all VPs
-    # await update_vps_table(old_table_suffixe)
+    await update_vps_table(old_table_suffixe)
 
-    # # 2. update vps meshed pings table
-    # config_path = await update_meshed_pings(old_table_suffixe)
-    # await insert_pings(config_path)
+    # 2. update vps meshed pings table
+    config_path = await update_meshed_pings(old_table_suffixe)
+    await insert_pings(config_path)
 
-    # # 3. filter VPs with default geoloc and SOI violation
-    # removed_vps = await filter_vps()
-    # await update_vps_filtered_table(old_table_suffixe, removed_vps)
+    # 3. filter VPs with default geoloc and SOI violation
+    removed_vps = await filter_vps()
+    await update_vps_filtered_table(old_table_suffixe, removed_vps)
 
-    # # # 4. perform meshed traceroutes
-    # config_path = await update_meshed_traceroutes(old_table_suffixe)
-    # await insert_traceroutes(config_path)
+    # # 4. perform meshed traceroutes
+    config_path = await update_meshed_traceroutes(old_table_suffixe)
+    await insert_traceroutes(config_path)
 
     # 5. create a table with only VPs with last myle delay under 2 ms
     vps_filtered = await filter_low_connectivity_vps(delay_threshold=2)

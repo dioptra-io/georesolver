@@ -165,18 +165,14 @@ async def insert_measurements(
 
         # insert measurement
         batch_size = 1_000
-        step_size = 3
         for i in range(0, len(measurement_to_insert), batch_size):
+
             logger.info(
                 f"Batch {i // batch_size}/{len(measurement_to_insert) // batch_size}"
             )
             batch_measurement_ids = list(measurement_to_insert)[i : i + batch_size]
-            tasks = [
-                retrieve_pings(batch_measurement_ids, output_table)
-                for _ in range(step_size)
-            ]
 
-            await asyncio.gather(*tasks)
+            await retrieve_pings(batch_measurement_ids, output_table, step_size=3)
 
         cached_measurement_ids.update(measurement_to_insert)
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
@@ -282,7 +278,7 @@ def main() -> None:
         - evaluate max distance based on exact position + geolocation area of presence
     """
     do_maxmind_measurements: bool = False
-    do_ip_info_measurements: bool = True
+    do_ip_info_measurements: bool = False
     do_latency_eval: bool = True
 
     sample_targets = load_sample_targets(
@@ -313,13 +309,13 @@ def main() -> None:
             sample_targets,
             path_settings.DATASET / "geoloc_db/ipinfo_2025-04-10.snapshot",
         )
-        # measurement_schedule = get_measurement_schedule(
-        #     geoloc_per_target=geoloc_per_target,
-        #     vps=vps,
-        # )
+        measurement_schedule = get_measurement_schedule(
+            geoloc_per_target=geoloc_per_target,
+            vps=vps,
+        )
         asyncio.run(
             run_measurement(
-                [],
+                measurement_schedule,
                 "ipinfo-closest-vp-seed-new",
                 "ipinfo_closest_vp_seed_pings",
                 check_cache=True,

@@ -393,10 +393,15 @@ def latency_eval() -> None:
     # per pair (hostname; vp)
     x, y = ecdf(avg_percentiles_per_hostname_vp)
     cdfs.append((x, y, "all pairs"))
+    frac = get_proportion_under(x, y, 10)
+    logger.info(f"All pairs, frac redirection in best 10 percent:: {frac}")
     # per pair, function of threshold
     for t in latency_thresholds:
         x, y = ecdf(avg_percentiles_per_hostname_vp_per_threshold[t])
-        cdfs.append((x, y, f"min possible rtt<={t}"))
+        cdfs.append((x, y, f"min possible rtt<={t}ms"))
+        logger.info(
+            f"rtt<={t=} All pairs, frac redirection in best 10 percent:: {frac}"
+        )
 
     plot_multiple_cdf(
         cdfs=cdfs,

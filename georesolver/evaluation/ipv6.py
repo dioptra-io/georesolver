@@ -6,9 +6,15 @@ from pyasn import pyasn
 from loguru import logger
 from pych_client import ClickHouseClient
 
+from georesolver.prober import RIPEAtlasProber
 from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.clickhouse import CreateIPv6VPsTable, InsertCSV
-from georesolver.clickhouse.queries import get_tables, load_vps, get_hostnames
+from georesolver.clickhouse.queries import (
+    get_tables,
+    load_vps,
+    load_targets,
+    get_hostnames,
+)
 from georesolver.prober.ripe_api import RIPEAtlasAPI
 from georesolver.common.ip_addresses_utils import (
     get_host_ip_addr,
@@ -120,21 +126,57 @@ async def get_vps(input_table: str) -> list[dict]:
         vps = load_vps(input_table)
 
 
-def select_hostnames() -> list[str]:
+def filter_ecs_hostnames(hostname_ecs_table: str) -> list[str]:
     """select hostnames that support IPv6"""
-    host_addr = get_host_ip_addr(ipv6=True)
-    host_subnet = get_prefix_from_ip(host_addr, ipv6=True)
-    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "all_ecs_selected_hostnames.csv"
+    tables = get_tables()
+    if not hostname_ecs_table in tables:
+        host_addr = get_host_ip_addr(ipv6=True)
+        host_subnet = get_prefix_from_ip(host_addr, ipv6=True)
+        ecs_hostnames_path = path_settings.HOSTNAME_FILES / "hostnames_1M.csv"
 
-    asyncio.run(
-        run_dns_mapping(
-            subnets=[host_subnet],
-            hostname_file=ecs_hostnames_path,
-            request_type="AAAA",
-            output_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
-            ipv6=True,
+        asyncio.run(
+            run_dns_mapping(
+                subnets=[host_subnet],
+                hostname_file=ecs_hostnames_path,
+                request_type="AAAA",
+                output_table=hostname_ecs_table,
+                ipv6=True,
+            )
         )
-    )
+
+
+def select_ecs_hostnames(
+    vps_ecs_mapping_table: str,
+    hostname_ecs_table: str,
+    vps_table: str,
+) -> list[str]:
+    """select a subset of ECS-DNS hostnames for calculating DNS resolution similarities"""
+    tables = get_tables()
+    if vps_ecs_mapping_table not in tables:
+        vps = load_vps(vps_table)
+        vps_subnet = list(set([vp["subnet"] for vp in vps]))
+        ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_ipv6.csv"
+
+        if not ecs_hostnames_path.exists():
+            # get ECS hostnames and dump csv
+            hostnames = get_hostnames(hostname_ecs_table)
+            dump_csv(ecs_hostnames_path, hostnames)
+
+        asyncio.run(
+            run_dns_mapping(
+                subnets=vps_subnet,
+                hostname_file=ecs_hostnames_path,
+                request_type="AAAA",
+                output_table=vps_ecs_mapping_table,
+                ipv6=True,
+            )
+        )
+
+    # if table exists, select geographically sparsed VPs
+    # get each hostnames hosting/ns organisation
+    # calculate redirection score
+    # select N hostnames per pair (NS/org), sorted by redirection score
+    # return
 
 
 def get_ipV6_ecs_hostnames(input_table: str) -> list[str]:
@@ -183,9 +225,63 @@ def get_ipV6_ecs_hostnames(input_table: str) -> list[str]:
     return iterative_ecs_hostnames
 
 
-def run_ipV6_meshed_pings() -> None:
+async def meshed_pings_schedule(
+    vps_table: str, update_meshed_pings: bool = True
+) -> dict:
+    """for each target and subnet target get measurement vps
+
+    Returns:
+        dict: vps per target to make a measurement
+    """
+    measurement_schedule = []
+    cached_meshed_ping_vps = None
+    vps = load_vps(vps_table, ipv6=True)
+    targets = load_targets(vps_table, ipv6=True)
+
+    logger.info(
+        f"Ping Schedule for:: {len(targets)} targets, {len(vps)} VPs per target"
+    )
+
+    batch_size = RIPEAtlasAPI().settings.MAX_VP
+    for target in targets:
+        # filter vps based on their ID and if they already pinged the target
+        if cached_meshed_ping_vps and update_meshed_pings:
+            try:
+                cached_vp_ids = cached_meshed_ping_vps[target["addr"]]
+            except KeyError:
+                cached_vp_ids = []
+
+            vp_ids = [vp["id"] for vp in vps]
+            filtered_vp_ids = list(set(vp_ids).symmetric_difference(set(cached_vp_ids)))
+        else:
+            filtered_vp_ids = [vp["id"] for vp in vps]
+
+        for i in range(0, len(filtered_vp_ids), batch_size):
+            batch_vps = filtered_vp_ids[i : (i + batch_size)]
+
+            if not batch_vps:
+                break
+
+            measurement_schedule.append(
+                (
+                    target["addr"],
+                    [vp_id for vp_id in batch_vps if vp_id != target["id"]],
+                )
+            )
+
+    logger.info(f"Total number of measurement schedule:: {len(measurement_schedule)}")
+
+    return measurement_schedule
+
+
+async def meshed_pings() -> None:
     """run meshed pings between IPv6 vps and targets"""
-    pass
+    pings_schedule = await meshed_pings_schedule(False)
+    output_path = await RIPEAtlasProber(
+        probing_type="ping",
+        probing_tag="meshed-pings",
+        output_table=ch_settings.VPS_MESHED_PINGS_TABLE,
+    ).main(pings_schedule)
 
 
 def evaluation() -> None:
@@ -207,10 +303,21 @@ def main() -> None:
         - VP selection using /56 subnets
         - no last point, we should be done by now
     """
+    do_select_hostnames: bool = False
+    do_meshed_pings: bool = True
+    do_evaluation: bool = False
 
     # 1. get vps
     vps = asyncio.run(get_vps(VPS_RAW_TABLE_IPV6))
-    select_hostnames()
+
+    if do_select_hostnames:
+        filter_ecs_hostnames(hostname_ecs_table="ecs_hostnames_ipv6")
+        select_ecs_hostnames(
+            vps_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+        )
+    if do_meshed_pings:
+        meshed_pings(ch_settings.VPS_MESHED_PINGS_TABLE + "_ipv6")
+        meshed_traceroutes(ch_settings.VPS_MESHED_TRACEROUTE_TABLE + "_ipv6")
 
 
 if __name__ == "__main__":

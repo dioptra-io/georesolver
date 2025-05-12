@@ -91,7 +91,7 @@ def parse_geoloc_data(target_geoloc: dict) -> list[str]:
             {vp_addr},\
             {vp['subnet']},\
             {vp['bgp_prefix']},\
-            {vp['asn_v4']},\
+            {vp['asn']},\
             {min_rtt},\
             {msm_id}"
         )
@@ -124,6 +124,7 @@ async def retrieve_pings(
     ids: list[int],
     output_table: str,
     wait_time: int = 0.1,
+    step_size: int = 1,
     output_logs: Path = None,
 ) -> None:
     """retrieve all ping measurements from a list of measurement ids"""
@@ -134,9 +135,13 @@ async def retrieve_pings(
     else:
         output_file = None
 
-    for id in tqdm(ids, file=output_file):
-        ping_results = await RIPEAtlasAPI().get_ping_results(id)
-        csv_data.extend(ping_results)
+    for i in tqdm(range(0, len(ids), step_size), file=output_file):
+        tasks = [RIPEAtlasAPI().get_ping_results(id) for id in ids[i : i + step_size]]
+        ping_results = await asyncio.gather(*tasks)
+        logger.debug(len(ping_results))
+
+        for ping_result in ping_results:
+            csv_data.extend(ping_result)
 
         await asyncio.sleep(wait_time)
 

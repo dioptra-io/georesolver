@@ -52,20 +52,22 @@ ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterati
 ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative_new"
 
 
-def get_cisco_ecs_hostnames(input_table: str) -> list[str]:
+def vps_mapping_other_resolvers(resolvers: list[str]) -> list[str]:
     """get ECS hostnames using Cisco open DNS"""
     host_addr = get_host_ip_addr()
     host_subnet = get_prefix_from_ip(host_addr)
     ecs_hostnames_path = path_settings.HOSTNAMES_GEORESOLVER
 
-    asyncio.run(
-        run_dns_mapping(
-            subnets=[host_subnet],
-            hostname_file=ecs_hostnames_path,
-            output_table=input_table,
-            # itterative=True,
+    for resolver, ip_addr in resolvers:
+        logger.info(f"ECS-DNS resolution:: {resolver=}; {ip_addr=}")
+        asyncio.run(
+            run_dns_mapping(
+                subnets=[host_subnet],
+                hostname_file=ecs_hostnames_path,
+                output_table=f"ecs_hostanmes_{resolver}",
+                name_servers=ip_addr,
+            )
         )
-    )
 
 
 def get_iterative_ecs_hostnames(input_table: str) -> list[str]:
@@ -440,11 +442,15 @@ def main() -> None:
         - evaluation on meshed pings
     """
     do_get_iterative_georesolver_hostnames: bool = False
-    do_eval: bool = True
+    do_test_resolvers: bool = True
+    do_eval: bool = False
 
     if do_get_iterative_georesolver_hostnames:
         get_iterative_georesolver_hostnames(ITERATIVE_GEORESOLVER_PATH)
 
+    if do_test_resolvers:
+        resolvers = [("AdGuard_DNS", "94.140.14.14")]
+        vps_mapping_other_resolvers(resolvers)
     if do_eval:
         evaluation(
             path_settings.HOSTNAMES_GEORESOLVER, ITERATIVE_VPS_ECS_MAPPING_TABLES
