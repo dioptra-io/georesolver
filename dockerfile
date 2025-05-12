@@ -38,15 +38,13 @@ RUN mkdir -p georesolver/experiments
 RUN mkdir -p georesolver/datasets
 
 COPY pyproject.toml pyproject.toml
-COPY poetry.lock poetry.lock
-
 COPY georesolver/zdns georesolver/zdns
 COPY georesolver/prober georesolver/prober
 COPY georesolver/common georesolver/common
 COPY georesolver/agent/ georesolver/agent
 COPY georesolver/clickhouse georesolver/clickhouse
 
-COPY georesolver/main.py georesolver/main.py
+COPY georesolver/agent/main.py georesolver/agent/main.py
 
 COPY README.md README.md
 
