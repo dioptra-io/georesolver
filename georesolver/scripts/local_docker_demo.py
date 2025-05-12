@@ -34,9 +34,7 @@ def main_demo() -> None:
 
     logger.info(f"File available at:: {DEMO_TARGET_FILE}")
 
-    run_georesolver(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH.resolve())
 
 
 if __name__ == "__main__":

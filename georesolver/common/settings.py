@@ -43,7 +43,7 @@ class PathSettings(BaseSettings):
 
     # Static files from other organization
     STATIC_FILES: Path = DATASET / "static_files/"
-    RIB_TABLE: Path = USER_DATASETS / "rib_table.dat"
+    RIB_TABLE: Path = STATIC_FILES / "rib_table.dat"
     USER_HITLIST_FILE: Path = STATIC_FILES / "ipv4_hitlist.json"
     ANYCATCH_DATA: Path = STATIC_FILES / "anycatch-v4-prefixes.csv"
     VERPOELOFTER: Path = STATIC_FILES / "responsive_addresses_per_subnet.fsdb"

@@ -46,7 +46,7 @@ def check_config(config_path: Path) -> None:
     """check the validity of the input config"""
     experiment_config = load_json(config_path, exit_on_failure=True)
 
-    # mandatory parameters
+    # requested parameters
     assert "target_file" in experiment_config
     assert "hostname_file" in experiment_config
     assert "experiment_uuid" in experiment_config
@@ -80,6 +80,8 @@ def create_agent_path(agent_host: str, experiment_path: Path) -> Path:
     agent_dir = experiment_path / agent_host
     if not agent_dir.is_dir():
         agent_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"local agent dir at:: {agent_dir}")
 
     return agent_dir
 
@@ -165,6 +167,7 @@ def agent_start(
 
     logger.debug("Docker cmd::")
     print_docker_cmd(cmd)
+    print(cmd)
 
 
 def check_local_dir(
@@ -355,10 +358,18 @@ def run_remote_agent(
     upload_target_files(user, host, gateway, local_dir, remote_dir, target_files)
 
     # pull docker image
-    pull_docker_image()
+    pull_docker_image(user, host, gateway)
 
     # start docker container with params
-    agent_start()
+    agent_start(
+        user,
+        host,
+        local_dir,
+        remote_dir,
+        agent_config_path,
+        container_name,
+        gateway,
+    )
 
     # monitor container execution
     # TODO: too complex for experimental prototype, left for future dev
@@ -396,12 +407,11 @@ def run_georesolver(config_path: Path) -> None:
         dump_csv(agent_targets, agent_dir / "targets.csv")
         copy_to(config["hostname_file"], agent_dir)
 
-        # TOOD: run parrallel
         run_remote_agent(
             agent_uuid=agent_definition["agent_uuid"],
             user=agent_definition["user"],
             host=agent_definition["host"],
-            local_dir=agent_dir,
+            local_dir=agent_dir.resolve(),
             remote_dir=agent_definition["remote_dir"],
             target_file=agent_dir / "targets.csv",
             hostname_file=agent_dir / Path(config["hostname_file"]).name,

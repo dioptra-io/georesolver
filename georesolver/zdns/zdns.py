@@ -95,7 +95,6 @@ class ZDNS:
         query_results = []
 
         zdns_cmd = self.get_zdns_cmd(subnet, hostname)
-        print(zdns_cmd)
 
         ps = await asyncio.subprocess.create_subprocess_shell(
             zdns_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -157,7 +156,6 @@ class ZDNS:
             return None
 
         for answer in answers:
-            print(f"{answer}")
             if answer["type"] != "A" and not self.request_type == "AAAA":
                 if self.iterative and answer["type"] == "CNAME":
                     cname = answer["answer"]
@@ -177,7 +175,6 @@ class ZDNS:
                 subnet_addr = get_prefix_from_ip(subnet)
                 answer_subnet = get_prefix_from_ip(answer)
             elif is_valid_ipv6(answer) and self.request_type == "AAAA":
-                print("hello")
                 subnet_addr = get_prefix_from_ip(subnet, ipv6=True)
                 answer_subnet = get_prefix_from_ip(answer, ipv6=True)
             else:

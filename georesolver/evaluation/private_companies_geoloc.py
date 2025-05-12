@@ -17,9 +17,13 @@ from georesolver.clickhouse.queries import (
 )
 from georesolver.prober import RIPEAtlasProber, RIPEAtlasAPI
 from georesolver.agent.insert_process import retrieve_pings
-from georesolver.evaluation.evaluation_plot_functions import plot_multiple_cdf, ecdf
+from georesolver.evaluation.evaluation_plot_functions import (
+    plot_multiple_cdf,
+    ecdf,
+    get_proportion_under,
+)
 from georesolver.common.geoloc import distance
-from georesolver.common.files_utils import load_csv, dump_csv, load_json
+from georesolver.common.files_utils import load_csv, dump_csv
 from georesolver.common.settings import (
     PathSettings,
     ClickhouseSettings,
@@ -135,11 +139,11 @@ async def insert_measurements(
 
         # stop measurement once all measurement are inserted
         all_measurement_ids = set(inserted_ids).union(cached_measurement_ids)
-        if len(all_measurement_ids) >= len(measurement_schedule):
-            logger.info(
-                f"All measurement inserted:: {len(inserted_ids)=}; {len(measurement_schedule)=}"
-            )
-            break
+        # if len(all_measurement_ids) >= len(measurement_schedule):
+        #     logger.info(
+        #         f"All measurement inserted:: {len(inserted_ids)=}; {len(measurement_schedule)=}"
+        #     )
+        #     break
 
         measurement_to_insert = set(stopped_measurement_ids).difference(
             set(inserted_ids)
@@ -161,12 +165,18 @@ async def insert_measurements(
 
         # insert measurement
         batch_size = 1_000
+        step_size = 3
         for i in range(0, len(measurement_to_insert), batch_size):
             logger.info(
                 f"Batch {i // batch_size}/{len(measurement_to_insert) // batch_size}"
             )
             batch_measurement_ids = list(measurement_to_insert)[i : i + batch_size]
-            await retrieve_pings(batch_measurement_ids, output_table)
+            tasks = [
+                retrieve_pings(batch_measurement_ids, output_table)
+                for _ in range(step_size)
+            ]
+
+            await asyncio.gather(*tasks)
 
         cached_measurement_ids.update(measurement_to_insert)
         current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
@@ -190,12 +200,12 @@ async def run_measurement(
     # in case measurement failed previously
     if check_cache:
         # retrieve previously ongoing measurements
-        # await insert_measurements(
-        #     measurement_schedule,
-        #     probing_tags=["dioptra", measurement_tag],
-        #     output_table=output_table,
-        #     only_once=True,
-        # )
+        await insert_measurements(
+            measurement_schedule,
+            probing_tags=["dioptra", measurement_tag],
+            output_table=output_table,
+            only_once=True,
+        )
 
         logger.info("Filtering measurement schedule")
         logger.info(f"Original schedule: {len(measurement_schedule)} targets")
@@ -221,7 +231,7 @@ async def run_measurement(
     )
 
     await asyncio.gather(
-        prober.main(measurement_schedule),
+        # prober.main(measurement_schedule),
         insert_measurements(
             measurement_schedule,
             probing_tags=["dioptra", measurement_tag],
@@ -236,18 +246,24 @@ def latency_eval(input_tables: list[tuple[str, str]]) -> None:
     """compare shortest ping obtained with each vp selection methodology"""
     cdfs = []
     for input_table, label in input_tables:
+        under_2ms = []
         logger.info(f"Retrieving pings for table:: {input_table}")
         pings_per_target = get_pings_per_target(input_table)
 
         # for each target, get shortest ping
         shortest_pings = []
         for _, pings in pings_per_target.items():
-            shortest_ping = min(pings, key=lambda x: x[-1])
+            _, shortest_ping_rtt = min(pings, key=lambda x: x[-1])
 
-            shortest_pings.append(shortest_ping[-1])
+            shortest_pings.append(shortest_ping_rtt)
+            if shortest_ping_rtt < 2:
+                under_2ms.append(shortest_ping_rtt)
 
         x, y = ecdf(shortest_pings)
         cdfs.append((x, y, label))
+
+        frac_under2ms = get_proportion_under(x, y, 2)
+        logger.info(f"{input_table=}; {len(under_2ms)=}; {frac_under2ms=}")
 
     plot_multiple_cdf(
         cdfs=cdfs,
@@ -267,7 +283,7 @@ def main() -> None:
     """
     do_maxmind_measurements: bool = False
     do_ip_info_measurements: bool = True
-    do_latency_eval: bool = False
+    do_latency_eval: bool = True
 
     sample_targets = load_sample_targets(
         path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv",
@@ -297,13 +313,13 @@ def main() -> None:
             sample_targets,
             path_settings.DATASET / "geoloc_db/ipinfo_2025-04-10.snapshot",
         )
-        measurement_schedule = get_measurement_schedule(
-            geoloc_per_target=geoloc_per_target,
-            vps=vps,
-        )
+        # measurement_schedule = get_measurement_schedule(
+        #     geoloc_per_target=geoloc_per_target,
+        #     vps=vps,
+        # )
         asyncio.run(
             run_measurement(
-                measurement_schedule,
+                [],
                 "ipinfo-closest-vp-seed-new",
                 "ipinfo_closest_vp_seed_pings",
                 check_cache=True,
@@ -313,9 +329,9 @@ def main() -> None:
     if do_latency_eval:
         latency_eval(
             [
+                ("ipinfo_closest_vp_seed_pings", "IPinfo (50 closest VPs)"),
                 ("georesolver_itdk_sample_ping", "GeoResolver"),
                 ("maxmind_closest_vp_seed_pings", "maxmind (50 closest VPs)"),
-                ("ipinfo_closest_vp_seed_pings", "IpInfo (50 closest VPs)"),
             ]
         )
 

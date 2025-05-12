@@ -124,7 +124,7 @@ def select_hostnames() -> list[str]:
     """select hostnames that support IPv6"""
     host_addr = get_host_ip_addr(ipv6=True)
     host_subnet = get_prefix_from_ip(host_addr, ipv6=True)
-    ecs_hostnames_path = path_settings.HOSTNAMES_GEORESOLVER
+    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "all_ecs_selected_hostnames.csv"
 
     asyncio.run(
         run_dns_mapping(
