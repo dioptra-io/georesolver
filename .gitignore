@@ -18,7 +18,7 @@ logs/
 experiments/
 config/
 archive/
-configuration/clickhouse
+configuration/clickhouse*
 
 .vscode/
 
