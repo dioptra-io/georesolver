@@ -1,0 +1,7 @@
+<clickhouse>
+    <users>
+        <admin>
+            <password>replace_this_password_with_yours</password>
+        </admin>
+    </users>
+</clickhouse>

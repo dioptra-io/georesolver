@@ -18,9 +18,9 @@ logs/
 experiments/
 config/
 archive/
-configuration/clickhouse*
 
 .vscode/
+*.lock
 
 # Distribution / packaging
 .Python

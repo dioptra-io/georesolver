@@ -145,11 +145,11 @@ class ZDNS:
                 subnet = resp["data"]["additionals"][0]["csubnet"]["address"]
 
                 if source_scope == 0:
-                    logger.error(f"{hostname} does not support ECS")
+                    # logger.error(f"{hostname} does not support ECS")
                     return None
 
             except Exception as e:
-                logger.debug(f"Failed to parse data: {e}; {resp['name']}")
+                # logger.debug(f"Failed to parse data: {e}; {resp['name']}")
                 return None
 
         except KeyError:

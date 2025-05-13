@@ -1,5 +1,6 @@
 """from a measurement config containing multiple agents, run georesolver"""
 
+import typer
 import subprocess
 
 from pathlib import Path
@@ -167,7 +168,6 @@ def agent_start(
 
     logger.debug("Docker cmd::")
     print_docker_cmd(cmd)
-    print(cmd)
 
 
 def check_local_dir(
@@ -292,9 +292,8 @@ def pull_docker_image(user: str, host: str, gateway: str) -> None:
     # docker pull cmd common to local and remote
     logger.info(f"Agent {host}:: pull docker image")
 
-    cmds = docker_pull_cmd()
     if host not in ["localhost", "127.0.0.1"]:
-
+        cmds = docker_pull_cmd()
         _ = ssh_run_cmds(
             cmds,
             user=user,
@@ -303,9 +302,9 @@ def pull_docker_image(user: str, host: str, gateway: str) -> None:
             gateway_host=gateway["host"],
         )
     else:
-        for cmd in cmds:
-            # TODO: general, better docker image management (terraform? kubernetes?)
-            _ = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # if local docker exec, build local image instead of getting it from ghcp
+        cmd = f"docker build . -t ghcr.io/dioptra-io/georesolver:main -f {path_settings.DOCKER_FILE_PATH}"
+        _ = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
 def run_remote_agent(
@@ -318,7 +317,6 @@ def run_remote_agent(
     hostname_file: Path,
     processes: list[dict],
     batch_size: int = 1_000,
-    max_ongoing_pings: int = 1_00,
     gateway: dict = None,
 ) -> None:
     """check connection, pull docker image, start main agent remotely"""
@@ -397,7 +395,6 @@ def run_georesolver(config_path: Path) -> None:
 
     # split measurement load equally among agents
     agent_target_load = len(targets) // len(config["agents"]) + 1
-    agent_max_ping = ripe_atlas_settings.MAX_MEASUREMENT // len(config["agents"]) - 1
     for i, agent_definition in enumerate(config["agents"]):
         # create fresh directory for agent
         agent_dir = create_agent_path(agent_definition["host"], experiment_path)
@@ -417,8 +414,11 @@ def run_georesolver(config_path: Path) -> None:
             hostname_file=agent_dir / Path(config["hostname_file"]).name,
             processes=config["processes"],
             batch_size=config["batch_size"],
-            max_ongoing_pings=agent_max_ping,
             gateway=(
                 agent_definition["gateway"] if "gateway" in agent_definition else None
             ),
         )
+
+
+if __name__ == "__main__":
+    typer.run(run_georesolver())

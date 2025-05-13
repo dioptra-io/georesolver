@@ -1,7 +1,26 @@
 #!/bin/bash
-CLICKHOUSE_PATH="/storage/clickhouse"
-CONFIG_PATH="$PWD/configuration/"
+
+STORAGE_PATH=$1
+CONFIG_PATH=$2
 EXEC_PATH="$CONFIG_PATH/clickhouse"
+
+if [ $# -ne 2 ]; 
+    then 
+        echo "Script install.sh requires two input parameters"
+        return 1
+fi
+
+if [ -z "$STORAGE_PATH" ];
+    then 
+        echo "Missig first parameter STORAGE_PATH when executing script"
+        return 1
+fi
+
+if [ -z "$CONFIG_PATH" ];
+    then 
+        echo "Missig second parameter CONFIG_PATH when executing script"
+        return 1
+fi
 
 # load env var if not global
 source .env
@@ -46,8 +65,8 @@ else
         -p 127.0.0.1:9000:9000 \
         -p 127.0.0.1:9009:9009 \
         -e CLICKHOUSE_MAX_QUERY_SIZE=10000000000000000000 \
-        -v $CLICKHOUSE_PATH/data:/var/lib/clickhouse/ \
-        -v $CLICKHOUSE_PATH/logs:/var/log/clickhouse-server/ \
+        -v $STORAGE_PATH/data:/var/lib/clickhouse/ \
+        -v $STORAGE_PATH/logs:/var/log/clickhouse-server/ \
         -v $CONFIG_PATH/users.d:/etc/clickhouse-server/users.d/ \
         --ulimit nofile=262144:262144 \
         clickhouse/clickhouse-server:22.6

@@ -82,6 +82,9 @@ class PathSettings(BaseSettings):
     REMOVED_VPS: Path = DATASET / "removed_vps.json"
     VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
 
+    # Docker file
+    DOCKER_FILE_PATH: Path = DEFAULT / "../../dockerfile"
+
 
 class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
