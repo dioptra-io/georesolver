@@ -17,10 +17,10 @@ debbuging/
 logs/
 experiments/
 config/
+archive/
+configuration/clickhouse
 
-# clickhouse exec file
 .vscode/
-configuration/
 
 # Distribution / packaging
 .Python

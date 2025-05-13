@@ -37,6 +37,7 @@ class PathSettings(BaseSettings):
     DATASET: Path = DEFAULT / "../datasets/"
     CONFIG_PATH: Path = DEFAULT / "../config"
     FIGURE_PATH: Path = DEFAULT / "../figures"
+    ARCHIVE_PATH: Path = DEFAULT / "../archive"
     RESULTS_PATH: Path = DEFAULT / "../results"
     USER_DATASETS: Path = DEFAULT / "../user_datasets"
     EXPERIMENT_PATH: Path = DEFAULT / "../experiments"

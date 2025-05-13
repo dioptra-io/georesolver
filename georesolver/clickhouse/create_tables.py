@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from georesolver.clickhouse.main import Query
 from georesolver.common.settings import ClickhouseSettings
 
@@ -5,21 +7,28 @@ from georesolver.common.settings import ClickhouseSettings
 class ChangeTableName(Query):
     """change table name, utile when updating tables (ex: vps_mapping_ecs)"""
 
-    def statement(self, table_name: str, new_table_name: str) -> str:
+    def statement(
+        self,
+        table_name: str,
+        new_table_name: str,
+        out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
+    ) -> str:
         return f"""
         RENAME TABLE 
-                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
+                {out_db}.{table_name} 
             TO 
-                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{new_table_name}
+                {out_db}.{new_table_name}
         """
 
 
 class CreateIPv6VPsTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = "address_v4, address_v6,  asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 address_v4         IPv4,
                 address_v6         IPv6,
@@ -39,13 +48,15 @@ class CreateIPv6VPsTable(Query):
 
 
 class CreateVPsTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = (
             "address_v4, asn_v4, bgp_prefix, country_code, lat, lon, is_anchor"
         )
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 address_v4         IPv4,
                 subnet_v4          IPv4,
@@ -63,11 +74,13 @@ class CreateVPsTable(Query):
 
 
 class CreatePingTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """return ping creation table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -91,11 +104,13 @@ class CreatePingTable(Query):
 
 
 class CreateScheduleTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """return schedule creation table query"""
         sorting_key = "subnet, prb_id, vp_addr, vp_subnet, vp_score"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 subnet             IPv4,
                 prb_id             UInt64,
@@ -109,11 +124,13 @@ class CreateScheduleTable(Query):
 
 
 class CreateTracerouteTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, ttl, reply_addr, proto, rcvd, sent, min, max, avg, rtts"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 timestamp          UInt16,
                 src_addr           IPv4,
@@ -140,11 +157,13 @@ class CreateTracerouteTable(Query):
 
 
 class CreateGeolocTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = "addr, subnet, bgp_prefix, asn, vp_addr"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 addr               IPv4,
                 subnet             IPv4,
@@ -166,11 +185,13 @@ class CreateGeolocTable(Query):
 
 
 class CreateDNSMappingTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = "subnet, netmask, hostname, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,
@@ -188,11 +209,13 @@ class CreateDNSMappingTable(Query):
 
 
 class CreateIPv6DNSMappingTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         """returns anchors mapping table query"""
         sorting_key = "subnet, netmask, hostname, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv6,
@@ -210,10 +233,12 @@ class CreateIPv6DNSMappingTable(Query):
 
 
 class CreateScoreTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         sorting_key = "subnet, vp_subnet, metric, score"
         return f"""
-            CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
             (
                 subnet                 IPv4,
                 vp_subnet              IPv4,
@@ -227,10 +252,12 @@ class CreateScoreTable(Query):
 
 
 class CreateNameServerTable(Query):
-    def statement(self, table_name: str) -> str:
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
         sorting_key = "subnet, netmask, hostname,name_server, timestamp"
         return f"""
-        CREATE TABLE IF NOT EXISTS {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
         (
             timestamp              DateTime(),
             subnet                 IPv4,

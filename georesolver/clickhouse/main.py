@@ -116,9 +116,14 @@ class Query:
         """
         rows = []
         statement = self.statement(table_name=table_name, **kwargs)
+        database = (
+            client.config["database"]
+            if not "database" in kwargs
+            else kwargs["database"]
+        )
 
         logger.debug(
-            f"query={self.name}; database={client.config['database']}; table_name={table_name}  limit={limit}"
+            f"query={self.name}; database={database}; table_name={table_name}  limit={limit}"
         )
 
         settings = dict(
@@ -198,10 +203,38 @@ class Query:
         )
         return client.iter_json(statement, data=data, settings=settings)
 
-    def execute_insert(self, client: ClickHouseClient, table_name: str, in_file: Path):
+    def execute_insert(
+        self,
+        client: ClickHouseClient,
+        table_name: str,
+        in_file: Path,
+        format: str = "CSV",
+        out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
+    ):
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-            query = f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FORMAT CSV"
+            query = f"""
+            INSERT INTO 
+                {out_db}.{table_name} 
+            FORMAT 
+                {format}
+            """
             client.execute(query, data=in_file.read_bytes())
+
+    def execute_extract(
+        self, client: ClickHouseClient, table_name: str, out_file: Path
+    ):
+        with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+            query = f"""
+            SELECT 
+                * 
+            FROM 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
+            INTO OUTFILE 
+                '{out_file}'
+            FORMAT 
+                Native
+            """
+            client.execute(query)
 
 
 @dataclass(frozen=True)
@@ -221,32 +254,89 @@ class DropTable(Query):
 class InsertFromInFile:
     settings = ClickhouseSettings()
 
-    def statement(self, table_name: str, in_file: Path) -> str:
-        return f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
-
-    async def execute(self, table_name: str, in_file: Path) -> None:
-        """insert data contained in local file"""
-        cmd = f'clickhouse client --query="{self.statement(table_name, in_file)}"'
-
-        ps = await asyncio.subprocess.create_subprocess_shell(
-            cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+    def statement(
+        self,
+        table_name: str,
+        in_file: Path,
+        database: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
+    ) -> str:
+        return (
+            f"INSERT INTO {database}.{table_name} FROM INFILE '{in_file}' FORMAT Native"
         )
-        _, stderr = await ps.communicate()
 
-        if stderr:
-            raise RuntimeError(
-                f"Could not insert data::{cmd}, failed with error: {stderr}"
-            )
+    def execute(
+        self,
+        table_name: str,
+        in_file: Path,
+        database: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
+    ) -> None:
+        """insert data contained in local csv file"""
+        cmd = f"""clickhouse client \
+            --user {ClickhouseSettings().CLICKHOUSE_USERNAME} \ 
+            --password {ClickhouseSettings().CLICKHOUSE_PASSWORD} \
+            --protocol http \
+            --query=\"{self.statement(table_name, in_file,database)}\"
+        """
+
+        ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+        logger.debug(f"Insert from CSV:: {in_file=}, {ps.stdout=}, {ps.stderr=}")
+
+        if ps.stderr:
+            raise RuntimeError(f"Could not insert data::{cmd}, error:: {ps.stderr}")
         else:
             logger.info(f"{cmd}::Successfully executed")
+
+
+@dataclass(frozen=True)
+class ExtractTableData:
+    def statement(self, table_name: str, out_file: Path) -> str:
+        return f"""
+        SELECT
+            *
+        FROM
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        INTO OUTFILE
+            '{out_file}'
+        FORMAT
+            Native
+        """
+
+    def execute(self, table_name: str, out_file: Path) -> None:
+        """execute query with native client"""
+        cmd = f"clickhouse client"
+        cmd += f" --user {ClickhouseSettings().CLICKHOUSE_USERNAME}"
+        cmd += f" --password {ClickhouseSettings().CLICKHOUSE_PASSWORD}"
+        cmd += f' --query="{self.statement(table_name, out_file)}"'
+
+        ps = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+        logger.debug(
+            f"Extract data from {table_name=} to {out_file=} {ps.stdout=}, {ps.stderr=}"
+        )
+
+        if ps.stderr:
+            raise RuntimeError(f"Could execute query, error:: {ps.stderr}")
+        else:
+            logger.info(f"::Successfully executed")
 
 
 @dataclass(frozen=True)
 class InsertFromCSV:
     settings = ClickhouseSettings()
 
-    def statement(self, table_name: str, in_file: Path) -> str:
+    def statement_deprec(self, table_name: str, in_file: Path) -> str:
         return f"INSERT INTO {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} FROM INFILE '{in_file}' FORMAT CSV"
+
+    def statement(self, table_name: str, in_file: Path) -> str:
+        return f"""
+        INSERT INTO FUNCTION 
+            file('{in_file}', 'Native', 'ZSTD')
+        SELEC
+            *
+        FROM 
+            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+        """
 
     def execute(self, table_name: str, in_file: Path) -> None:
         """insert data contained in local csv file"""

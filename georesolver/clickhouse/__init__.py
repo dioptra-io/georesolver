@@ -4,6 +4,7 @@ from .main import (
     InsertCSV,
     InsertFromInFile,
     InsertFromCSV,
+    ExtractTableData,
     DropTable,
 )
 from .create_tables import (
@@ -58,6 +59,7 @@ __all__ = (
     "InsertFromInFile",
     "InsertFromCSV",
     "DropTable",
+    "ExtractTableData",
     "CreateVPsTable",
     "CreateIPv6VPsTable",
     "CreatePingTable",

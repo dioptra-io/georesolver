@@ -1,3 +1,4 @@
+from pathlib import Path
 from loguru import logger
 from typing import Generator, Any
 from collections import defaultdict
@@ -13,6 +14,7 @@ from georesolver.clickhouse import (
     CreateDNSMappingTable,
     CreateTracerouteTable,
     CreateNameServerTable,
+    ExtractTableData,
     GetTables,
     ChangeTableName,
     GetSubnets,
@@ -722,3 +724,13 @@ def change_table_name(table_name: str, new_table_name: str) -> None:
                 table_name=table_name,
                 new_table_name=new_table_name,
             )
+
+
+def extract_table(table_name: str, out_file: Path = None) -> None:
+    """extract table data and output into output file"""
+    with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
+        Query().execute_extract(
+            client,
+            table_name,
+            out_file.resolve() if type(out_file) == Path else out_file,
+        )
