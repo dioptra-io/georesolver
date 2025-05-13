@@ -11,14 +11,14 @@ path_settings = PathSettings()
 
 DEMO_TARGET_FILE = path_settings.DATASET / "demo_targets.csv"
 CONFIG_PATH = path_settings.DATASET / "experiment_config/local_demo_config.json"
-RANDOM_DATASET = True
+RANDOM_DATASET = False
 NB_ADDRS = 1_000
 
 
 def generate_random_dataset() -> None:
     """generate a random target IP addresses, output into target file"""
     ip_addrs = load_csv(
-        path_settings.DATASET / "subnet_aggregation/subnet_aggregation_targets.csv"
+        path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
     )
     sample_targets = sample(ip_addrs, NB_ADDRS)
     dump_csv(sample_targets, DEMO_TARGET_FILE)

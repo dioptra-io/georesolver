@@ -212,12 +212,7 @@ class Query:
         out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
     ):
         with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-            query = f"""
-            INSERT INTO 
-                {out_db}.{table_name} 
-            FORMAT 
-                {format}
-            """
+            query = f"INSERT INTO {out_db}.{table_name} FORMAT {format}"
             client.execute(query, data=in_file.read_bytes())
 
     def execute_extract(

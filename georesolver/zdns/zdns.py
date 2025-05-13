@@ -134,7 +134,7 @@ class ZDNS:
 
             # check status
             if resp["status"] != "NOERROR":
-                logger.error(f"{resp=}")
+                # logger.error(f"{resp=}")
                 return None
 
             # depending on the version of ZDNS, parding might defer
@@ -186,17 +186,17 @@ class ZDNS:
                 answer_asn = -1
                 answer_bgp_prefix = "None"
 
-            parsed_output.append(
-                f"{int(timestamp)},\
+            string_data = f"{timestamp},\
                 {subnet_addr},\
-                {24 if self.request_type == 'AAAA' else 56},\
+                {24 if self.request_type == 'A' else 56},\
                 {hostname},\
                 {answer},\
                 {answer_subnet},\
                 {answer_bgp_prefix},\
                 {answer_asn},\
                 {source_scope}"
-            )
+
+            parsed_output.append(string_data)
 
         return parsed_output
 

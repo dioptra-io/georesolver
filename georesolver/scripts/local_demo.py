@@ -1,5 +1,6 @@
 """run GeoResolver geolocation on a set of demo targets"""
 
+from pathlib import Path
 from random import sample
 
 from georesolver.agent.main import main
@@ -11,37 +12,38 @@ ripe_atlas_settings = RIPEAtlasSettings()
 
 UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 NB_ADDRS = 100
-USER_TARGET_FILE = path_settings.USER_DATASETS / "demo_targets.csv"
-LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "itdk/random_sample_private_db.csv"
+LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.USER_DATASETS / "hostnames_georesolver.csv"
-ECS_TABLE: str = "georesolver_itdk_sample_ecs"
-SCORE_TABLE: str = "georesolver_itdk_sample_score"
-SCHEDULE_TABLE: str = "georesolver_itdk_sample_schedule"
-PING_TABLE: str = "georesolver_itdk_sample_ping"
-GEOLOC_TABLE: str = "georesolver_itdk_sample_geoloc"
+ECS_TABLE: str = "local_demo_ecs"
+SCORE_TABLE: str = "local_demo_score"
+SCHEDULE_TABLE: str = "local_demo_schedule"
+PING_TABLE: str = "local_demo_ping"
+GEOLOC_TABLE: str = "local_demo_geoloc"
 BATCH_SIZE = 1_000
 
 
-def generate_random_dataset() -> None:
+def generate_random_dataset(input_dataset: Path) -> None:
     """generate a random target IP addresses, output into target file"""
-    ip_addrs = load_csv(USER_TARGET_FILE)
+    ip_addrs = load_csv(input_dataset)
     sample_targets = sample(ip_addrs, NB_ADDRS)
     dump_csv(sample_targets, LOCAL_DEMO_TARGET_FILE)
 
 
 if __name__ == "__main__":
 
-    # generate_random_dataset()
+    generate_random_dataset(
+        path_settings.DATASET / "itdk/itdk_responsive_router_interface_parsed.csv"
+    )
 
     agent_config = {
         "agent_uuid": "6d4b3d4f-9b22-41e1-8f00-d556a1a107f9",
-        "experiment_name": "georesolver_itdk_sample",
+        "experiment_name": "local_demo",
         "experiment_uuid": "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f",
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": BATCH_SIZE,
         "init_ecs_mapping": False,
-        "log_path": f"{(path_settings.LOG_PATH / 'georesolver_itdk_sample/').resolve()}",
+        "log_path": f"{(path_settings.LOG_PATH / 'local_demo/').resolve()}",
         "processes": [
             {
                 "name": "ecs_process",
