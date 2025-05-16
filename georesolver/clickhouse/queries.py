@@ -8,13 +8,14 @@ from pych_client.exceptions import ClickHouseException
 from georesolver.clickhouse import (
     Query,
     CreatePingTable,
+    CreateIPv6PingTable,
     CreateScoreTable,
     CreateScheduleTable,
     CreateGeolocTable,
     CreateDNSMappingTable,
     CreateTracerouteTable,
+    CreateIPv6TracerouteTable,
     CreateNameServerTable,
-    ExtractTableData,
     GetTables,
     ChangeTableName,
     GetSubnets,
@@ -319,11 +320,18 @@ def load_vps(input_table: str, ipv6: bool = False) -> list:
     return vps
 
 
-def load_targets(input_table: str) -> list:
+def load_targets(input_table: str, ipv6: bool = False) -> list:
     """load all targets (ripe atlas anchors) from clickhouse"""
     targets = []
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        rows = GetVPs().execute(client=client, table_name=input_table, is_anchor=True)
+        if not ipv6:
+            rows = GetVPs().execute(
+                client=client, table_name=input_table, is_anchor=True
+            )
+        else:
+            rows = GetIPv6VPs().execute(
+                client=client, table_name=input_table, is_anchor=True
+            )
 
         target_ids = set()
         for row in rows:
@@ -619,11 +627,19 @@ def insert_dns_answers(
         )
 
 
-async def insert_pings(csv_data: list[str], output_table: str) -> None:
+async def insert_pings(
+    csv_data: list[str], output_table: str, ipv6: bool = False
+) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
     async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        await CreatePingTable().aio_execute(client=client, table_name=output_table)
+        if not ipv6:
+            await CreatePingTable().aio_execute(client=client, table_name=output_table)
+        else:
+            await CreateIPv6PingTable().aio_execute(
+                client=client, table_name=output_table
+            )
+
         Query().execute_insert(
             client=client,
             table_name=output_table,
@@ -633,13 +649,21 @@ async def insert_pings(csv_data: list[str], output_table: str) -> None:
     tmp_file_path.unlink()
 
 
-async def insert_traceroutes(csv_data: list[str], output_table: str) -> None:
+async def insert_traceroutes(
+    csv_data: list[str], output_table: str, ipv6: bool = False
+) -> None:
     tmp_file_path = create_tmp_csv_file(csv_data)
 
     async with AsyncClickHouseClient(**ClickhouseSettings().clickhouse) as client:
-        await CreateTracerouteTable().aio_execute(
-            client=client, table_name=output_table
-        )
+        if not ipv6:
+            await CreateTracerouteTable().aio_execute(
+                client=client, table_name=output_table
+            )
+        else:
+            await CreateIPv6TracerouteTable().aio_execute(
+                client=client, table_name=output_table
+            )
+
         Query().execute_insert(
             client=client,
             table_name=output_table,

@@ -25,6 +25,7 @@ class RIPEAtlasProber:
         min_ttl: int = 1,
         max_hops: int = 32,
         protocol: str = "icmp",
+        ipv6: bool = False,
     ) -> None:
         self.dry_run = dry_run
 
@@ -44,6 +45,7 @@ class RIPEAtlasProber:
         self.config: dict = None
         self.measurement_ids = []
         self.output_logs = output_logs
+        self.ipv6 = ipv6
 
         # only for traceroute
         self.min_ttl = min_ttl
@@ -124,6 +126,7 @@ class RIPEAtlasProber:
                     vp_ids=[vp_id for vp_id in vp_ids],
                     probing_tag=str(self.probing_tag),
                     protocol=self.protocol,
+                    ipv6=self.ipv6,
                 )
             case "traceroute":
                 id = await self.api.traceroute(
@@ -133,6 +136,7 @@ class RIPEAtlasProber:
                     min_ttl=self.min_ttl,
                     max_hops=self.max_hops,
                     protocol=self.protocol,
+                    ipv6=self.ipv6,
                 )
             case _:
                 raise RuntimeError(

@@ -75,7 +75,9 @@ class CreateVPsTable(Query):
 
 class CreatePingTable(Query):
     def statement(
-        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+        self,
+        table_name: str,
+        out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
     ) -> str:
         """return ping creation table query"""
         sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
@@ -90,6 +92,38 @@ class CreatePingTable(Query):
                 msm_id             UInt64, 
                 dst_addr           IPv4,
                 dst_prefix         IPv4,
+                proto              String,
+                rcvd               UInt8,
+                sent               UInt8,
+                min                Float32,
+                max                Float32,
+                avg                Float32,
+                rtts               Array(Float32)
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
+class CreateIPv6PingTable(Query):
+    def statement(
+        self,
+        table_name: str,
+        out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE,
+    ) -> str:
+        """return ping creation table query"""
+        sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, proto, rcvd, sent, min, max, avg, rtts"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
+            (
+                timestamp          UInt16,
+                src_addr           IPv6,
+                src_prefix         IPv6,
+                src_netmask        UInt8,
+                prb_id             UInt64,
+                msm_id             UInt64, 
+                dst_addr           IPv6,
+                dst_prefix         IPv6,
                 proto              String,
                 rcvd               UInt8,
                 sent               UInt8,
@@ -143,6 +177,39 @@ class CreateTracerouteTable(Query):
                 proto              String,
                 reply_addr         IPv4,
                 reply_prefix       IPv4,
+                ttl                UInt32,
+                rcvd               UInt8,
+                sent               UInt8,
+                min                Float32,
+                max                Float32,
+                avg                Float32,
+                rtts               Array(Float32)
+            )
+            ENGINE MergeTree
+            ORDER BY ({sorting_key})
+            """
+
+
+class CreateIPv6TracerouteTable(Query):
+    def statement(
+        self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
+    ) -> str:
+        """returns anchors mapping table query"""
+        sorting_key = "src_addr, src_netmask, prb_id, msm_id, dst_addr, ttl, reply_addr, proto, rcvd, sent, min, max, avg, rtts"
+        return f"""
+            CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
+            (
+                timestamp          UInt16,
+                src_addr           IPv6,
+                src_prefix         IPv6,
+                src_netmask        UInt8,
+                prb_id             UInt64,
+                msm_id             UInt64, 
+                dst_addr           IPv6,
+                dst_prefix         IPv6,
+                proto              String,
+                reply_addr         IPv6,
+                reply_prefix       IPv6,
                 ttl                UInt32,
                 rcvd               UInt8,
                 sent               UInt8,

@@ -1,9 +1,9 @@
 """evaluate georesolver performances while not using GPDNS resolver"""
 
 import asyncio
+import numpy as np
 
 from tqdm import tqdm
-from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
 from collections import defaultdict
@@ -13,29 +13,26 @@ from georesolver.clickhouse.queries import (
     get_hostnames,
     load_vps,
     load_targets,
-    get_min_rtt_per_vp,
-    get_pings_per_target,
+    get_pings_per_target_extended,
 )
 from georesolver.agent.ecs_process import run_dns_mapping
-from georesolver.evaluation.evaluation_score_functions import get_scores
+from georesolver.evaluation.evaluation_georesolver_functions import (
+    get_scores,
+    get_vp_selection_per_target,
+)
 from georesolver.evaluation.evaluation_plot_functions import (
-    plot_ref,
     ecdf,
+    get_proportion_under,
     plot_multiple_cdf,
 )
-from georesolver.evaluation.evaluation_ecs_geoloc_functions import (
-    ecs_dns_vp_selection_eval,
-)
-from georesolver.common.utils import EvalResults, TargetScores, get_parsed_vps
 from georesolver.common.files_utils import (
     load_json,
     dump_json,
     load_csv,
     dump_csv,
-    load_pickle,
-    dump_pickle,
 )
 from georesolver.common.ip_addresses_utils import get_host_ip_addr, get_prefix_from_ip
+from georesolver.common.utils import get_d_errors_ref, get_d_errors_georesolver
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()
@@ -45,34 +42,19 @@ ITERATIVE_GEORESOLVER_PATH = (
     path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames.csv"
 )
 ITERATIVE_GEORESOLVER_PATH = (
-    path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames_bgp_10_ns_5.csv"
+    path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames_bgp_10_ns_3.csv"
 )
 ITERATIVE_HOSTNAMES_TABLE = "iterative_ecs_hostnames"
-ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
-ITERATIVE_VPS_ECS_MAPPING_TABLES = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative_new"
+ITERATIVE_VPS_ECS_MAPPING_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
 
-
-def vps_mapping_other_resolvers(resolvers: list[str]) -> list[str]:
-    """get ECS hostnames using Cisco open DNS"""
-    host_addr = get_host_ip_addr()
-    host_subnet = get_prefix_from_ip(host_addr)
-    ecs_hostnames_path = path_settings.HOSTNAMES_GEORESOLVER
-
-    for resolver, ip_addr in resolvers:
-        logger.info(f"ECS-DNS resolution:: {resolver=}; {ip_addr=}")
-        asyncio.run(
-            run_dns_mapping(
-                subnets=[host_subnet],
-                hostname_file=ecs_hostnames_path,
-                output_table=f"ecs_hostanmes_{resolver}",
-                name_servers=ip_addr,
-            )
-        )
+TARGETS_TABLE: str = ch_settings.VPS_FILTERED_FINAL_TABLE
+VPS_TABLE: str = ch_settings.VPS_FILTERED_FINAL_TABLE
+RESULTS_PATH: Path = path_settings.RESULTS_PATH / "iterative_eval"
 
 
 def get_iterative_ecs_hostnames(input_table: str) -> list[str]:
     """use ZDNS resolver to filter hostnames"""
-    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_GPDNS.csv"
+    ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_selected_hostnames.csv"
 
     tables = get_tables()
 
@@ -153,7 +135,7 @@ def get_hostnames_org_and_ns_threshold(
     while preserving (NS/ORG) pair diversity
     """
     bgp_threshold = 10
-    ns_org_threshold = 5
+    ns_org_threshold = 3
 
     filtered_hostnames_per_org_per_ns = defaultdict(dict)
     for ns in best_hostnames_per_org_per_ns:
@@ -270,166 +252,96 @@ def iterative_vps_ecs_mapping(hostname_file: Path, output_table: str) -> None:
         logger.info(f"Iterative VPs mapping {output_table=} already exists")
 
 
-def compute_score(
-    output_path: Path, hostname_file: Path, vps_ecs_mapping_table: str
-) -> None:
-    """calculate score for each organization/ns pair"""
+def plot_iterative_results() -> None:
 
-    # if output_path.exists():
-    #     return
-
-    targets_table = ch_settings.VPS_FILTERED_FINAL_TABLE
-    vps_table = ch_settings.VPS_FILTERED_FINAL_TABLE
-    targets_ecs_table = vps_ecs_mapping_table
-    vps_ecs_table = vps_ecs_mapping_table
-
-    selected_hostnames = load_csv(hostname_file)
-
-    score_config = {
-        "targets_table": targets_table,
-        "main_org_threshold": 0.0,
-        "bgp_prefixes_threshold": 0.0,
-        "vps_table": vps_table,
-        "selected_hostnames": selected_hostnames,
-        "targets_ecs_table": targets_ecs_table,
-        "vps_ecs_table": vps_ecs_table,
-        "hostname_selection": "max_bgp_prefix",
-        "score_metric": ["jaccard"],
-        "answer_granularities": ["answer_subnets"],
-        "output_path": output_path,
-    }
-
-    get_scores(score_config)
-
-
-def select_vps(score_file: Path, output_file: Path) -> None:
-    """perform georesolver vp selection based on score calculation"""
-
-    # if output_file.exists():
-    #     return
-
-    asndb = pyasn(str(path_settings.RIB_TABLE))
-
-    logger.info(f"Running geresolver analysis from score file:: {score_file}")
-
+    cdfs = []
     removed_vps = load_json(path_settings.REMOVED_VPS)
-    targets = load_targets(ch_settings.VPS_FILTERED_FINAL_TABLE)
-    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
-    vps_per_subnet, vps_coordinates = get_parsed_vps(vps, asndb)
-    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
-    ping_vps_to_target = get_pings_per_target(
-        ch_settings.VPS_MESHED_PINGS_TABLE, [addr for _, addr in removed_vps]
+    hostnames = load_csv(
+        path_settings.HOSTNAME_FILES / "iterative_georesolver_hostnames_bgp_10_ns_3.csv"
+    )
+    targets = load_targets(TARGETS_TABLE)
+    vps = load_vps(VPS_TABLE)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    target_subnets = [t["subnet"] for t in targets]
+    vp_subnets = [v["subnet"] for v in vps]
+
+    # load score similarity between vps and targets
+    scores = get_scores(
+        output_path=RESULTS_PATH / "score_extended.pickle",
+        hostnames=hostnames,
+        target_subnets=target_subnets,
+        vp_subnets=vp_subnets,
+        target_ecs_table=ITERATIVE_VPS_ECS_MAPPING_TABLE,
+        vps_ecs_table=ITERATIVE_VPS_ECS_MAPPING_TABLE,
     )
 
-    vps_per_addr = {}
-    for vp in vps:
-        vps_per_addr[vp["addr"]] = vp
+    vp_selection_per_target = get_vp_selection_per_target(
+        output_path=RESULTS_PATH / "vp_selection_extended.pickle",
+        scores=scores,
+        targets=[t["addr"] for t in targets],
+        vps=vps,
+    )
 
-    scores: TargetScores = load_pickle(score_file)
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+    )
 
-    results_answer_subnets = ecs_dns_vp_selection_eval(
-        targets=targets,
-        vps_per_subnet=vps_per_subnet,
-        subnet_scores=scores.score_answer_subnets,
-        ping_vps_to_target=ping_vps_to_target,
-        last_mile_delay=last_mile_delay,
+    # add reference
+    d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)
+    x, y = ecdf(d_errors_ref)
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"Shortest Ping all VPs:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"Shortest Ping all VPs::: median_error={round(m_error, 2)} [km]")
+
+    # add georesolver
+    vp_selection_per_target_georesolver = get_vp_selection_per_target(
+        output_path=path_settings.RESULTS_PATH / "tier5_evaluation/vp_selection.pickle",
+        scores=scores,
+        targets=[t["addr"] for t in targets],
+        vps=vps,
+    )
+    d_errors = get_d_errors_georesolver(
+        targets=[t["addr"] for t in targets],
+        pings_per_target=pings_per_target,
+        vp_selection_per_target=vp_selection_per_target_georesolver,
         vps_coordinates=vps_coordinates,
-        vps_per_addr=vps_per_addr,
-        probing_budgets=[50],
+        probing_budget=50,
     )
-
-    results = EvalResults(
-        target_scores=scores,
-        results_answers=None,
-        results_answer_subnets=results_answer_subnets,
-        results_answer_bgp_prefixes=None,
-    )
-
-    logger.info(f"output file:: {output_file}")
-
-    dump_pickle(
-        data=results,
-        output_file=output_file,
-    )
-
-
-def plot_iterative_results(
-    georesolver_results_path: Path,
-    iterative_results_path: Path,
-    output_path: Path,
-    metric_evaluated: str = "d_error",
-    legend_pos: str = "lower right",
-) -> None:
-    all_cdfs = []
-
-    # exhaustive curve
-    ref_cdf = plot_ref(metric_evaluated)
-    all_cdfs.append(ref_cdf)
-
-    # georesolver results
-    d_errors = []
-    georesolver_results: EvalResults = load_pickle(georesolver_results_path)
-    for _, target_results in georesolver_results.results_answer_subnets.items():
-        try:
-            results = target_results["result_per_metric"]["jaccard"]
-            d_errors.append(results["ecs_shortest_ping_vp_per_budget"][50]["d_error"])
-
-        except KeyError:
-            continue
-
     x, y = ecdf(d_errors)
-    all_cdfs.append((x, y, "GPDNS resolver (GeoResolver)"))
+    cdfs.append((x, y, "GPDNS resolver (GeoResolver)"))
 
-    # iterative results
-    d_errors = []
-    iterative_results: EvalResults = load_pickle(iterative_results_path)
-    for _, target_results in iterative_results.results_answer_subnets.items():
-        try:
-            results = target_results["result_per_metric"]["jaccard"]
-            d_errors.append(results["ecs_shortest_ping_vp_per_budget"][50]["d_error"])
-        except KeyError:
-            continue
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
 
+    logger.info(f"GeoResolver:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"GeoResolver:: median_error={round(m_error, 2)} [km]")
+
+    # add iterative resolver results
+    d_errors = get_d_errors_georesolver(
+        targets=[t["addr"] for t in targets],
+        pings_per_target=pings_per_target,
+        vp_selection_per_target=vp_selection_per_target,
+        vps_coordinates=vps_coordinates,
+        probing_budget=50,
+    )
     x, y = ecdf(d_errors)
-    all_cdfs.append((x, y, "ZDNS resolver"))
+    cdfs.append((x, y, "ZDNS resolver"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"ZDNS resolver:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"ZDNS resolver:: median_error={round(m_error, 2)} [km]")
 
     plot_multiple_cdf(
-        cdfs=all_cdfs,
-        output_path=output_path,
-        metric_evaluated=metric_evaluated,
-        legend_pos=legend_pos,
-    )
-
-
-def evaluation(hostname_file: Path, vps_ecs_mapping_table: str) -> None:
-    """calculate scores, select VPs and eval against meshed pings"""
-    results_path = path_settings.RESULTS_PATH / "iterative_eval"
-    georesolver_results_path = (
-        path_settings.RESULTS_PATH
-        / "tier5_evaluation/results__d_error_per_budget_new.pickle"
-    )
-
-    # 0. perform VPs mapping
-    iterative_vps_ecs_mapping(hostname_file, vps_ecs_mapping_table)
-
-    # 1. compute scores
-    compute_score(
-        output_path=results_path / "score_new.pickle",
-        hostname_file=hostname_file,
-        vps_ecs_mapping_table=vps_ecs_mapping_table,
-    )
-
-    # 2. select VPs
-    select_vps(
-        score_file=results_path / "score_new.pickle",
-        output_file=results_path / "vp_selection_new.pickle",
-    )
-
-    # 3. make cdfs
-    plot_iterative_results(
-        georesolver_results_path=georesolver_results_path,
-        iterative_results_path=results_path / "vp_selection_new.pickle",
-        output_path="iterative_resolver_evaluation_new",
+        cdfs=cdfs,
+        output_path="iterative_resolver",
+        metric_evaluated="d_error",
+        legend_pos="lower right",
     )
 
 
@@ -442,19 +354,19 @@ def main() -> None:
         - evaluation on meshed pings
     """
     do_get_iterative_georesolver_hostnames: bool = False
-    do_test_resolvers: bool = True
-    do_eval: bool = False
+    do_eval: bool = True
 
     if do_get_iterative_georesolver_hostnames:
         get_iterative_georesolver_hostnames(ITERATIVE_GEORESOLVER_PATH)
 
-    if do_test_resolvers:
-        resolvers = [("AdGuard_DNS", "94.140.14.14")]
-        vps_mapping_other_resolvers(resolvers)
     if do_eval:
-        evaluation(
-            path_settings.HOSTNAMES_GEORESOLVER, ITERATIVE_VPS_ECS_MAPPING_TABLES
+        # 0. perform VPs mapping
+        iterative_vps_ecs_mapping(
+            path_settings.HOSTNAMES_GEORESOLVER, ITERATIVE_VPS_ECS_MAPPING_TABLE
         )
+
+        # 1. make cdfs
+        plot_iterative_results()
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ class GetIPv6VPs(Query):
         SELECT
             toString(address_v6) as addr,
             toString(subnet_v6) as subnet,
-            asn_v6 as asn,
+            asn_v4 as asn,
             toString(bgp_prefix) as bgp_prefix,
             country_code,
             lat,

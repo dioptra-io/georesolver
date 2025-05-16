@@ -303,6 +303,7 @@ def get_d_errors_ref(
 
 
 def get_d_errors_georesolver(
+    targets: list[str],
     pings_per_target: dict[list],
     vp_selection_per_target: dict[list],
     vps_coordinates: dict[dict],
@@ -310,7 +311,12 @@ def get_d_errors_georesolver(
 ) -> tuple[list[float], list[float]]:
     """return distance errors based on a set of targets with known geolocation"""
     d_errors = []
-    for target_addr, pings in pings_per_target.items():
+    for target_addr in tqdm(targets):
+
+        try:
+            pings = pings_per_target[target_addr]
+        except KeyError:
+            logger.error(f"Cannot find pings for {target_addr=}")
 
         # geoResolver shortest ping
         try:

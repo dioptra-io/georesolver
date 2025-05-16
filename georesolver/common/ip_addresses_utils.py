@@ -96,13 +96,6 @@ def get_prefix_from_ip(addr: str, ipv6: bool = False):
 
         return str(network.network_address)
 
-    # if not ipv6:
-    #     prefix = addr.split(".")[:-1]
-    #     prefix.append("0")
-    #     prefix = ".".join(prefix)
-
-    # return prefix
-
 
 def to_ipv6(ipv4_addr: str) -> str:
     """add ipv6 format to ipv4 for unified storage"""

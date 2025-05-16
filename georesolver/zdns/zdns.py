@@ -80,7 +80,7 @@ class ZDNS:
                     f"echo {hostname}"
                     + " | "
                     + f"{self.settings.EXEC_PATH} {self.request_type} --client-subnet {subnet} --iterative"
-                    + " --threads 200"
+                    + " --threads 200 --timeout 3"
                 )
         else:
             return (
@@ -102,7 +102,8 @@ class ZDNS:
         stdout, stderr = await ps.communicate()
 
         if stderr:
-            raise RuntimeError(stderr)
+            # raise RuntimeError(stderr)
+            pass
 
         try:
             output = stdout.decode().split("\n")
@@ -132,44 +133,37 @@ class ZDNS:
             if not hostname:
                 hostname = resp["name"]
 
+            resp = resp["results"][self.request_type]
+
             # check status
             if resp["status"] != "NOERROR":
-                # logger.error(f"{resp=}")
                 return None
 
-            # depending on the version of ZDNS, parding might defer
             try:
-                answers = resp["data"]["answers"]
+                data = resp["data"]
+                answers = data["answers"]
                 timestamp = self.parse_timestamp(resp["timestamp"])
-                source_scope = resp["data"]["additionals"][0]["csubnet"]["source_scope"]
-                subnet = resp["data"]["additionals"][0]["csubnet"]["address"]
+                additionals = data["additionals"]
+
+                source_scope = 0
+                for additional in additionals:
+                    if "csubnet" not in additional:
+                        continue
+
+                    source_scope = additional["csubnet"]["source_scope"]
+                    subnet = additional["csubnet"]["address"]
+                    break
 
                 if source_scope == 0:
-                    # logger.error(f"{hostname} does not support ECS")
                     return None
 
             except Exception as e:
-                # logger.debug(f"Failed to parse data: {e}; {resp['name']}")
                 return None
 
         except KeyError:
             return None
 
         for answer in answers:
-            if answer["type"] != "A" and not self.request_type == "AAAA":
-                if self.iterative and answer["type"] == "CNAME":
-                    cname = answer["answer"]
-                    subnet = subnet + "/24" if not "/24" in subnet else subnet
-                    query_results, subnet = await self.query(subnet, hostname=cname)
-                    for result in query_results:
-                        cname_parsed_output = await self.parse_a_records(
-                            result, subnet, asndb, hostname=cname
-                        )
-                        if cname_parsed_output:
-                            parsed_output.extend(cname_parsed_output)
-                else:
-                    continue
-
             answer = answer["answer"]
             if is_valid_ipv4(answer) and self.request_type == "A":
                 subnet_addr = get_prefix_from_ip(subnet)
@@ -186,7 +180,7 @@ class ZDNS:
                 answer_asn = -1
                 answer_bgp_prefix = "None"
 
-            string_data = f"{timestamp},\
+            string_data = f"{int(timestamp)},\
                 {subnet_addr},\
                 {24 if self.request_type == 'A' else 56},\
                 {hostname},\
@@ -285,7 +279,7 @@ class ZDNS:
         else:
             output_file = None
 
-        step_size = 2
+        step_size = 3
         for i in trange(0, len(self.subnets), step_size, file=output_file):
             batch_subnets = self.subnets[i : i + step_size]
             tasks = tuple([self.query(subnet) for subnet in batch_subnets])

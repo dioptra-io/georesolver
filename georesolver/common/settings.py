@@ -81,6 +81,7 @@ class PathSettings(BaseSettings):
     GREEDY_VPS: Path = DATASET / "greedy_vps.json"
     REMOVED_VPS: Path = DATASET / "removed_vps.json"
     VPS_PAIRWISE_DISTANCE: Path = DATASET / "vps_pairwise_distance.json"
+    VPS_PAIRWISE_DISTANCE_IPv6: Path = DATASET / "vps_pairwise_distance_ipv6.json"
 
     # Docker file
     DOCKER_FILE_PATH: Path = DEFAULT / "../../dockerfile"

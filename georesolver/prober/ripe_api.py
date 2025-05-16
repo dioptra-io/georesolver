@@ -1,25 +1,23 @@
-import httpx
-import asyncio
-import pyasn
 import time
 import json
+import httpx
+import pyasn
+import asyncio
 
 from numpy import mean
-from datetime import datetime, timedelta
-from ipaddress import IPv4Address, AddressValueError
 from collections import defaultdict
+from ipaddress import IPv4Address, IPv6Address, AddressValueError
 
-from uuid import uuid4
-from loguru import logger
 from enum import Enum
+from loguru import logger
 from pych_client import AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
 from georesolver.clickhouse import (
-    CreateVPsTable,
-    CreatePingTable,
     DropTable,
     InsertCSV,
+    CreateVPsTable,
+    CreatePingTable,
     GetMeasurementIds,
 )
 from georesolver.clickhouse.queries import load_vps
@@ -58,13 +56,18 @@ class RIPEAtlasAPI:
                 )
 
     def get_ping_config(
-        self, target: str, vp_ids: list[int], probing_tag: str, protocol: str = "ICMP"
+        self,
+        target: str,
+        vp_ids: list[int],
+        probing_tag: str,
+        protocol: str = "ICMP",
+        ipv6: bool = False,
     ) -> dict:
         return {
             "definitions": [
                 {
                     "target": target,
-                    "af": self.settings.IP_VERSION,
+                    "af": 4 if not ipv6 else 6,
                     "packets": self.settings.PING_NB_PACKETS,
                     "proto": protocol,
                     "size": 48,
@@ -90,12 +93,13 @@ class RIPEAtlasAPI:
         min_ttl: int = 1,
         max_hops: int = 32,
         protocol: str = "ICMP",
+        ipv6: bool = False,
     ) -> dict:
         return {
             "definitions": [
                 {
                     "target": target,
-                    "af": self.settings.IP_VERSION,
+                    "af": 4 if not ipv6 else 6,
                     "packets": self.settings.PING_NB_PACKETS,
                     "first_hop": min_ttl,
                     "max_hops": max_hops,
@@ -294,13 +298,15 @@ class RIPEAtlasAPI:
 
         tmp_file_path.unlink()
 
-    async def insert_pings(self, ping_results: list[str], table_name: str) -> None:
+    async def insert_pings(
+        self, ping_results: list[str], table_name: str, ipv6: bool = False
+    ) -> None:
         """insert vps within clickhouse db"""
 
         tmp_file_path = create_tmp_csv_file(ping_results)
 
         async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreatePingTable().aio_execute(client, table_name)
+            await CreatePingTable().aio_execute(client, table_name, ipv6)
             await InsertCSV().aio_execute(
                 client=client,
                 table_name=table_name,
@@ -398,7 +404,9 @@ class RIPEAtlasAPI:
 
             return measurement_ids
 
-    async def get_results_from_tag(self, params: dict, ping_table: str) -> None:
+    async def get_results_from_tag(
+        self, params: dict, ping_table: str, ipv6: bool = False
+    ) -> None:
         # Define API endpoint and parameters
         url = self.api_url + f"/measurements/ping/"
 
@@ -427,7 +435,7 @@ class RIPEAtlasAPI:
                     ):
                         continue
 
-                    ping_result = self.get_ping_results(measurement["id"])
+                    ping_result = self.get_ping_results(measurement["id"], ipv6)
 
                     logger.info(f"{measurement['id']=}, {len(ping_result)}")
 
@@ -439,7 +447,7 @@ class RIPEAtlasAPI:
                     await asyncio.sleep(0.5)
 
                     if len(ping_results) > 100:
-                        await self.insert_pings(ping_results, table_name=ping_table)
+                        await self.insert_pings(ping_results, ping_table, ipv6)
                         ping_results = []
 
                 logger.info("Loading next page")
@@ -477,6 +485,7 @@ class RIPEAtlasAPI:
         timeout: int = 30,
         max_retry: int = 3,
         wait_time: int = 30,
+        ipv6: bool = False,
     ) -> dict:
         """get results from ping measurement id"""
         url = f"{self.measurement_url}/{id}/results/"
@@ -486,7 +495,7 @@ class RIPEAtlasAPI:
                     resp = await client.get(url, headers=self.headers, timeout=timeout)
                     resp = resp.json()
 
-                    ping_results = self.parse_ping(resp)
+                    ping_results = self.parse_ping(resp, ipv6=ipv6)
                     await asyncio.sleep(0.1)
                 except httpx.ReadTimeout as e:
                     logger.error(f"{e}")
@@ -508,7 +517,7 @@ class RIPEAtlasAPI:
 
         return resp["probes_requested"], resp["target_ip"]
 
-    def parse_ping(self, results: list[dict]) -> list[str]:
+    def parse_ping(self, results: list[dict], ipv6: bool = False) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         parsed_data = []
         for result in results:
@@ -532,12 +541,12 @@ class RIPEAtlasAPI:
             parsed_data.append(
                 f"{result['timestamp']},\
                 {result['from']},\
-                {get_prefix_from_ip(result['from'])},\
+                {get_prefix_from_ip(result['from'], ipv6)},\
                 {24},\
                 {result['prb_id']},\
                 {result['msm_id']},\
                 {result['dst_addr']},\
-                {get_prefix_from_ip(result['dst_addr'])},\
+                {get_prefix_from_ip(result['dst_addr'], ipv6)},\
                 {result['proto']},\
                 {result['rcvd']},\
                 {result['sent']},\
@@ -565,6 +574,7 @@ class RIPEAtlasAPI:
         timeout: int = 30,
         max_retry: int = 3,
         wait_time: int = 30,
+        ipv6: bool = False,
     ) -> dict:
         """get all measurement"""
         url = f"{self.measurement_url}/{id}/results/"
@@ -575,7 +585,7 @@ class RIPEAtlasAPI:
                     resp = await client.get(url, headers=self.headers, timeout=timeout)
                     resp = resp.json()
 
-                    ping_results = self.parse_traceroute(resp)
+                    ping_results = self.parse_traceroute(resp, ipv6=ipv6)
                     await asyncio.sleep(0.1)
                 except httpx.ReadTimeout as e:
                     logger.error(f"{e}")
@@ -587,7 +597,7 @@ class RIPEAtlasAPI:
 
         return ping_results
 
-    def parse_traceroute(self, traceroutes: list) -> str:
+    def parse_traceroute(self, traceroutes: list, ipv6: bool = False) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""
         traceroute_results = []
         for traceroute in traceroutes:
@@ -622,7 +632,10 @@ class RIPEAtlasAPI:
                 for ip_addr, rtts in responses.items():
                     # remove private ip addresses
                     try:
-                        private_ip_addr = IPv4Address(ip_addr).is_private
+                        if not ipv6:
+                            private_ip_addr = IPv4Address(ip_addr).is_private
+                        else:
+                            private_ip_addr = IPv6Address(ip_addr).is_private
                     except AddressValueError:
                         continue
 
@@ -636,15 +649,15 @@ class RIPEAtlasAPI:
                     traceroute_results.append(
                         f"{traceroute['timestamp']},\
                         {traceroute['from']},\
-                        {get_prefix_from_ip(traceroute['from'])},\
+                        {get_prefix_from_ip(traceroute['from'], ipv6)},\
                         {24},\
                         {traceroute['prb_id']},\
                         {traceroute['msm_id']},\
                         {traceroute['dst_addr']},\
-                        {get_prefix_from_ip(traceroute['dst_addr'])},\
+                        {get_prefix_from_ip(traceroute['dst_addr'], ipv6)},\
                         {traceroute['proto']},\
                         {ip_addr},\
-                        {get_prefix_from_ip(ip_addr)},\
+                        {get_prefix_from_ip(ip_addr, ipv6)},\
                         {ttl},\
                         {sent},\
                         {rcvd},\
@@ -779,6 +792,7 @@ class RIPEAtlasAPI:
         timeout: int = 60 * 5,
         wait_time: int = 60 * 5,
         protocol: str = "ICMP",
+        ipv6: bool = False,
     ) -> int:
         """start ping measurement towards target from vps, return Atlas measurement id"""
 
@@ -790,7 +804,7 @@ class RIPEAtlasAPI:
                         self.measurement_url,
                         headers=self.headers,
                         json=self.get_ping_config(
-                            target, vp_ids, probing_tag, protocol
+                            target, vp_ids, probing_tag, protocol, ipv6
                         ),
                         timeout=timeout,
                     )
@@ -836,6 +850,7 @@ class RIPEAtlasAPI:
         min_ttl: int = 1,
         max_hops: int = 64,
         protocol: str = "ICMP",
+        ipv6: bool = False,
     ) -> int:
         id = None
         id = None
@@ -846,7 +861,13 @@ class RIPEAtlasAPI:
                         self.measurement_url,
                         headers=self.headers,
                         json=self.get_traceroute_config(
-                            target, vp_ids, probing_tag, min_ttl, max_hops, protocol
+                            target,
+                            vp_ids,
+                            probing_tag,
+                            min_ttl,
+                            max_hops,
+                            protocol,
+                            ipv6,
                         ),
                         timeout=timeout,
                     )

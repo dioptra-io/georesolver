@@ -27,8 +27,6 @@ ch_settings = ClickhouseSettings()
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
-TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
-VPS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
 RESULTS_PATH = path_settings.RESULTS_PATH / "tier5_evaluation"
 
 
@@ -37,28 +35,32 @@ def plot_per_budget() -> None:
     cdfs = []
     budgets = [500, 100, 50, 10, 1]
     removed_vps = load_json(path_settings.REMOVED_VPS)
+    hostnames = load_csv(path_settings.HOSTNAMES_GEORESOLVER)
     targets = load_targets(TARGETS_TABLE)
     vps = load_vps(VPS_TABLE)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
+    target_subnets = [t["subnet"] for t in targets]
+    vp_subnets = [v["subnet"] for v in vps]
 
     # load score similarity between vps and targets
     scores = get_scores(
         output_path=RESULTS_PATH / "score.pickle",
-        hostnames=load_csv(path_settings.HOSTNAMES_GEORESOLVER),
-        target_subnets=[t["addr"] for t in targets],
-        vp_subnets=[v["subnet"] for v in vps],
-        target_ecs_table=TARGETS_ECS_TABLE,
+        hostnames=hostnames,
+        target_subnets=target_subnets,
+        vp_subnets=vp_subnets,
+        target_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
         vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
     )
 
     vp_selection_per_target = get_vp_selection_per_target(
         output_path=RESULTS_PATH / "vp_selection.pickle",
         scores=scores,
-        targets=pings_per_target.keys(),
+        targets=[t["addr"] for t in targets],
         vps=vps,
+    )
+
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
     )
 
     # add reference
@@ -76,6 +78,7 @@ def plot_per_budget() -> None:
     for budget in budgets:
 
         d_errors = get_d_errors_georesolver(
+            targets=[t["addr"] for t in targets],
             pings_per_target=pings_per_target,
             vp_selection_per_target=vp_selection_per_target,
             vps_coordinates=vps_coordinates,
@@ -104,6 +107,7 @@ def plot_per_budget() -> None:
         cdfs=cdfs,
         output_path="tier5_per_budget",
         metric_evaluated="d_error",
+        legend_pos="lower right",
     )
 
 
@@ -125,9 +129,6 @@ def plot_d_error_per_rank() -> None:
     targets = load_targets(TARGETS_TABLE)
     vps = load_vps(VPS_TABLE)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
 
     # load score similarity between vps and targets
     scores = get_scores(
@@ -135,10 +136,13 @@ def plot_d_error_per_rank() -> None:
         hostnames=load_csv(path_settings.HOSTNAMES_GEORESOLVER),
         target_subnets=[t["addr"] for t in targets],
         vp_subnets=[v["subnet"] for v in vps],
-        target_ecs_table=TARGETS_ECS_TABLE,
+        target_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
         vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
     )
 
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
+    )
     vp_selection_per_target = get_vp_selection_per_target(
         output_path=RESULTS_PATH / "vp_selection.pickle",
         scores=scores,
@@ -161,6 +165,7 @@ def plot_d_error_per_rank() -> None:
     for rank in ranks:
 
         d_errors = get_d_errors_georesolver(
+            targets=[t["addr"] for t in targets],
             pings_per_target=pings_per_target,
             vp_selection_per_target=vp_selection_per_target,
             vps_coordinates=vps_coordinates,
@@ -189,30 +194,19 @@ def plot_d_error_per_rank() -> None:
         cdfs=cdfs,
         output_path="tier5_per_rank",
         metric_evaluated="d_error",
+        legend_pos="lower right",
     )
 
 
 def main() -> None:
-    do_plot_per_budget = True
-    do_plot_per_rank = False
+    do_plot_per_budget = False
+    do_plot_per_rank = True
 
     if do_plot_per_budget:
         plot_per_budget()
 
     if do_plot_per_rank:
-        probing_parameter = [
-            (0, 50),
-            (50, 100),
-            (100, 500),
-            (500, 1_000),
-            (1_000, 2_000),
-            (2_000, 10_000),
-        ]
-        plot_per_rank(
-            score_file=base_path / f"scores.pickle",
-            output_file=base_path / f"results__d_error_per_rank.pickle",
-            probing_parameter=probing_parameter,
-        )
+        plot_d_error_per_rank()
 
 
 if __name__ == "__main__":

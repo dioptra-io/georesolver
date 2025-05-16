@@ -126,6 +126,7 @@ async def retrieve_pings(
     wait_time: int = 0.1,
     step_size: int = 1,
     output_logs: Path = None,
+    ipv6: bool = False,
 ) -> None:
     """retrieve all ping measurements from a list of measurement ids"""
     csv_data = []
@@ -136,7 +137,10 @@ async def retrieve_pings(
         output_file = None
 
     for i in tqdm(range(0, len(ids), step_size), file=output_file):
-        tasks = [RIPEAtlasAPI().get_ping_results(id) for id in ids[i : i + step_size]]
+        tasks = [
+            RIPEAtlasAPI().get_ping_results(id, ipv6=ipv6)
+            for id in ids[i : i + step_size]
+        ]
         ping_results = await asyncio.gather(*tasks)
         logger.debug(len(ping_results))
 
@@ -148,7 +152,7 @@ async def retrieve_pings(
     if output_file:
         output_file.close()
 
-    await insert_pings(csv_data, output_table)
+    await insert_pings(csv_data, output_table, ipv6=ipv6)
 
 
 async def retrieve_traceroutes(
@@ -156,6 +160,7 @@ async def retrieve_traceroutes(
     output_table: str,
     wait_time: float = 0.1,
     output_logs: Path = None,
+    ipv6: bool = False,
 ) -> list[dict]:
     """retrieve all traceroutes from a list of ids"""
     if output_logs:
@@ -165,7 +170,7 @@ async def retrieve_traceroutes(
 
     csv_data = []
     for id in tqdm(ids):
-        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id)
+        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id, ipv6=ipv6)
         csv_data.extend(traceroute_result)
 
         await asyncio.sleep(wait_time)
@@ -173,7 +178,7 @@ async def retrieve_traceroutes(
     if output_file:
         output_file.close()
 
-    await insert_traceroutes(csv_data, output_table)
+    await insert_traceroutes(csv_data, output_table, ipv6)
 
 
 async def insert_results(

@@ -180,13 +180,13 @@ def get_hostname_score(args) -> None:
 
     targets_mapping = get_subnets_mapping(
         dns_table=target_ecs_table,
-        subnets=[s for s in target_subnets],
+        subnets=target_subnets,
         hostname_filter=hostnames,
     )
 
     vps_mapping = get_subnets_mapping(
         dns_table=vps_ecs_table,
-        subnets=[s for s in vp_subnets],
+        subnets=vp_subnets,
         hostname_filter=hostnames,
     )
 

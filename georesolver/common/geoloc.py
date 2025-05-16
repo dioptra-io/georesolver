@@ -3,12 +3,15 @@
 import itertools
 import numpy as np
 
-from math import asin, cos, log, radians, sin, sqrt, pi
-from collections import defaultdict
+from pathlib import Path
 from loguru import logger
+from collections import defaultdict
+from math import asin, cos, log, radians, sin, sqrt, pi
 
-from georesolver.common.settings import ConstantSettings
+from georesolver.common.files_utils import load_countries_info, dump_json
+from georesolver.common.settings import PathSettings, ConstantSettings
 
+path_settings = PathSettings()
 constant_settings = ConstantSettings()
 
 
@@ -486,3 +489,31 @@ def compute_remove_wrongly_geolocated_probes(
         n_violations = sum([len(x) for x in soi_per_id.values()])
 
     return list(removed_vps)
+
+
+def filter_default_country_geolocation(vps: list[dict], output_file: Path) -> None:
+    """filter VPs if there geolocation correspond to their country's default geoloc"""
+    filtered_vps = []
+    if not output_file.exists():
+        countries = load_countries_info()
+        for vp in vps:
+
+            try:
+                country_geo = countries[vp["country_code"]]
+            except KeyError:
+                print(f"error country code {vp['country_code']} is unknown")
+                continue
+
+            country_lat = float(country_geo["default_lat"])
+            country_lon = float(country_geo["default_lon"])
+
+            dist = distance(country_lat, vp["lat"], country_lon, vp["lon"])
+
+            if dist < 5:
+                filtered_vps.append((vp["id"]), vp["addr"])
+
+        logger.info(f"{len(filtered_vps)} VPs removed due to default geoloc")
+
+        dump_json(filtered_vps, output_file)
+
+    return filtered_vps
