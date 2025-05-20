@@ -129,20 +129,18 @@ async def retrieve_pings(
     ipv6: bool = False,
 ) -> None:
     """retrieve all ping measurements from a list of measurement ids"""
-    csv_data = []
-
     if output_logs:
         output_file = output_logs.open("a")
     else:
         output_file = None
 
+    csv_data = []
     for i in tqdm(range(0, len(ids), step_size), file=output_file):
         tasks = [
             RIPEAtlasAPI().get_ping_results(id, ipv6=ipv6)
             for id in ids[i : i + step_size]
         ]
         ping_results = await asyncio.gather(*tasks)
-        logger.debug(len(ping_results))
 
         for ping_result in ping_results:
             csv_data.extend(ping_result)
@@ -159,6 +157,7 @@ async def retrieve_traceroutes(
     ids: list[int],
     output_table: str,
     wait_time: float = 0.1,
+    step_size: int = 1,
     output_logs: Path = None,
     ipv6: bool = False,
 ) -> list[dict]:
@@ -169,9 +168,15 @@ async def retrieve_traceroutes(
         output_file = None
 
     csv_data = []
-    for id in tqdm(ids):
-        traceroute_result = await RIPEAtlasAPI().get_traceroute_results(id, ipv6=ipv6)
-        csv_data.extend(traceroute_result)
+    for i in tqdm(range(0, len(ids), step_size), file=output_file):
+        tasks = [
+            RIPEAtlasAPI().get_traceroute_results(id, ipv6=ipv6)
+            for id in ids[i : i + step_size]
+        ]
+        ping_results = await asyncio.gather(*tasks)
+
+        for ping_result in ping_results:
+            csv_data.extend(ping_result)
 
         await asyncio.sleep(wait_time)
 

@@ -141,7 +141,10 @@ def get_pings_per_target(
 
 
 def get_pings_per_target_extended(
-    table_name: str, removed_vps: list = [], latency_threshold: int = 300
+    table_name: str,
+    removed_vps: list = [],
+    latency_threshold: int = 300,
+    ipv6: bool = False,
 ) -> dict:
     """
     return meshed ping for all targets
@@ -156,6 +159,7 @@ def get_pings_per_target_extended(
                 table_name=table_name,
                 filtered_vps=removed_vps,
                 latency_threshold=latency_threshold,
+                ipv6=ipv6,
             )
 
             for row in resp:
@@ -401,6 +405,7 @@ def get_subnets_mapping(
     subnets: list[str] = [],
     hostname_filter: list[str] = None,
     print_error: bool = True,
+    ipv6: bool = False,
 ) -> dict[dict]:
     """get ecs-dns resolution per hostname for all input subnets"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
@@ -409,6 +414,7 @@ def get_subnets_mapping(
             table_name=dns_table,
             subnet_filter=subnets,
             hostname_filter=hostname_filter,
+            ipv6=ipv6,
         )
 
         subnets_mapping = defaultdict(dict)

@@ -510,7 +510,7 @@ def filter_default_country_geolocation(vps: list[dict], output_file: Path) -> No
             dist = distance(country_lat, vp["lat"], country_lon, vp["lon"])
 
             if dist < 5:
-                filtered_vps.append((vp["id"]), vp["addr"])
+                filtered_vps.append((vp["id"], vp["addr"]))
 
         logger.info(f"{len(filtered_vps)} VPs removed due to default geoloc")
 

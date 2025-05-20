@@ -46,7 +46,9 @@ class GetIPv6VPs(Query):
             anchor_statement = ""
         return f"""
         SELECT
+            toString(address_v4) as addr_v4,
             toString(address_v6) as addr,
+            toString(subnet_v4) as subnet_v4,
             toString(subnet_v6) as subnet,
             asn_v4 as asn,
             toString(bgp_prefix) as bgp_prefix,
@@ -254,11 +256,19 @@ class GetPingsPerTargetExtended(Query):
         filtered_vps_ids = [id for id, _ in filtered_vps]
         filtered_vps_addr = [addr for _, addr in filtered_vps]
 
+        ipv6 = kwargs["ipv6"] if "ipv6" in kwargs else False
+
         if filtered_vps:
             in_clause_id = f"".join([f",{id}" for id in filtered_vps_ids])[1:]
-            in_clause_ip = f"".join(
-                [f",toIPv4('{addr}')" for addr in filtered_vps_addr]
-            )[1:]
+
+            if not ipv6:
+                in_clause_ip = f"".join(
+                    [f",toIPv4('{addr}')" for addr in filtered_vps_addr]
+                )[1:]
+            else:
+                in_clause_ip = f"".join(
+                    [f",toIPv6('{addr}')" for addr in filtered_vps_addr]
+                )[1:]
 
             filter_vps_statement = f"AND prb_id not in ({in_clause_id}) AND dst_addr not in ({in_clause_ip})"
 
@@ -510,6 +520,7 @@ class GetDNSMapping(Query):
 
 class GetDNSMappingHostnames(Query):
     def statement(self, table_name: str, **kwargs) -> str:
+        ipv6 = kwargs["ipv6"] if "ipv6" in kwargs else False
         if hostname_filter := kwargs.get("hostname_filter"):
             hostname_filter = "".join([f",'{h}'" for h in hostname_filter])[1:]
             hostname_filter = f"AND hostname IN ({hostname_filter})"
@@ -517,7 +528,11 @@ class GetDNSMappingHostnames(Query):
             hostname_filter = ""
 
         if subnet_filter := kwargs.get("subnet_filter"):
-            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            if not ipv6:
+                subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            else:
+                subnet_filter = "".join([f",toIPv6('{s}')" for s in subnet_filter])[1:]
+
             subnet_filter = f"subnet IN ({subnet_filter})"
         else:
             subnet_filter = ""

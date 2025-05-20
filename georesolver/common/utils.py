@@ -317,6 +317,7 @@ def get_d_errors_georesolver(
             pings = pings_per_target[target_addr]
         except KeyError:
             logger.error(f"Cannot find pings for {target_addr=}")
+            continue
 
         # geoResolver shortest ping
         try:

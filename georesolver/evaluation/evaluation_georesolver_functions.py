@@ -176,18 +176,21 @@ def get_hostname_score(args) -> None:
         vps_ecs_table,
         score_metric,
         answer_granularity,
+        ipv6,
     ) = args
 
     targets_mapping = get_subnets_mapping(
         dns_table=target_ecs_table,
         subnets=target_subnets,
         hostname_filter=hostnames,
+        ipv6=ipv6,
     )
 
     vps_mapping = get_subnets_mapping(
         dns_table=vps_ecs_table,
         subnets=vp_subnets,
         hostname_filter=hostnames,
+        ipv6=ipv6,
     )
 
     logger.debug(f"Total subnets:: {len(targets_mapping)=}")
@@ -229,6 +232,7 @@ def get_scores(
     vps_ecs_table: str,
     answer_granularity: str = "answer_subnets",
     score_metric: str = "jaccard",
+    ipv6: bool = False,
 ) -> None:
 
     # load cache score
@@ -266,6 +270,7 @@ def get_scores(
                 vps_ecs_table,
                 score_metric,
                 answer_granularity,
+                ipv6,
             ]
             batches.append(batch)
 
@@ -383,14 +388,18 @@ def select_one_vp_per_as_city(
 
 
 def get_vp_selection_per_target(
-    output_path: Path, scores: Path, targets: list, vps: list[dict]
+    output_path: Path, scores: Path, targets: list, vps: list[dict], ipv6: bool = False
 ) -> tuple[dict, dict]:
 
     if output_path.exists():
         vp_selection_per_target = load_pickle(output_path)
         return vp_selection_per_target
 
-    last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
+    if not ipv6:
+        last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
+    else:
+        # no filtering available in IPv6
+        last_mile_delay = {vp["addr"]: 1 for vp in vps}
 
     vps_per_addr = {}
     vps_coordinates = {}
@@ -403,7 +412,7 @@ def get_vp_selection_per_target(
     vp_selection_per_target = {}
     for target_addr in tqdm(targets):
 
-        target_subnet = get_prefix_from_ip(target_addr)
+        target_subnet = get_prefix_from_ip(target_addr, ipv6=ipv6)
 
         # retrieve vps score
         try:

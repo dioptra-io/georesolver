@@ -857,18 +857,19 @@ class RIPEAtlasAPI:
         async with httpx.AsyncClient() as client:
             for _ in range(max_retry):
                 try:
+                    req = self.get_traceroute_config(
+                        target,
+                        vp_ids,
+                        probing_tag,
+                        min_ttl,
+                        max_hops,
+                        protocol,
+                        ipv6,
+                    )
                     resp = await client.post(
                         self.measurement_url,
                         headers=self.headers,
-                        json=self.get_traceroute_config(
-                            target,
-                            vp_ids,
-                            probing_tag,
-                            min_ttl,
-                            max_hops,
-                            protocol,
-                            ipv6,
-                        ),
+                        json=req,
                         timeout=timeout,
                     )
                     resp = resp.json()
@@ -894,10 +895,11 @@ class RIPEAtlasAPI:
                 except KeyError as e:
                     logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
                     logger.error(f"{resp=}")
+                    logger.error(f"{req=}")
                     await asyncio.sleep(wait_time)
                     break
             else:
-                raise Exception(
+                logger.error(
                     f"{probing_tag}:: Cannot perform measurement for target: {target}"
                 )
         return id

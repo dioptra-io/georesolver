@@ -1,28 +1,43 @@
 """georesolver is IPv4, now lets do IPv6"""
 
 import asyncio
+import numpy as np
 
 from tqdm import tqdm
 from pyasn import pyasn
+from pathlib import Path
 from loguru import logger
+from ipaddress import IPv6Address
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pych_client import ClickHouseClient
 
 from georesolver.prober import RIPEAtlasProber
 from georesolver.agent.ecs_process import run_dns_mapping
-from georesolver.clickhouse import CreateIPv6VPsTable, InsertCSV
+from georesolver.clickhouse import CreateIPv6VPsTable, InsertCSV, Query
 from georesolver.clickhouse.queries import (
     load_vps,
     get_tables,
     get_targets,
     load_targets,
     get_hostnames,
+    get_min_rtt_per_vp,
     get_measurement_ids,
     get_pings_per_src_dst,
+    get_pings_per_target_extended,
 )
 from georesolver.prober.ripe_api import RIPEAtlasAPI
 from georesolver.agent.insert_process import retrieve_pings, retrieve_traceroutes
+from georesolver.evaluation.evaluation_plot_functions import (
+    ecdf,
+    get_proportion_under,
+    plot_multiple_cdf,
+)
+from georesolver.evaluation.evaluation_georesolver_functions import (
+    get_scores,
+    get_vp_selection_per_target,
+)
+from georesolver.common.utils import get_d_errors_ref, get_d_errors_georesolver
 from georesolver.common.geoloc import (
     haversine,
     filter_default_country_geolocation,
@@ -34,6 +49,7 @@ from georesolver.common.ip_addresses_utils import (
     route_view_bgp_prefix,
 )
 from georesolver.common.files_utils import (
+    load_csv,
     dump_csv,
     load_json,
     dump_json,
@@ -49,7 +65,7 @@ path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 constant_settings = ConstantSettings()
 
-VPS_RAW_TABLE_IPV6 = "vps_raw_table_ipv6"
+RESULTS_PATH: Path = path_settings.RESULTS_PATH / "ipv6"
 
 
 async def retrieve_vps() -> list:
@@ -176,14 +192,30 @@ def select_ecs_hostnames(
     """select a subset of ECS-DNS hostnames for calculating DNS resolution similarities"""
     tables = get_tables()
     if vps_ecs_mapping_table not in tables:
-        vps = load_vps(vps_table)
+        vps = load_vps(vps_table, ipv6=True)
         vps_subnet = list(set([vp["subnet"] for vp in vps]))
         ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_ipv6.csv"
 
         if not ecs_hostnames_path.exists():
-            # get ECS hostnames and dump csv
-            hostnames = get_hostnames(hostname_ecs_table)
-            dump_csv(ecs_hostnames_path, hostnames)
+            # select best IPv4 hostnames
+            selected_hostnames = set()
+            hostnames_per_ns_per_org = load_json(
+                path_settings.HOSTNAME_FILES / "hostname__5_BGP_10_org_ns.json"
+            )
+            for _, hostnames_per_org in hostnames_per_ns_per_org.items():
+                for _, hostnames in hostnames_per_org.items():
+                    selected_hostnames.update(hostnames)
+
+            logger.info(f"IPv4 Selected hostnames:: {len(selected_hostnames)}")
+
+            ipv6_ecs_hostnames = get_hostnames(hostname_ecs_table)
+            selected_hostnames = set(ipv6_ecs_hostnames).intersection(
+                selected_hostnames
+            )
+
+            logger.info(f"IPv6 Selected hostnames:: {len(selected_hostnames)}")
+
+            dump_csv(selected_hostnames, ecs_hostnames_path)
 
         asyncio.run(
             run_dns_mapping(
@@ -298,15 +330,14 @@ def meshed_pings_schedule(vps_table: str, update_meshed_pings: bool = True) -> d
     return measurement_schedule
 
 
-def get_vp_distance_matrix(vp_coordinates: dict, target_ids: list[str]) -> dict:
+def get_vp_distance_matrix(vp_coordinates: dict, vps: list[dict]) -> dict:
     """compute pairwise distance between each VPs and a list of target ids (RIPE Atlas anchors)"""
-    logger.info(
-        f"Calculating VP distance matrix for {len(vp_coordinates)}x{len(target_ids)}"
-    )
+    logger.info(f"Calculating VP distance matrix for {len(vp_coordinates)}x{len(vps)}")
 
     vp_distance_matrix = defaultdict(dict)
     # for better efficiency only compute pairwise distance for the targets
-    for vp_i_id in tqdm(target_ids):
+    for vp in tqdm(vps):
+        vp_i_id = str(vp["id"])
         vp_i_coordinates = vp_coordinates[vp_i_id]
 
         for vp_j_id, vp_j_coordinates in vp_coordinates.items():
@@ -336,10 +367,10 @@ def filter_wrongful_geolocation(
         vp_coordinates[str(vp["id"])] = vp["lat"], vp["lon"]
 
     if not path_settings.VPS_PAIRWISE_DISTANCE_IPv6.exists():
-        vp_distance_matrix = get_vp_distance_matrix(vp_coordinates, target_ids)
+        vp_distance_matrix = get_vp_distance_matrix(vp_coordinates, vps)
         dump_json(vp_distance_matrix, path_settings.VPS_PAIRWISE_DISTANCE_IPv6)
 
-    if (path_settings.DATASET / "wrongly_geolocated_probes_ipv6.json").exists():
+    if not (path_settings.DATASET / "wrongly_geolocated_probes_ipv6.json").exists():
         vp_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE_IPv6)
 
         ping_per_target_per_vp = get_pings_per_src_dst(
@@ -361,35 +392,130 @@ def filter_wrongful_geolocation(
 
         logger.info(f"Removing {len(removed_probes)} probes")
 
+    removed_probes = load_json(
+        path_settings.DATASET / "wrongly_geolocated_probes_ipv6.json"
+    )
+
     return removed_probes
 
 
-async def filter_vps(vps_table: str, pings_table: str) -> None:
+def filter_vps(vps_table: str, pings_table: str, output_vps_table: str) -> None:
     """filter VPs based on default geoloc and SOI violatio"""
-    targets = load_targets(vps_table)
-    vps = load_vps(vps_table)
+    targets = load_targets(vps_table, ipv6=True)
+    vps = load_vps(vps_table, ipv6=True)
 
     ping_filtered = filter_wrongful_geolocation(targets, vps, pings_table)
     country_filtered = filter_default_country_geolocation(
         vps, path_settings.DATASET / "country_filtered_vps_ipv6.json"
     )
 
+    ping_filtered = [tuple(l) for l in ping_filtered]
     removed_vps = list(set(ping_filtered).union(set(country_filtered)))
 
     dump_json(removed_vps, path_settings.DATASET / "removed_vps_ipv6.json")
 
     logger.info(f"{len(removed_vps)} VPs removed")
 
+    filtered_ids = [id for id, _ in removed_vps]
+
+    csv_data = []
+    for vp in vps:
+        if str(vp["id"]) in filtered_ids:
+            continue
+
+        row = []
+        for val in vp.values():
+            row.append(f"{val}")
+
+        row = ",".join(row)
+        csv_data.append(row)
+
+    # create filtered table
+    with ClickHouseClient(**ch_settings.clickhouse) as client:
+        tmp_file_path = create_tmp_csv_file(csv_data)
+
+        CreateIPv6VPsTable().execute(
+            client=client,
+            table_name=output_vps_table,
+        )
+
+        Query().execute_insert(
+            client=client,
+            table_name=output_vps_table,
+            in_file=tmp_file_path,
+        )
+
+        tmp_file_path.unlink()
+
     return removed_vps
 
 
-def meshed_traceroutes_schedule(vps_table: str, max_nb_traceroutes: int = 100) -> dict:
+def filter_low_connectivity_vps(
+    vps_table: str,
+    traceroute_table: str,
+    output_vps_table: str,
+    delay_threshold: int = 2,
+) -> None:
+    """filter all VPs for which the measured minimum last mile delay above 2ms"""
+    vps = load_vps(vps_table, ipv6=True)
+    last_mile_delay = get_min_rtt_per_vp(traceroute_table)
+
+    logger.info(f"Original number of VPs:: {len(vps)}")
+    logger.info(f"NB vps traceroutes:: {len(last_mile_delay)}")
+
+    # only keep vps with a last mile delay under threshold
+    filtered_vps = []
+    for vp in vps:
+        try:
+            min_rtt = last_mile_delay[vp["addr"]]
+            if min_rtt <= delay_threshold:
+                filtered_vps.append((vp["id"], vp["addr"]))
+        except KeyError:
+            continue
+
+    logger.info(f"Remaining VPs after last mile delay filtering:: {len(filtered_vps)}")
+
+    filtered_vps_ids = [vp_id for vp_id, _ in filtered_vps]
+
+    csv_data = []
+    for vp in vps:
+        if vp["id"] not in filtered_vps_ids:
+            continue
+
+        row = []
+        for val in vp.values():
+            row.append(f"{val}")
+
+        row = ",".join(row)
+        csv_data.append(row)
+
+    with ClickHouseClient(**ch_settings.clickhouse) as client:
+        tmp_file_path = create_tmp_csv_file(csv_data)
+
+        CreateIPv6VPsTable().execute(client=client, table_name=output_vps_table)
+
+        Query().execute_insert(
+            client=client, table_name=output_vps_table, in_file=tmp_file_path
+        )
+
+        tmp_file_path.unlink()
+
+
+def meshed_traceroutes_schedule(
+    vps_table: str, max_nb_traceroutes: int = 100, input_file: Path = None
+) -> dict:
     """for each target and subnet target get measurement vps
 
     Returns:
         dict: vps per target to make a measurement
     """
-    vps = load_vps(vps_table)
+    if input_file:
+        measurement_schedule = load_json(input_file)
+        logger.info(f"Schedule for {len(measurement_schedule)} targets")
+        # todo: filter
+        return measurement_schedule
+
+    vps = load_vps(vps_table, ipv6=True)
     vps_distance_matrix = load_json(path_settings.VPS_PAIRWISE_DISTANCE_IPv6)
 
     # get vp id per addr
@@ -408,13 +534,23 @@ def meshed_traceroutes_schedule(vps_table: str, max_nb_traceroutes: int = 100) -
         )
 
     traceroute_targets_per_vp = defaultdict(list)
-    for vp in vps:
+    for vp in tqdm(vps):
         closest_vp_ids = ordered_distance_matrix[str(vp["id"])]
-        closest_vp_addrs = [vp_per_id[id]["addr"] for id, _ in closest_vp_ids]
-        # only take targets outside of VPs subnet for mesehd traceroutes
+
+        closest_vp_addrs = []
+        for id, _ in closest_vp_ids:
+            try:
+                vp = vp_per_id[id]
+                if IPv6Address(vp["addr"]).is_private:
+                    continue
+                closest_vp_addrs.append(vp["addr"])
+            except KeyError as e:
+                continue
+
+        # only take targets outside of VPs subnet for meshed traceroutes
         i = 0
         for addr in closest_vp_addrs:
-            if get_prefix_from_ip(addr) != vp["subnet"]:
+            if get_prefix_from_ip(addr, ipv6=True) != vp["subnet"]:
                 traceroute_targets_per_vp[vp["id"]].append(addr)
                 i += 1
 
@@ -577,7 +713,7 @@ async def run_measurement(
     )
 
     await asyncio.gather(
-        prober.main(measurement_schedule),
+        # prober.main(measurement_schedule),
         insert_measurements(
             measurement_schedule,
             probing_tags=["dioptra", measurement_tag],
@@ -590,12 +726,78 @@ async def run_measurement(
 
 
 def evaluation() -> None:
-    """geolocation error on RIPE Atlas targets"""
-    pass
+
+    cdfs = []
+    removed_vps = load_json(path_settings.DATASET / "removed_vps_ipv6.json")
+    hostnames = load_csv(path_settings.HOSTNAME_FILES / "ecs_hostnames_ipv6.csv")
+    targets = load_targets(ch_settings.VPS_FILTERED_TABLE + "_ipv6", ipv6=True)
+    vps = load_vps(ch_settings.VPS_FILTERED_TABLE + "_ipv6", ipv6=True)
+    vps_coordinates = {vp["addr"]: vp for vp in vps}
+    target_subnets = [t["subnet"] for t in targets]
+    vp_subnets = [v["subnet"] for v in vps]
+
+    # load score similarity between vps and targets
+    scores = get_scores(
+        output_path=RESULTS_PATH / "score.pickle",
+        hostnames=hostnames,
+        target_subnets=target_subnets,
+        vp_subnets=vp_subnets,
+        target_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+        ipv6=True,
+    )
+
+    vp_selection_per_target = get_vp_selection_per_target(
+        output_path=RESULTS_PATH / "vp_selection.pickle",
+        scores=scores,
+        targets=[t["addr"] for t in targets],
+        vps=vps,
+        ipv6=True,
+    )
+
+    pings_per_target = get_pings_per_target_extended(
+        ch_settings.VPS_MESHED_PINGS_TABLE + "_ipv6", removed_vps, ipv6=True
+    )
+
+    # add reference
+    d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)
+    x, y = ecdf(d_errors_ref)
+    cdfs.append((x, y, "Shortest ping, all VPs"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"Shortest Ping all VPs:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"Shortest Ping all VPs::: median_error={round(m_error, 2)} [km]")
+
+    # add iterative resolver results
+    d_errors = get_d_errors_georesolver(
+        targets=[t["addr"] for t in targets],
+        pings_per_target=pings_per_target,
+        vp_selection_per_target=vp_selection_per_target,
+        vps_coordinates=vps_coordinates,
+        probing_budget=50,
+    )
+    x, y = ecdf(d_errors)
+    cdfs.append((x, y, "GeoResolver"))
+
+    m_error = round(np.median(x), 2)
+    proportion_of_ip = get_proportion_under(x, y)
+
+    logger.info(f"GeoResolver:: <40km={round(proportion_of_ip, 2)}")
+    logger.info(f"GeoResolver:: median_error={round(m_error, 2)} [km]")
+
+    plot_multiple_cdf(
+        cdfs=cdfs,
+        output_path="ipv6_ripe_atlas",
+        metric_evaluated="d_error",
+        legend_pos="lower right",
+    )
 
 
 def ipV6_sample() -> None:
     """run IPv6 georesolver on a sample of IPv6 addrs"""
+    # 1. IF evaluation conclusive, run sample IPv6
     pass
 
 
@@ -609,20 +811,25 @@ def main() -> None:
         - no last point, we should be done by now
     """
     do_select_hostnames: bool = False
-    do_meshed_pings: bool = True
+    do_meshed_pings: bool = False
     do_meshed_traceroutes: bool = False
-    do_evaluation: bool = False
+    do_evaluation: bool = True
 
     # 1. get vps
-    vps = asyncio.run(get_vps(VPS_RAW_TABLE_IPV6))
+    asyncio.run(get_vps(ch_settings.VPS_RAW_TABLE + "_ipv6"))
 
     if do_select_hostnames:
         filter_ecs_hostnames(hostname_ecs_table="ecs_hostnames_ipv6")
         select_ecs_hostnames(
-            vps_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+            vps_ecs_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+            hostname_ecs_table="ecs_hostnames_ipv6",
+            vps_table=ch_settings.VPS_RAW_TABLE + "_ipv6",
         )
+
     if do_meshed_pings:
-        measurement_schedule = meshed_pings_schedule(VPS_RAW_TABLE_IPV6)
+        measurement_schedule = meshed_pings_schedule(
+            ch_settings.VPS_RAW_TABLE + "_ipv6"
+        )
         asyncio.run(
             run_measurement(
                 measurement_schedule=measurement_schedule,
@@ -634,17 +841,40 @@ def main() -> None:
 
     if do_meshed_traceroutes:
         # filter vps before traceroutes
-        asyncio.run(filter_vps())
+        filter_vps(
+            ch_settings.VPS_RAW_TABLE + "_ipv6",
+            ch_settings.VPS_MESHED_PINGS_TABLE + "_ipv6",
+            ch_settings.VPS_FILTERED_TABLE + "_ipv6",
+        )
 
-        measurement_schedule = meshed_traceroutes_schedule(VPS_RAW_TABLE_IPV6)
+        # remove if no previous schedule was calculated
+        schedule_path = (
+            path_settings.MEASUREMENTS_SCHEDULE
+            / "vps_meshed_traceroutes_ipv6__92c5722e-0a9f-43c9-983b-e3e2e5bb2bb0.json"
+        )
+        measurement_schedule = meshed_traceroutes_schedule(
+            ch_settings.VPS_FILTERED_TABLE + "_ipv6", input_file=schedule_path
+        )
+
         asyncio.run(
             run_measurement(
                 measurement_schedule=measurement_schedule,
                 measurement_tag="meshed-traceroutes-ipv6",
                 output_table=ch_settings.VPS_MESHED_TRACEROUTE_TABLE + "_ipv6",
                 measurement_type="traceroute",
+                check_cache=True,
             )
         )
+
+        # filter low connectivity vps
+        filter_low_connectivity_vps(
+            vps_table=ch_settings.VPS_FILTERED_TABLE + "_ipv6",
+            traceroute_table=ch_settings.VPS_MESHED_TRACEROUTE_TABLE + "_ipv6",
+            output_vps_table=ch_settings.VPS_FILTERED_FINAL_TABLE + "_ipv6",
+        )
+
+    if do_evaluation:
+        evaluation()
 
 
 if __name__ == "__main__":
