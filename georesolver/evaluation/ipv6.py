@@ -1,20 +1,28 @@
 """georesolver is IPv4, now lets do IPv6"""
 
+import json
 import asyncio
 import numpy as np
 
 from tqdm import tqdm
 from pyasn import pyasn
 from pathlib import Path
+from random import sample
 from loguru import logger
 from ipaddress import IPv6Address
-from collections import defaultdict
 from datetime import datetime, timedelta
 from pych_client import ClickHouseClient
+from multiprocessing import Pool, cpu_count
+from collections import defaultdict, OrderedDict
 
 from georesolver.prober import RIPEAtlasProber
 from georesolver.agent.ecs_process import run_dns_mapping
-from georesolver.clickhouse import CreateIPv6VPsTable, InsertCSV, Query
+from georesolver.clickhouse import (
+    CreateIPv6VPsTable,
+    InsertCSV,
+    Query,
+    GetHostnamesAnswerSubnet,
+)
 from georesolver.clickhouse.queries import (
     load_vps,
     get_tables,
@@ -24,10 +32,19 @@ from georesolver.clickhouse.queries import (
     get_min_rtt_per_vp,
     get_measurement_ids,
     get_pings_per_src_dst,
+    get_mapping_per_hostname,
     get_pings_per_target_extended,
 )
 from georesolver.prober.ripe_api import RIPEAtlasAPI
 from georesolver.agent.insert_process import retrieve_pings, retrieve_traceroutes
+from georesolver.evaluation.evaluation_hostname_functions import (
+    parse_name_servers,
+    get_hostname_selection,
+    get_hostname_per_main_org,
+    parse_hostname_per_main_org,
+    get_hostname_per_org_per_ns,
+    get_hostname_per_name_server,
+)
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
     get_proportion_under,
@@ -40,6 +57,7 @@ from georesolver.evaluation.evaluation_georesolver_functions import (
 from georesolver.common.utils import get_d_errors_ref, get_d_errors_georesolver
 from georesolver.common.geoloc import (
     haversine,
+    greedy_selection_probes_impl,
     filter_default_country_geolocation,
     compute_remove_wrongly_geolocated_probes,
 )
@@ -53,6 +71,7 @@ from georesolver.common.files_utils import (
     dump_csv,
     load_json,
     dump_json,
+    load_anycatch_data,
     create_tmp_csv_file,
 )
 from georesolver.common.settings import (
@@ -66,6 +85,38 @@ ch_settings = ClickhouseSettings()
 constant_settings = ConstantSettings()
 
 RESULTS_PATH: Path = path_settings.RESULTS_PATH / "ipv6"
+
+
+def merge_main_orgs(main_org: str) -> None:
+    """merge main organization (ex: AMAZON-02 and AMAZON-AES) -> AMAZON"""
+    if "AMAZON" in main_org:
+        main_org = "AMAZON"
+
+    elif "GOOGLE" in main_org:
+        main_org = "GOOGLE"
+
+    elif "AKAMAI" in main_org:
+        main_org = "AKAMAI"
+
+    elif "APPLE" in main_org:
+        main_org = "APPLE"
+
+    elif "MICROSOFT" in main_org:
+        main_org = "MICROSOFT"
+
+    elif "TENCENT" in main_org:
+        main_org = "TENCENT"
+
+    elif "CHINANET" in main_org:
+        main_org = "CHINANET"
+
+    elif "CMNET" in main_org:
+        main_org = "CMNET"
+
+    else:
+        main_org = main_org
+
+    return main_org
 
 
 async def retrieve_vps() -> list:
@@ -160,7 +211,9 @@ async def get_vps(input_table: str) -> list[dict]:
         insert_vps(vps, input_table)
         return vps
     else:
-        vps = load_vps(input_table)
+        vps = load_vps(input_table, ipv6=True)
+
+    return vps
 
 
 def filter_ecs_hostnames(hostname_ecs_table: str) -> list[str]:
@@ -181,7 +234,315 @@ def filter_ecs_hostnames(hostname_ecs_table: str) -> list[str]:
             )
         )
     else:
-        logger.info(f"{hostname_ecs_table=} already exists, skipping ECS filtering")
+        logger.warning(f"{hostname_ecs_table=} already exists, skipping ECS filtering")
+
+
+def name_servers_resolution(
+    hostname_ns_table: str, hostname_ecs_table: str
+) -> list[str]:
+    """perform NS resolution on a set of hostnames"""
+    tables = get_tables()
+    if hostname_ns_table not in tables:
+        host_addr = get_host_ip_addr(ipv6=True)
+        host_subnet = get_prefix_from_ip(host_addr, ipv6=True)
+        hostnames = get_hostnames(hostname_ecs_table)
+        ecs_hostnames_path = path_settings.HOSTNAME_FILES / "ecs_hostnames_ipv6.csv"
+        dump_csv(hostnames, ecs_hostnames_path)
+
+        asyncio.run(
+            run_dns_mapping(
+                subnets=[host_subnet],
+                hostname_file=ecs_hostnames_path,
+                request_type="NS",
+                output_table=hostname_ns_table,
+                ipv6=True,
+            )
+        )
+    else:
+        logger.warning(f"{hostname_ns_table=} already exists, skipping ECS filtering")
+
+
+def get_hostname_cdn(hostname_ecs_table: str, output_path: Path) -> None:
+    """for each IP address returned by a hostname, retrieve the CDN behind"""
+
+    if output_path.exists():
+        return load_json(output_path)
+
+    asndb = pyasn(str(path_settings.STATIC_FILES / "rib_table_v6.dat"))
+
+    asn_to_org = {}
+    with (path_settings.STATIC_FILES / "20240101.as-org2info.jsonl").open("r") as f:
+        for row in f.readlines():
+            row = json.loads(row)
+            if "asn" in row and "name" in row:
+                asn_to_org[int(row["asn"])] = row["name"]
+
+    with ClickHouseClient(**ch_settings.clickhouse) as client:
+        resp = GetHostnamesAnswerSubnet().execute_iter(
+            client=client,
+            table_name=hostname_ecs_table,
+            hostname_filter="",
+        )
+
+        org_per_hostname = defaultdict(dict)
+        for row in resp:
+            hostname = row["hostname"]
+            answers = row["answers"]
+
+            for answer in answers:
+                asn, bgp_prefix = route_view_bgp_prefix(answer, asndb)
+
+                if not asn or not bgp_prefix:
+                    continue
+
+                if "/" not in bgp_prefix:
+                    logger.error("Invalid bgp prefix")
+                    continue
+
+                if asn:
+                    try:
+                        org = asn_to_org[asn]
+                        try:
+                            org_per_hostname[hostname][org].append(bgp_prefix)
+                        except KeyError:
+                            org_per_hostname[hostname][org] = [bgp_prefix]
+                    except KeyError:
+                        continue
+
+        for hostname in org_per_hostname:
+            for org, bgp_prefixes in org_per_hostname[hostname].items():
+                org_per_hostname[hostname][org] = list(set(bgp_prefixes))
+
+        dump_json(
+            org_per_hostname,
+            output_path,
+        )
+
+
+def filter_anycast_hostnames(input_table: str) -> None:
+    """get all answers, compare with anycatch database"""
+    asndb = pyasn(str(path_settings.STATIC_FILES / "rib_table_v6.dat"))
+    anycatch_db = load_anycatch_data()
+    with ClickHouseClient(**ch_settings.clickhouse) as client:
+        ecs_hostnames = GetHostnamesAnswerSubnet().execute(
+            client=client, table_name=input_table
+        )
+
+    anycast_hostnames = set()
+    filtered_hostnames = set()
+    for row in ecs_hostnames:
+        hostname = row["hostname"]
+        answer_subnets = row["answers"]
+
+        for s in answer_subnets:
+            bgp_prefix = route_view_bgp_prefix(s, asndb)
+
+        if bgp_prefix in anycatch_db:
+            anycast_hostnames.add(hostname)
+            continue
+
+        filtered_hostnames.add(hostname)
+
+    logger.info(f"Number of unicast hostnames:: {len(filtered_hostnames)}")
+
+    return filtered_hostnames
+
+
+def filter_most_represented_org(
+    hostname_ecs_table: str, input_path: Path, output_path: Path
+) -> list[str]:
+    """
+    from a dict of hostnames and their hosting infrastructure,
+    remove some to obtain a tracktable list of hostnames
+    on which to perfrom RIPE Atlas probes /24 subnets ECS mapping
+    remove anycast prefixes
+    """
+    anycast_filtered_hostnames = filter_anycast_hostnames(hostname_ecs_table)
+    if output_path.exists():
+        return load_csv(output_path)
+
+    org_per_hostname = load_json(input_path)
+
+    hostname_per_org = defaultdict(set)
+    for hostname, prefix_per_org in org_per_hostname.items():
+        # do not consider anycast hostnames
+        if hostname not in anycast_filtered_hostnames:
+            continue
+
+        for org, _ in prefix_per_org.items():
+            org = merge_main_orgs(org)
+            hostname_per_org[org].add(hostname)
+
+    hostname_per_org = OrderedDict(
+        sorted(hostname_per_org.items(), key=lambda x: len(x[-1]), reverse=True)
+    )
+
+    max_hostnames_per_org = 1_500
+    hostnames_to_resolve = set()
+    for org, hostnames in hostname_per_org.items():
+        if len(hostnames) > max_hostnames_per_org:
+            hostnames = sample(list(hostnames), max_hostnames_per_org)
+            hostnames_to_resolve.update(hostnames)
+        else:
+            hostnames_to_resolve.update(hostnames)
+
+    logger.info(f"Number of hostnames to resolver:: {len(hostnames_to_resolve)}")
+
+    dump_csv(hostnames_to_resolve, output_path)
+
+    return hostnames_to_resolve
+
+
+def get_bpg_prefix_per_hostnames(cdn_per_hostname: dict) -> dict:
+    """get all bgp prefixes per hostnames,
+    filter hostnames for which we only have one bgp prefix
+    """
+    bgp_prefix_per_hostname = defaultdict(set)
+    for hostname, bgp_prefixes_per_cdn in cdn_per_hostname.items():
+        for bgp_prefixes in bgp_prefixes_per_cdn.values():
+            bgp_prefix_per_hostname[hostname].update(bgp_prefixes)
+
+    count = 0
+    count_1 = 0
+    for hostname, bgp_prefixes in bgp_prefix_per_hostname.items():
+        if len(bgp_prefixes) < 10:
+            count += 1
+        if not len(bgp_prefixes) > 1:
+            count_1 += 1
+
+    logger.info(
+        f"Removed:: {count}/{len(bgp_prefix_per_hostname)}/{round(count * 100 / len(bgp_prefix_per_hostname),2)} hostname with less than 10"
+    )
+
+    logger.info(
+        f"Removed:: {count_1}/{len(bgp_prefix_per_hostname)}/{round(count_1 * 100 / len(bgp_prefix_per_hostname),2)} hostname with less than 1"
+    )
+
+    return bgp_prefix_per_hostname
+
+
+def get_greedy_vp_selection(output_file: Path) -> None:
+    """select VPs with greedy selection to cover maximum coverage"""
+    logger.info("Starting greedy algorithm")
+
+    if not output_file.exists():
+        selected_probes = []
+        vp_distance_matrix = load_json(
+            path_settings.DATASET / "vps_pairwise_distance_ipv6.json"
+        )
+        remaining_probes = set(vp_distance_matrix.keys())
+        usable_cpu = cpu_count() - 1
+        with Pool(usable_cpu) as p:
+            while len(remaining_probes) > 0 and len(selected_probes) < 1_000:
+                args = []
+                for probe in remaining_probes:
+                    args.append((probe, vp_distance_matrix[probe], selected_probes))
+
+                results = p.starmap(greedy_selection_probes_impl, args)
+
+                furthest_probe_from_selected, _ = max(results, key=lambda x: x[1])
+                selected_probes.append(furthest_probe_from_selected)
+                remaining_probes.remove(furthest_probe_from_selected)
+
+        dump_json(selected_probes, output_file)
+        return selected_probes
+    else:
+        logger.warning("VP greedy selection done, skipping step")
+        return load_json(output_file)
+
+
+def get_hostname_geo_score(vps_per_id: dict, dns_table: str, nb_vps: int) -> dict:
+    """
+    get all vps mapping, take N vps that maximize geo distance
+    compute redirection similarity over the N vps
+    if high similarity, hostname does not provide usefull geo info
+    """
+    # get hostnames geo score (inverse of georesolver)
+    hostname_geo_score_path = (
+        path_settings.RESULTS_PATH / "hostname_geo_score_ipv6.json"
+    )
+    if (hostname_geo_score_path).exists():
+        return load_json(hostname_geo_score_path)
+
+    greedy_vps = get_greedy_vp_selection(path_settings.DATASET / "greedy_vps_ipv6.json")
+    greedy_vps = [vps_per_id[int(id)]["subnet"] for id in greedy_vps[:nb_vps]]
+
+    mapping_per_hostname = get_mapping_per_hostname(
+        dns_table=dns_table,
+        subnets=[s for s in greedy_vps],
+        ipv6=True,
+    )
+    hostname_similarity_score = {}
+    for hostname, vps_mapping in tqdm(mapping_per_hostname.items()):
+        pairwise_similarity = []
+        for i, vp_i in enumerate(greedy_vps):
+            try:
+                mapping_i = vps_mapping[vp_i]
+            except KeyError:
+                continue
+
+            for j, vp_j in enumerate(greedy_vps):
+                if vp_i == vp_j:
+                    continue
+
+                try:
+                    mapping_j = vps_mapping[vp_j]
+                except KeyError:
+                    continue
+
+                jaccard_index = len(set(mapping_i).intersection(set(mapping_j))) / len(
+                    set(mapping_i).union(set(mapping_j))
+                )
+
+                pairwise_similarity.append(jaccard_index)
+
+        # take average pairwise similarity
+        if pairwise_similarity:
+            hostname_similarity_score[hostname] = np.mean(pairwise_similarity)
+
+    hostname_similarity_score = sorted(
+        hostname_similarity_score.items(), key=lambda x: x[-1]
+    )
+
+    dump_json(hostname_similarity_score, hostname_geo_score_path)
+
+    return hostname_similarity_score
+
+
+def select_hostname_per_org_per_ns(
+    name_servers_per_hostname: dict,
+    tlds: list[str],
+    bgp_per_cdn_per_hostname: dict,
+    bgp_prefixes_per_hostname: dict,
+    main_org_threshold: float = 0.2,
+    bgp_prefix_threshold: int = 2,
+) -> dict:
+    """perform hostname selection per name server and organization"""
+    name_servers_per_hostname = parse_name_servers(name_servers_per_hostname, tlds)
+
+    hostname_per_name_servers = get_hostname_per_name_server(name_servers_per_hostname)
+
+    hostname_per_main_org = get_hostname_per_main_org(
+        bgp_per_cdn_per_hostname, main_org_threshold
+    )
+
+    hostname_per_main_org = parse_hostname_per_main_org(
+        hostname_per_main_org, bgp_prefixes_per_hostname, bgp_prefix_threshold
+    )
+
+    main_org_per_hostname = {}
+    for org, hostnames in hostname_per_main_org.items():
+        for hostname in hostnames:
+            main_org_per_hostname[hostname] = org
+
+    hostname_per_org_per_name_servers = get_hostname_per_org_per_ns(
+        hostname_per_name_servers, main_org_per_hostname, bgp_prefixes_per_hostname
+    )
+    selected_hostnames, name_server_per_hostnames = get_hostname_selection(
+        hostname_per_org_per_name_servers
+    )
+
+    return selected_hostnames, name_server_per_hostnames
 
 
 def select_ecs_hostnames(
@@ -226,12 +587,6 @@ def select_ecs_hostnames(
                 ipv6=True,
             )
         )
-
-    # if table exists, select geographically sparsed VPs
-    # get each hostnames hosting/ns organisation
-    # calculate redirection score
-    # select N hostnames per pair (NS/org), sorted by redirection score
-    # return
 
 
 def get_ipV6_ecs_hostnames(input_table: str) -> list[str]:
@@ -502,7 +857,10 @@ def filter_low_connectivity_vps(
 
 
 def meshed_traceroutes_schedule(
-    vps_table: str, max_nb_traceroutes: int = 100, input_file: Path = None
+    vps_table: str,
+    max_nb_traceroutes: int = 100,
+    input_file: Path = None,
+    check_cache: bool = True,
 ) -> dict:
     """for each target and subnet target get measurement vps
 
@@ -510,6 +868,7 @@ def meshed_traceroutes_schedule(
         dict: vps per target to make a measurement
     """
     if input_file:
+
         measurement_schedule = load_json(input_file)
         logger.info(f"Schedule for {len(measurement_schedule)} targets")
         # todo: filter
@@ -810,20 +1169,61 @@ def main() -> None:
         - VP selection using /56 subnets
         - no last point, we should be done by now
     """
-    do_select_hostnames: bool = False
+    do_select_hostnames: bool = True
     do_meshed_pings: bool = False
     do_meshed_traceroutes: bool = False
-    do_evaluation: bool = True
+    do_evaluation: bool = False
 
     # 1. get vps
-    asyncio.run(get_vps(ch_settings.VPS_RAW_TABLE + "_ipv6"))
+    vps = asyncio.run(get_vps(ch_settings.VPS_RAW_TABLE + "_ipv6"))
 
     if do_select_hostnames:
         filter_ecs_hostnames(hostname_ecs_table="ecs_hostnames_ipv6")
-        select_ecs_hostnames(
-            vps_ecs_mapping_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+        name_servers_resolution(
+            hostname_ns_table="ns_hostnames_ipv6",
             hostname_ecs_table="ecs_hostnames_ipv6",
-            vps_table=ch_settings.VPS_RAW_TABLE + "_ipv6",
+        )
+        get_hostname_cdn(
+            "ecs_hostnames_ipv6",
+            path_settings.HOSTNAME_FILES / "ecs_hostnames_organization_ipv6.json",
+        )
+        filter_most_represented_org(
+            hostname_ecs_table="ecs_hostnames_ipv6",
+            input_path=path_settings.HOSTNAME_FILES
+            / "ecs_hostnames_organization_ipv6.json",
+            output_path=path_settings.HOSTNAME_FILES
+            / "hostnames_ecs_filtered_most_represented_org_ipv6.csv",
+        )
+
+        # perform ecs resolution over all filtered hostnames/ and RIPE Atlas probes /24
+        tables = get_tables()
+        output_table = "vps_ecs_mapping_ipv6_filtered_hostnames"
+        if not output_table in tables:
+            asyncio.run(
+                run_dns_mapping(
+                    subnets=[vp["subnet"] for vp in vps],
+                    output_table=output_table,
+                    request_type="AAAA",
+                    name_servers="8.8.8.8",
+                    ipv6=True,
+                    hostname_file=path_settings.HOSTNAME_FILES
+                    / "hostnames_ecs_filtered_most_represented_org_ipv6.csv",
+                )
+            )
+        else:
+            logger.warning(
+                f"Skipping ECS resolution because table: {output_table=} already exists"
+            )
+
+        # get geo-scores
+        vps_per_id = {}
+        for vp in vps:
+            vps_per_id[vp["id"]] = vp
+
+        hostname_geo_score = get_hostname_geo_score(
+            vps_per_id,
+            "vps_ecs_mapping_ipv6_filtered_hostnames",
+            1_000,
         )
 
     if do_meshed_pings:

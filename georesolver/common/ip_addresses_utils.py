@@ -173,7 +173,7 @@ def ripe_stat_bgp_prefix(ip_addr: str) -> tuple[int, str]:
     return asn, bgp_prefix
 
 
-def route_view_bgp_prefix(ip_addr: str, asndb) -> tuple[int, str]:
+def route_view_bgp_prefix(ip_addr: str, asndb: pyasn) -> tuple[int, str]:
     """py-asn lookup on route view RIB table dump"""
     asn, bgp_prefix = None, None
     try:

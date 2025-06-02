@@ -192,12 +192,13 @@ async def main() -> None:
 
 
 async def ecs_init(
-    itterative: bool = False, vps_mapping_table: str = ch_settings.VPS_ECS_MAPPING_TABLE
+    itterative: bool = False,
+    hostname_file: Path = path_settings.HOSTNAMES_GEORESOLVER,
+    vps_mapping_table: str = ch_settings.VPS_ECS_MAPPING_TABLE,
 ) -> None:
     """update vps ECS mapping"""
     logger.info(f"Starting VPs ECS mapping, output table:: {vps_mapping_table}")
 
-    hostname_file = path_settings.HOSTNAMES_GEORESOLVER
     vps_subnets = load_vp_subnets(ch_settings.VPS_FILTERED_FINAL_TABLE)
 
     # first change name
@@ -218,7 +219,6 @@ async def ecs_init(
         change_table_name(vps_mapping_table, new_table_name)
 
     # finally run ECS mapping and output to default table
-    vps_subnets = vps_subnets[:1]
     await run_dns_mapping(
         subnets=vps_subnets,
         hostname_file=hostname_file,
@@ -228,6 +228,9 @@ async def ecs_init(
 
 
 if __name__ == "__main__":
-    itterative = True  # set to true use zdns own resolver instead of GPDNS
-    vps_mapping_table = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterative"
-    asyncio.run(ecs_init(itterative, vps_mapping_table))
+    itterative = False  # set to true use zdns own resolver instead of GPDNS
+    vps_mapping_table = ch_settings.VPS_ECS_MAPPING_TABLE + "_new_hostnames"
+    hostname_file = (
+        path_settings.HOSTNAME_FILES / "hostname_georesolver_20_BGP_3_org_ns_new.csv"
+    )
+    asyncio.run(ecs_init(itterative, hostname_file, vps_mapping_table))

@@ -194,19 +194,25 @@ class ZDNS:
 
         return parsed_output
 
-    def parse_ns_records(self, resp: dict, subnet: str) -> str:
+    def parse_ns_records(self, resp: dict) -> str:
         """parse NS records from ZDNS output"""
         parsed_output = []
+
         try:
-            resp_body = resp["data"]
-            timestamp = self.parse_timestamp(resp)
             hostname = resp["name"]
+            resp = resp["results"][self.request_type]
+
+            if resp["status"] != "NOERROR":
+                return None
+
+            data = resp["data"]
+            timestamp = self.parse_timestamp(resp["timestamp"])
 
         except KeyError as e:
             return None
 
-        if "answers" in resp_body:
-            answers = resp_body["answers"]
+        if "answers" in data:
+            answers = data["answers"]
             for answer in answers:
                 if answer["type"] != "NS":
                     continue
@@ -216,31 +222,23 @@ class ZDNS:
                 if not ns:
                     continue
 
-                subnet_addr = get_prefix_from_ip(subnet)
-
                 parsed_output.append(
                     f"{int(timestamp)},\
-                    {subnet_addr},\
-                    24,\
                     {hostname},\
                     {ns},\
                     {answer['type']}"
                 )
 
-        if "authorities" in resp_body:
-            authorities = resp_body["authorities"]
+        if "authorities" in data:
+            authorities = data["authorities"]
             for auth in authorities:
                 ns = auth["ns"]
 
                 if not ns:
                     continue
 
-                subnet_addr = get_prefix_from_ip(subnet)
-
                 parsed_output.append(
                     f"{int(timestamp)},\
-                    {subnet_addr},\
-                    24,\
                     {hostname},\
                     {ns},\
                     {auth['type']}"
@@ -258,7 +256,7 @@ class ZDNS:
                 data = await self.parse_a_records(resp, subnet, asndb)
 
             elif self.request_type == "NS":
-                data = self.parse_ns_records(resp, subnet)
+                data = self.parse_ns_records(resp)
 
             else:
                 raise RuntimeError(f"DNS Type:: {self.request_type} is unkown")

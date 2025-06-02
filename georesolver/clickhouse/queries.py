@@ -546,6 +546,7 @@ def get_mapping_per_hostname(
     dns_table: str,
     subnets: list[str],
     hostname_filter: list[str] = None,
+    ipv6: bool = False,
 ) -> dict:
     """get ecs-dns resolution per hostname for all input subnets"""
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
@@ -554,12 +555,17 @@ def get_mapping_per_hostname(
             table_name=dns_table,
             subnet_filter=subnets,
             hostname_filter=hostname_filter,
+            ipv6=ipv6,
         )
 
         mapping_per_hostname = defaultdict(dict)
         for row in resp:
             subnet = row["client_subnet"]
-            answer_bgp_prefixes = row["answer_bgp_prefixes"]
+            answer_bgp_prefixes = (
+                row["answer_bgp_prefixes"]
+                if not ipv6
+                else row["answer_subnets"]  # retrieving BGP prefix failed in IPv6
+            )
             hostname = row["hostname"]
 
             mapping_per_hostname[hostname][subnet] = answer_bgp_prefixes

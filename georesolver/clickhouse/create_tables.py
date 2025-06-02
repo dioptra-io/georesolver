@@ -322,13 +322,11 @@ class CreateNameServerTable(Query):
     def statement(
         self, table_name: str, out_db: str = ClickhouseSettings().CLICKHOUSE_DATABASE
     ) -> str:
-        sorting_key = "subnet, netmask, hostname,name_server, timestamp"
+        sorting_key = "hostname,name_server, timestamp"
         return f"""
         CREATE TABLE IF NOT EXISTS {out_db}.{table_name}
         (
             timestamp              DateTime(),
-            subnet                 IPv4,
-            netmask                UInt8,
             hostname               String,
             name_server            String,
             type                   String

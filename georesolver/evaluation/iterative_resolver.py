@@ -192,6 +192,22 @@ def get_hostnames_org_and_ns_threshold(
     )
 
 
+def get_all_iterative_georesolver_hostnames() -> None:
+    """run zdns iterative ZDNS resolver over all hostnames"""
+    host_addr = get_host_ip_addr()
+    host_subnet = get_prefix_from_ip(host_addr)
+
+    asyncio.run(
+        run_dns_mapping(
+            subnets=[host_subnet],
+            hostname_file=path_settings.HOSTNAMES_MILLIONS,
+            request_type="A",
+            itterative=True,
+            output_table="iterative_ecs_hostnames_1M",
+        )
+    )
+
+
 def get_iterative_georesolver_hostnames(input_path: Path) -> list[str]:
     """get a list of iterative ECS hostnames"""
     if not input_path.exists():
@@ -353,8 +369,12 @@ def main() -> None:
         - perform VPs ECS mapping using new selected hostnames
         - evaluation on meshed pings
     """
+    do_run_iterative_1M: bool = True
     do_get_iterative_georesolver_hostnames: bool = False
-    do_eval: bool = True
+    do_eval: bool = False
+
+    if do_run_iterative_1M:
+        get_all_iterative_georesolver_hostnames()
 
     if do_get_iterative_georesolver_hostnames:
         get_iterative_georesolver_hostnames(ITERATIVE_GEORESOLVER_PATH)

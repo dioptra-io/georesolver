@@ -497,7 +497,7 @@ class GetHostnamesAnswerSubnet(Query):
         return f"""
         SELECT 
             hostname,
-            groupUniqArray(toString(answer)) as answers
+            groupUniqArray(toString(answer_subnet)) as answers
         FROM 
             {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
         {hostname_filter}
@@ -589,25 +589,48 @@ class GetDNSMappingPerHostnames(Query):
         else:
             hostname_filter = ""
 
+        ipv6 = False
+        if "ipv6" in kwargs:
+            ipv6 = kwargs.get("ipv6")
+
         if subnet_filter := kwargs.get("subnet_filter"):
-            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            if not ipv6:
+                subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            else:
+                subnet_filter = "".join([f",toIPv6('{s}')" for s in subnet_filter])[1:]
+
             subnet_filter = f"subnet IN ({subnet_filter})"
         else:
             raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
 
-        return f"""
-        SELECT
-            toString(subnet) as client_subnet,
-            hostname,
-            groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
-        FROM
-            {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
-        WHERE 
-            {subnet_filter}
-            {hostname_filter}
-        GROUP BY
-            (client_subnet, hostname)
-        """
+        if not ipv6:
+            return f"""
+            SELECT
+                toString(subnet) as client_subnet,
+                hostname,
+                groupUniqArray((answer_bgp_prefix)) as answer_bgp_prefixes
+            FROM
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            WHERE 
+                {subnet_filter}
+                {hostname_filter}
+            GROUP BY
+                (client_subnet, hostname)
+            """
+        else:
+            return f"""
+            SELECT
+                toString(subnet) as client_subnet,
+                hostname,
+                groupUniqArray((answer_subnet)) as answer_subnets
+            FROM
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name}
+            WHERE 
+                {subnet_filter}
+                {hostname_filter}
+            GROUP BY
+                (client_subnet, hostname)
+            """
 
 
 class GetECSResults(Query):

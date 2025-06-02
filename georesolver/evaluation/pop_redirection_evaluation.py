@@ -344,13 +344,13 @@ def latency_eval() -> None:
                 percentile = compute_percentile_rank(min_rtt, all_pings)
 
                 # debug
-                if percentile > 50:
-                    print(f"{vp_addr=}")
-                    print(f"{hostname=}")
-                    print(f"{min_rtt=}")
-                    print(f"{assigned_pings=}")
-                    print(f"{min_latency=}")
-                    print(f"{all_pings=}")
+                # if percentile > 50:
+                #     print(f"{vp_addr=}")
+                #     print(f"{hostname=}")
+                #     print(f"{min_rtt=}")
+                #     print(f"{assigned_pings=}")
+                #     print(f"{min_latency=}")
+                #     print(f"{all_pings=}")
 
                 percentile_per_hostname_vp[(vp_addr, hostname)].append(percentile)
                 percentile_per_hostname[hostname].append(percentile)
@@ -392,13 +392,14 @@ def latency_eval() -> None:
     # cdfs.append((x, y, "Per hostname"))
     # per pair (hostname; vp)
     x, y = ecdf(avg_percentiles_per_hostname_vp)
-    cdfs.append((x, y, "all pairs"))
+    cdfs.append((x, y, "All (Probe, Hostname) pairs"))
     frac = get_proportion_under(x, y, 10)
     logger.info(f"All pairs, frac redirection in best 10 percent:: {frac}")
     # per pair, function of threshold
     for t in latency_thresholds:
         x, y = ecdf(avg_percentiles_per_hostname_vp_per_threshold[t])
-        cdfs.append((x, y, f"min possible rtt<={t}ms"))
+        cdfs.append((x, y, f"Pairs with at least an RTT to a PoP < {t} ms"))
+        frac = get_proportion_under(x, y, 10)
         logger.info(
             f"rtt<={t=} All pairs, frac redirection in best 10 percent:: {frac}"
         )
@@ -407,9 +408,10 @@ def latency_eval() -> None:
         cdfs=cdfs,
         x_limit_left=0,
         legend_size=8,
+        legend_pos="lower right",
         output_path="cdf_avg_percentile_latency_per_hostname",
-        x_label="latency percentile",
-        y_label="fraction of pairs (VP; hostname)",
+        x_label="Latency percentile",
+        y_label="CDF of (Probe, Hostname) pairs",
     )
 
 
@@ -583,11 +585,17 @@ def cdn_meshed_vs_georesolver() -> None:
     )
 
     meshed_shortest_pings = []
+    random_vps_shortest_pings = []
     georesolver_shortest_pings = []
     for target_addr, pings in pings_per_target.items():
         # get shortest ping using all vps
         meshed_shortest_ping = min(pings, key=lambda x: x[-1])
         meshed_shortest_pings.append(meshed_shortest_ping)
+
+        # random vantage point selection
+        pings_sample = sample(pings, 50 if len(pings) > 50 else len(pings))
+        random_vps_shortest_ping = min(pings_sample, key=lambda x: x[-1])
+        random_vps_shortest_pings.append(random_vps_shortest_ping)
 
         # get shortest ping using georesolver VPs
         georesolver_vp_selection = vp_selection_per_target[target_addr][:50]
@@ -605,6 +613,7 @@ def cdn_meshed_vs_georesolver() -> None:
 
     # plot latencies cdfs
     cdfs = []
+
     # all vps shortest pings
     x, y = ecdf([rtt for _, _, rtt in meshed_shortest_pings])
     cdfs.append([x, y, "Shortest ping, all VPs"])
@@ -616,6 +625,12 @@ def cdn_meshed_vs_georesolver() -> None:
     cdfs.append([x, y, "GeoResolver"])
     frac_under = round(get_proportion_under(x, y, 2), 2)
     logger.info(f"GeoResolver pings :: {frac_under=}")
+
+    # random shortest ping vps
+    x, y = ecdf([rtt for _, _, rtt in random_vps_shortest_pings])
+    cdfs.append([x, y, "Shortest ping, 50 random VPs"])
+    frac_under = round(get_proportion_under(x, y, 2), 2)
+    logger.info(f"Random vps pings :: {frac_under=}")
 
     plot_multiple_cdf(
         cdfs=cdfs,
@@ -678,7 +693,7 @@ def main() -> None:
     do_measurement: bool = False
     do_latency_eval: bool = True
     do_geo_eval: bool = False
-    do_georesolver_comparison: bool = False
+    do_cdn_meshed_vs_georesolver: bool = False
     do_cdn_coverage: bool = False
 
     if do_measurement:
@@ -693,7 +708,7 @@ def main() -> None:
         latency_eval()
     if do_geo_eval:
         geo_eval()
-    if do_georesolver_comparison:
+    if do_cdn_meshed_vs_georesolver:
         cdn_meshed_vs_georesolver()
     if do_cdn_coverage:
         cdns_coverage_eval()
