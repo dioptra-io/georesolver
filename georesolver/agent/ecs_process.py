@@ -34,6 +34,10 @@ async def run_dns_mapping(
         logger.info(
             f"Resolving:: {len(all_hostnames)} hostnames on {len(subnets)} subnets"
         )
+        logger.info(f"{output_table=}")
+        logger.info(f"{name_servers=}")
+        logger.info(f"{request_type=}")
+        logger.info(f"{ipv6=}")
 
         # split file
         for index in range(0, len(all_hostnames), chunk_size):

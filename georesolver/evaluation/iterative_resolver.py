@@ -369,9 +369,9 @@ def main() -> None:
         - perform VPs ECS mapping using new selected hostnames
         - evaluation on meshed pings
     """
-    do_run_iterative_1M: bool = True
+    do_run_iterative_1M: bool = False
     do_get_iterative_georesolver_hostnames: bool = False
-    do_eval: bool = False
+    do_eval: bool = True
 
     if do_run_iterative_1M:
         get_all_iterative_georesolver_hostnames()

@@ -227,7 +227,7 @@ async def run_measurement(
     )
 
     await asyncio.gather(
-        # prober.main(measurement_schedule),
+        prober.main(measurement_schedule),
         insert_measurements(
             measurement_schedule,
             probing_tags=["dioptra", measurement_tag],

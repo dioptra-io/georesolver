@@ -18,9 +18,9 @@ from collections import defaultdict, OrderedDict
 from georesolver.prober import RIPEAtlasProber
 from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.clickhouse import (
-    CreateIPv6VPsTable,
-    InsertCSV,
     Query,
+    InsertCSV,
+    CreateIPv6VPsTable,
     GetHostnamesAnswerSubnet,
 )
 from georesolver.clickhouse.queries import (
@@ -39,11 +39,14 @@ from georesolver.prober.ripe_api import RIPEAtlasAPI
 from georesolver.agent.insert_process import retrieve_pings, retrieve_traceroutes
 from georesolver.evaluation.evaluation_hostname_functions import (
     parse_name_servers,
+    get_all_name_servers,
     get_hostname_selection,
     get_hostname_per_main_org,
+    get_best_hostnames_per_org,
     parse_hostname_per_main_org,
     get_hostname_per_org_per_ns,
     get_hostname_per_name_server,
+    get_hostnames_org_and_ns_threshold,
 )
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
@@ -373,7 +376,7 @@ def filter_most_represented_org(
             org = merge_main_orgs(org)
             hostname_per_org[org].add(hostname)
 
-    hostname_per_org = OrderedDict(
+    hostnae_per_org = OrderedDict(
         sorted(hostname_per_org.items(), key=lambda x: len(x[-1]), reverse=True)
     )
 
@@ -507,6 +510,64 @@ def get_hostname_geo_score(vps_per_id: dict, dns_table: str, nb_vps: int) -> dic
     dump_json(hostname_similarity_score, hostname_geo_score_path)
 
     return hostname_similarity_score
+
+
+def select_hostnames(vps: list[dict]) -> None:
+    """select hostnames based on name servers info, hosting information and returned BGP prefixes"""
+
+    if not (
+        path_settings.HOSTNAME_FILES / "ipv6_hostnames_org_bgp_prefixes.json"
+    ).exists():
+        get_hostname_cdn(
+            "vps_ecs_mapping_ipv6_filtered_hostnames",
+            path_settings.HOSTNAME_FILES / "ipv6_hostnames_org_bgp_prefixes.json",
+        )
+
+    cdn_per_hostname = load_json(
+        path_settings.HOSTNAME_FILES / "ipv6_hostnames_org_bgp_prefixes.json"
+    )
+    bgp_prefix_per_hostnames = get_bpg_prefix_per_hostnames(cdn_per_hostname)
+    name_servers_per_hostname = get_all_name_servers("ns_hostnames_ipv6")
+    # get geo-scores
+    vps_per_id = {}
+    for vp in vps:
+        vps_per_id[vp["id"]] = vp
+
+    hostname_geo_score = get_hostname_geo_score(
+        vps_per_id,
+        "vps_ecs_mapping_ipv6_filtered_hostnames",
+        1_000,
+    )
+
+    # select hostnames based on their name server and organisation
+    tlds = load_csv(path_settings.DATASET / "tlds.csv")
+    tlds = [t.lower() for t in tlds]
+    selected_hostnames, ns_per_hostname = select_hostname_per_org_per_ns(
+        name_servers_per_hostname=name_servers_per_hostname,
+        tlds=tlds,
+        bgp_per_cdn_per_hostname=cdn_per_hostname,
+        bgp_prefixes_per_hostname=bgp_prefix_per_hostnames,
+        main_org_threshold=0.01,
+        bgp_prefix_threshold=2,
+    )
+
+    # save files
+    _, best_hostnames_per_org_per_ns = get_best_hostnames_per_org(
+        hostname_geo_score=hostname_geo_score,
+        cdn_per_hostname=cdn_per_hostname,
+        bgp_prefix_per_hostnames=bgp_prefix_per_hostnames,
+        ns_per_hostname=ns_per_hostname,
+        hostnames_per_org_path=(
+            path_settings.DATASET / "best_hostnames_per_org_ipv6.json"
+        ),
+        hostnames_per_org_per_ns_path=(
+            path_settings.DATASET / "best_hostnames_per_org_per_ns_ipv6.json"
+        ),
+    )
+
+    get_hostnames_org_and_ns_threshold(
+        best_hostnames_per_org_per_ns, "hostname_georesolver_ipv6_"
+    )
 
 
 def select_hostname_per_org_per_ns(
@@ -1084,16 +1145,29 @@ async def run_measurement(
     logger.info("Meshed CDNs pings measurement done")
 
 
-def evaluation() -> None:
+def evaluation(mapping_table: str, hostname_file: Path) -> None:
 
     cdfs = []
     removed_vps = load_json(path_settings.DATASET / "removed_vps_ipv6.json")
-    hostnames = load_csv(path_settings.HOSTNAME_FILES / "ecs_hostnames_ipv6.csv")
+    hostnames = load_csv(hostname_file)
     targets = load_targets(ch_settings.VPS_FILTERED_TABLE + "_ipv6", ipv6=True)
     vps = load_vps(ch_settings.VPS_FILTERED_TABLE + "_ipv6", ipv6=True)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
     target_subnets = [t["subnet"] for t in targets]
     vp_subnets = [v["subnet"] for v in vps]
+
+    tables = get_tables()
+    if mapping_table not in tables:
+        asyncio.run(
+            run_dns_mapping(
+                subnets=[v["subnet"] for v in vps],
+                hostname_file=hostname_file,
+                output_table=mapping_table,
+                name_servers="8.8.8.8",
+                request_type="AAAA",
+                ipv6=True,
+            )
+        )
 
     # load score similarity between vps and targets
     scores = get_scores(
@@ -1101,8 +1175,8 @@ def evaluation() -> None:
         hostnames=hostnames,
         target_subnets=target_subnets,
         vp_subnets=vp_subnets,
-        target_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
-        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE + "_ipv6",
+        target_ecs_table=mapping_table,
+        vps_ecs_table=mapping_table,
         ipv6=True,
     )
 
@@ -1169,10 +1243,10 @@ def main() -> None:
         - VP selection using /56 subnets
         - no last point, we should be done by now
     """
-    do_select_hostnames: bool = True
+    do_select_hostnames: bool = False
     do_meshed_pings: bool = False
     do_meshed_traceroutes: bool = False
-    do_evaluation: bool = False
+    do_evaluation: bool = True
 
     # 1. get vps
     vps = asyncio.run(get_vps(ch_settings.VPS_RAW_TABLE + "_ipv6"))
@@ -1215,16 +1289,8 @@ def main() -> None:
                 f"Skipping ECS resolution because table: {output_table=} already exists"
             )
 
-        # get geo-scores
-        vps_per_id = {}
-        for vp in vps:
-            vps_per_id[vp["id"]] = vp
-
-        hostname_geo_score = get_hostname_geo_score(
-            vps_per_id,
-            "vps_ecs_mapping_ipv6_filtered_hostnames",
-            1_000,
-        )
+        # select hostnames
+        select_hostnames(vps)
 
     if do_meshed_pings:
         measurement_schedule = meshed_pings_schedule(
@@ -1274,7 +1340,11 @@ def main() -> None:
         )
 
     if do_evaluation:
-        evaluation()
+        evaluation(
+            mapping_table="vps_ecs_mapping_ecs_ipv6_latest",
+            hostname_file=path_settings.HOSTNAME_FILES
+            / "hostname_georesolver_ipv6__10_BGP_5_org_ns_new.csv",
+        )
 
 
 if __name__ == "__main__":

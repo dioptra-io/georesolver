@@ -43,7 +43,7 @@ if [ -f $EXEC_PATH ]; then
     echo "Clickhouse client file already downloaded"
 else
     echo "Installing Clickhouse from exec file"
-    curl https://clickhouse.com/ | sh
+    curl https://clickhouse.com/ | shd
     mv clickhouse $CONFIG_PATH
 fi
 

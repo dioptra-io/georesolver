@@ -21,7 +21,6 @@ from georesolver.clickhouse.queries import get_mapping_per_hostname
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
-os.environ["CLICKHOUSE_DATABASE"] = "GeoResolver_evaluation"
 path_settings = PathSettings()
 clickhouse_settings = ClickhouseSettings()
 
@@ -627,18 +626,18 @@ def get_best_hostnames_per_org(
     cdn_per_hostname: dict,
     bgp_prefix_per_hostnames: dict,
     ns_per_hostname: dict,
+    hostnames_per_org_path: Path = (
+        path_settings.DATASET / "best_hostnames_per_org_new.json"
+    ),
+    hostnames_per_org_per_ns_path: Path = (
+        path_settings.DATASET / "best_hostnames_per_org_per_ns_new.json"
+    ),
 ) -> tuple[dict, dict]:
     """for each organization get the best set of hostnames"""
-    best_hostnames_per_org_path = (
-        path_settings.DATASET / "best_hostnames_per_org_new.json"
-    )
-    best_hostnames_per_org_per_ns_path = (
-        path_settings.DATASET / "best_hostnames_per_org_per_ns_new.json"
-    )
 
     # get the best hostnames per organization
-    if best_hostnames_per_org_path.exists():
-        best_hostnames_per_org = load_json(best_hostnames_per_org_path)
+    if hostnames_per_org_path.exists():
+        best_hostnames_per_org = load_json(hostnames_per_org_path)
     else:
         best_hostnames_per_org = defaultdict(list)
         for index, (hostname, score) in enumerate(hostname_geo_score):
@@ -652,10 +651,10 @@ def get_best_hostnames_per_org(
                 (index, hostname, score, len(hostname_bgp_prefixes))
             )
 
-        dump_json(best_hostnames_per_org, best_hostnames_per_org_path)
+        dump_json(best_hostnames_per_org, hostnames_per_org_path)
 
-    if best_hostnames_per_org_per_ns_path.exists():
-        best_hostnames_per_org_per_ns = load_json(best_hostnames_per_org_per_ns_path)
+    if hostnames_per_org_per_ns_path.exists():
+        best_hostnames_per_org_per_ns = load_json(hostnames_per_org_per_ns_path)
     else:
         # get the best hostnames per organization AND per NS
         best_hostnames_per_org_per_ns = defaultdict(dict)
@@ -675,12 +674,14 @@ def get_best_hostnames_per_org(
                         (i, hostname, score, nb_hostnames_bgp_prefixes)
                     ]
 
-        dump_json(best_hostnames_per_org_per_ns, best_hostnames_per_org_per_ns_path)
+        dump_json(best_hostnames_per_org_per_ns, hostnames_per_org_per_ns_path)
 
     return best_hostnames_per_org, best_hostnames_per_org_per_ns
 
 
-def get_hostnames_org_and_ns_threshold(best_hostnames_per_org_per_ns: dict) -> None:
+def get_hostnames_org_and_ns_threshold(
+    best_hostnames_per_org_per_ns: dict, output_file_root: str = "hostname_georesolver_"
+) -> None:
     """
     generate dataset of hostnames function of the number of org/ns
     threhold and bgp prefixes threshold parameters
@@ -742,7 +743,7 @@ def get_hostnames_org_and_ns_threshold(best_hostnames_per_org_per_ns: dict) -> N
             dump_csv(
                 total_hostnames,
                 path_settings.HOSTNAME_FILES
-                / f"hostname_georesolver_{bgp_threshold}_BGP_{ns_org_threhsold}_org_ns_new.csv",
+                / f"{output_file_root}_{bgp_threshold}_BGP_{ns_org_threhsold}_org_ns_new.csv",
             )
 
 
