@@ -58,7 +58,7 @@ HG_NSO = [
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
-VPS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_4_left"
 
 
@@ -243,7 +243,7 @@ def compute_score() -> None:
     )
 
 
-def evaluate() -> None:
+def evaluation() -> None:
     """perform vp selection based on targets/vps ecs redirection similarities"""
 
     targets = load_targets(TARGETS_TABLE)
@@ -331,8 +331,8 @@ def plot() -> None:
 
 def main(
     do_load_hostnames: bool = False,
-    do_score: bool = False,
-    do_eval: bool = False,
+    do_compute_score: bool = False,
+    do_evaluation: bool = False,
     do_plot: bool = True,
 ) -> None:
     """
@@ -346,11 +346,11 @@ def main(
     if do_load_hostnames:
         load_hostnames()
 
-    if do_score:
+    if do_compute_score:
         compute_score()
 
-    if do_eval:
-        evaluate()
+    if do_evaluation:
+        evaluation()
 
     if do_plot:
         plot()

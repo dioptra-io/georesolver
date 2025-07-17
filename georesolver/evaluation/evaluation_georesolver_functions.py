@@ -452,28 +452,6 @@ def get_vp_selection_per_target(
     return vp_selection_per_target
 
 
-def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = []) -> dict:
-    """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
-    vps_coordinates = {}
-    vps_subnet = defaultdict(list)
-    vps_bgp_prefix = defaultdict(list)
-
-    for vp in vps:
-        if vp["addr"] in removed_vps:
-            continue
-        vp_addr = vp["addr"]
-        subnet = get_prefix_from_ip(vp_addr)
-        vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
-        vp_lat, vp_lon = vp["lat"], vp["lon"]
-        vp_country_code = vp["country_code"]
-
-        vps_subnet[subnet].append(vp_addr)
-        vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
-        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_country_code, vp_asn)
-
-    return vps_subnet, vps_coordinates
-
-
 def get_vps_per_subnet(vps: list) -> dict:
     """group vps per subnet"""
     vps_subnet = defaultdict(list)
@@ -491,7 +469,7 @@ def get_d_errors_random(
     """select random vps for geolocation"""
     d_errors = []
     for target_addr, pings in pings_per_target.items():
-        # get shortest ping using all vps
+        # get shortest ping using 50 random VPs
         random_pings = sample(pings, 50 if len(pings) > 50 else len(pings))
         vp_addr, _, _ = min(random_pings, key=lambda x: x[-1])
 
@@ -550,7 +528,7 @@ def get_d_errors_georesolver(
             logger.error(f"Cannot find pings for {target_addr=}")
             continue
 
-        # geoResolver shortest ping
+        # geoResolver vps selection function of probing budget
         try:
             if type(probing_budget) == int:
                 vp_selection = vp_selection_per_target[target_addr][:probing_budget]

@@ -359,7 +359,7 @@ def asn_country_diversity_evaluation() -> None:
     logger.info(f"GeoResolver:: {avg_asns=} || {avg_countries=}")
 
 
-def eval() -> None:
+def evaluation () -> None:
     """
     perform the evaluation:
         - latency comparison overall:
@@ -386,7 +386,7 @@ def eval() -> None:
 def main(
     do_load_dataset: bool = False,
     do_measurements: bool = False,
-    do_eval: bool = True,
+    do_evaluation: bool = True,
 ) -> None:
     """
     main function:
@@ -404,8 +404,8 @@ def main(
 
         run_georesolver(GEORESOLVER_CONFIG_FILE)
 
-    if do_eval:
-        eval()
+    if do_evaluation:
+        evaluation()
 
 
 if __name__ == "__main__":

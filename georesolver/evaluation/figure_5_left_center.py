@@ -27,7 +27,7 @@ ch_settings = ClickhouseSettings()
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
-VPS_MAPPING_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+VPS_MAPPING_TABLE = "vps_ecs_mapping__2025_04_13"
 HOSTNAME_FILE = path_settings.HOSTNAMES_GEORESOLVER
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_5_left_center"
 

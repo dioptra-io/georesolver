@@ -238,7 +238,7 @@ async def run_measurement(
     logger.info("Meshed CDNs pings measurement done")
 
 
-def latency_eval(input_tables: list[tuple[str, str]]) -> None:
+def evaluation(input_tables: list[tuple[str, str]]) -> None:
     """compare shortest ping obtained with each vp selection methodology"""
     cdfs = []
     for input_table, label in input_tables:
@@ -273,7 +273,7 @@ def latency_eval(input_tables: list[tuple[str, str]]) -> None:
 def main(
     do_maxmind_measurements: bool = False,
     do_ip_info_measurements: bool = False,
-    do_latency_eval: bool = True,
+    do_evaluation: bool = True,
 ) -> None:
     """
     entry point:
@@ -323,8 +323,8 @@ def main(
             )
         )
 
-    if do_latency_eval:
-        latency_eval(
+    if do_evaluation:
+        evaluation(
             [
                 ("ipinfo_closest_vp_seed_pings", "IPinfo (50 closest VPs)"),
                 ("georesolver_itdk_sample_ping", "GeoResolver"),
