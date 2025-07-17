@@ -18,12 +18,14 @@ from georesolver.clickhouse.queries import (
 from georesolver.agent.ecs_process import run_dns_mapping
 from georesolver.evaluation.evaluation_georesolver_functions import (
     get_scores,
+    get_d_errors_ref,
+    get_d_errors_georesolver,
     get_vp_selection_per_target,
 )
 from georesolver.evaluation.evaluation_plot_functions import (
     ecdf,
-    get_proportion_under,
     plot_multiple_cdf,
+    get_proportion_under,
 )
 from georesolver.common.files_utils import (
     load_json,
@@ -32,7 +34,6 @@ from georesolver.common.files_utils import (
     dump_csv,
 )
 from georesolver.common.ip_addresses_utils import get_host_ip_addr, get_prefix_from_ip
-from georesolver.common.utils import get_d_errors_ref, get_d_errors_georesolver
 from georesolver.common.settings import PathSettings, ClickhouseSettings
 
 path_settings = PathSettings()

@@ -2,8 +2,10 @@
 
 from tqdm import tqdm
 from numpy import mean
+from pyasn import pyasn
 from pathlib import Path
 from loguru import logger
+from random import sample
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 
@@ -238,9 +240,13 @@ def get_scores(
     # load cache score
     score_per_target_subnet = {}
     if output_path.exists():
+        logger.warning(
+            f"Skipping score calculation because {output_path=} already exists"
+        )
         score_per_target_subnet = load_pickle(output_path)
         return score_per_target_subnet
 
+    logger.info(f"score calculation:: {output_path=}")
     logger.info(f"score calculation:: {len(hostnames)} hostnames")
     logger.info(f"{len(target_subnets)=}")
     logger.info(f"{len(vp_subnets)=}")
@@ -388,12 +394,19 @@ def select_one_vp_per_as_city(
 
 
 def get_vp_selection_per_target(
-    output_path: Path, scores: Path, targets: list, vps: list[dict], ipv6: bool = False
+    output_path: Path,
+    scores: Path,
+    targets: list,
+    vps: list[dict],
+    ipv6: bool = False,
 ) -> tuple[dict, dict]:
 
     if output_path.exists():
+        logger.warning(f"VP selection skipped because {output_path=} already exists")
         vp_selection_per_target = load_pickle(output_path)
         return vp_selection_per_target
+
+    logger.info(f"VP selection {output_path=}")
 
     if not ipv6:
         last_mile_delay = get_min_rtt_per_vp(ch_settings.VPS_MESHED_TRACEROUTE_TABLE)
@@ -435,4 +448,142 @@ def get_vp_selection_per_target(
         )
 
     dump_pickle(vp_selection_per_target, output_path)
+
     return vp_selection_per_target
+
+
+def get_parsed_vps(vps: list, asndb: pyasn, removed_vps: list = []) -> dict:
+    """parse vps list to a dict for fast retrieval. Keys depends on granularity"""
+    vps_coordinates = {}
+    vps_subnet = defaultdict(list)
+    vps_bgp_prefix = defaultdict(list)
+
+    for vp in vps:
+        if vp["addr"] in removed_vps:
+            continue
+        vp_addr = vp["addr"]
+        subnet = get_prefix_from_ip(vp_addr)
+        vp_asn, vp_bgp_prefix = route_view_bgp_prefix(vp_addr, asndb)
+        vp_lat, vp_lon = vp["lat"], vp["lon"]
+        vp_country_code = vp["country_code"]
+
+        vps_subnet[subnet].append(vp_addr)
+        vps_bgp_prefix[vp_bgp_prefix].append(vp_addr)
+        vps_coordinates[vp_addr] = (vp_lat, vp_lon, vp_country_code, vp_asn)
+
+    return vps_subnet, vps_coordinates
+
+
+def get_vps_per_subnet(vps: list) -> dict:
+    """group vps per subnet"""
+    vps_subnet = defaultdict(list)
+
+    for vp in vps:
+        vps_subnet[vp["subnet"]].append(vp)
+
+    return vps_subnet
+
+
+def get_d_errors_random(
+    pings_per_target: dict[list],
+    vps_coordinates: dict[dict],
+) -> list[float]:
+    """select random vps for geolocation"""
+    d_errors = []
+    for target_addr, pings in pings_per_target.items():
+        # get shortest ping using all vps
+        random_pings = sample(pings, 50 if len(pings) > 50 else len(pings))
+        vp_addr, _, _ = min(random_pings, key=lambda x: x[-1])
+
+        # get target/vps coordinates
+        try:
+            target = vps_coordinates[target_addr]
+            vp = vps_coordinates[vp_addr]
+        except KeyError:
+            continue
+
+        # get dst
+        d_error = distance(target["lat"], vp["lat"], target["lon"], vp["lon"])
+        d_errors.append(d_error)
+
+    return d_errors
+
+
+def get_d_errors_ref(
+    pings_per_target: dict[list],
+    vps_coordinates: dict[dict],
+) -> list[float]:
+    """use all vps for geolocation"""
+    d_errors = []
+    for target_addr, pings in pings_per_target.items():
+        # get shortest ping using all vps
+        vp_addr, _, _ = min(pings, key=lambda x: x[-1])
+
+        # get target/vps coordinates
+        try:
+            target = vps_coordinates[target_addr]
+            vp = vps_coordinates[vp_addr]
+        except KeyError:
+            continue
+
+        # get dst
+        d_error = distance(target["lat"], vp["lat"], target["lon"], vp["lon"])
+        d_errors.append(d_error)
+
+    return d_errors
+
+
+def get_d_errors_georesolver(
+    targets: list[str],
+    pings_per_target: dict[list],
+    vp_selection_per_target: dict[list],
+    vps_coordinates: dict[dict],
+    probing_budget: int = 50,
+) -> tuple[list[float], list[float]]:
+    """return distance errors based on a set of targets with known geolocation"""
+    d_errors = []
+    for target_addr in tqdm(targets):
+
+        try:
+            pings = pings_per_target[target_addr]
+        except KeyError:
+            logger.error(f"Cannot find pings for {target_addr=}")
+            continue
+
+        # geoResolver shortest ping
+        try:
+            if type(probing_budget) == int:
+                vp_selection = vp_selection_per_target[target_addr][:probing_budget]
+            elif type(probing_budget) == tuple:
+                vp_selection = vp_selection_per_target[target_addr][
+                    probing_budget[0] : probing_budget[1]
+                ]
+            else:
+                raise RuntimeError(
+                    f"Unsupported type {type(probing_budget)} for parameter probing_budget"
+                )
+
+        except KeyError:
+            continue
+
+        vp_selection = [v for v, _ in vp_selection]
+
+        # get georesolver shortest ping
+        georesolver_pings = []
+        for vp_addr, vp_id, min_rtt in pings:
+            if vp_addr in vp_selection:
+                georesolver_pings.append((vp_addr, vp_id, min_rtt))
+        try:
+            vp_addr, _, _ = min(georesolver_pings, key=lambda x: x[-1])
+        except:
+            continue
+
+        # get target/vps coordinates
+        target = vps_coordinates[target_addr]
+        vp = vps_coordinates[vp_addr]
+
+        # get dst
+        d_error = distance(target["lat"], vp["lat"], target["lon"], vp["lon"])
+        d_errors.append(d_error)
+
+    return d_errors

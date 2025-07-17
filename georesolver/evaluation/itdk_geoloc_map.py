@@ -1,8 +1,9 @@
+"""Generate Follium geoloc map using ITDK ping results (cosmetic only)"""
+
 import folium
 import pandas as pd
 
 from tqdm import tqdm
-from loguru import logger
 from collections import defaultdict
 from folium.plugins import MarkerCluster
 

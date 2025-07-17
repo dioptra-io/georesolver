@@ -55,9 +55,10 @@ from georesolver.evaluation.evaluation_plot_functions import (
 )
 from georesolver.evaluation.evaluation_georesolver_functions import (
     get_scores,
+    get_d_errors_ref,
+    get_d_errors_georesolver,
     get_vp_selection_per_target,
 )
-from georesolver.common.utils import get_d_errors_ref, get_d_errors_georesolver
 from georesolver.common.geoloc import (
     haversine,
     greedy_selection_probes_impl,

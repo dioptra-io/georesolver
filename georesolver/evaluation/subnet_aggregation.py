@@ -15,8 +15,8 @@ from georesolver.evaluation.evaluation_plot_functions import (
     plot_cdf,
     plot_multiple_cdf,
 )
-from georesolver.common.utils import get_vp_per_id, get_parsed_vps
-from georesolver.common.geoloc import rtt_to_km, circle_intersections, distance
+from georesolver.common.utils import get_parsed_vps
+from georesolver.common.geoloc import rtt_to_km, distance
 from georesolver.common.files_utils import (
     load_csv,
     load_json,
