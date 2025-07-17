@@ -4,11 +4,8 @@ from random import shuffle
 from loguru import logger
 from pathlib import Path
 
-from georesolver.common.ip_addresses_utils import get_prefix_from_ip
 from georesolver.common.files_utils import (
     load_csv,
-    load_json,
-    dump_json,
     create_tmp_csv_file,
 )
 from georesolver.common.settings import PathSettings, ClickhouseSettings
