@@ -3,7 +3,7 @@
 from loguru import logger
 
 from georesolver.georesolver import run_georesolver
-from georesolver.evaluation.itdk_dataset import get_random_itdk_routers
+from georesolver.evaluation.itdk_dataset_parsing import get_random_itdk_routers
 from georesolver.common.settings import PathSettings
 
 path_settings = PathSettings()

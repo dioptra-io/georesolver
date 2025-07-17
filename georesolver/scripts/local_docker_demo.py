@@ -4,7 +4,7 @@ from random import sample
 from loguru import logger
 
 from georesolver.georesolver import run_georesolver
-from georesolver.evaluation.itdk_dataset import load_csv, dump_csv
+from georesolver.evaluation.itdk_dataset_parsing import load_csv, dump_csv
 from georesolver.common.settings import PathSettings
 
 path_settings = PathSettings()

@@ -19,7 +19,7 @@ SCORE_TABLE: str = "local_demo_score"
 SCHEDULE_TABLE: str = "local_demo_schedule"
 PING_TABLE: str = "local_demo_ping"
 GEOLOC_TABLE: str = "local_demo_geoloc"
-BATCH_SIZE = 1_000
+BATCH_SIZE = 10
 
 
 def generate_random_dataset(input_dataset: Path) -> None:

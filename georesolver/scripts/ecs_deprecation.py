@@ -172,9 +172,7 @@ async def init_experiment(vps_subnet: list[str]) -> None:
     )
 
     # run georesolver
-    agents = create_agents(CONFIG_PATH)
-    for agent in agents:
-        agent.run()
+    run_georesolver(CONFIG_PATH)
 
 
 async def run_experiment(vps_subnet: list[str]) -> None:
