@@ -23,6 +23,7 @@ ch_settings = ClickhouseSettings()
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "table_1"
 
@@ -81,17 +82,13 @@ def evaluation() -> None:
 
     logger.info("BGP prefix score geoloc evaluation")
 
-    score_dir = path_settings.RESULTS_PATH / "tier4_evaluation"
-
-    for score_file in score_dir.iterdir():
+    for score_file in RESULTS_PATH.iterdir():
 
         if "results" in score_file.name:
             continue
 
-        scores = load_pickle(score_file)
-
         logger.info(f"ECS evaluation for score:: {score_file}")
-
+        scores = load_pickle(score_file)
         output_path = (
             RESULTS_PATH / f"{'results' + str(score_file).split('scores')[-1]}"
         )
@@ -108,15 +105,12 @@ def plot() -> None:
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps = load_vps(VPS_TABLE)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     vp_selection_files = defaultdict(list)
     for file in RESULTS_PATH.iterdir():
-        if "result" in file.name and "org_ns" in file.name:
-            bgp_prefix_threshold = file.name.split("score_")[-1].split("_")[0]
+        if "results" in file.name and "org_ns" in file.name:
+            bgp_prefix_threshold = file.name.split("results__")[-1].split("_")[0]
             org_ns_threshold = file.name.split("BGP_")[-1].split("_")[0]
             vp_selection_files[int(bgp_prefix_threshold)].append(
                 (int(org_ns_threshold), file)
@@ -137,7 +131,7 @@ def plot() -> None:
             logger.info(f"{bgp_prefix_threshold=}; {org_ns_threshold=}")
 
             hostnames_per_org_per_ns = load_json(
-                path_settings.DATASET
+                path_settings.HOSTNAME_FILES
                 / f"hostname__{bgp_threshold}_BGP_{org_ns_threshold}_org_ns.json"
             )
 

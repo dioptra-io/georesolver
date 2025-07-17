@@ -27,6 +27,7 @@ ch_settings = ClickhouseSettings()
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
+PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_MAPPING_TABLE = "vps_ecs_mapping__2025_04_13"
 HOSTNAME_FILE = path_settings.HOSTNAMES_GEORESOLVER
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_5_left_center"
@@ -73,9 +74,7 @@ def plot_figure_5_left() -> None:
     vps = load_vps(VPS_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     # load GeoResolver VPs ranking
     vp_selection_per_target = load_pickle(RESULTS_PATH / "vp_selection.pickle")
@@ -142,9 +141,7 @@ def plot_figure_5_center() -> None:
     vps = load_vps(VPS_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     # load GeoResolver VPs ranking
     vp_selection_per_target = load_pickle(RESULTS_PATH / "vp_selection.pickle")

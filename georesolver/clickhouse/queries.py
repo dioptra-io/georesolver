@@ -47,7 +47,7 @@ from georesolver.common.settings import ClickhouseSettings
 
 def get_tables() -> list[str]:
     tables = []
-    
+
     with ClickHouseClient(**ClickhouseSettings().clickhouse) as client:
         resp = GetTables().execute(client=client, table_name="")
 

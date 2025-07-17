@@ -1,13 +1,18 @@
 import asyncio
 
-from random import shuffle
+from tqdm import tqdm
 from uuid import uuid4
-from datetime import datetime
 from pathlib import Path
 from loguru import logger
+from random import shuffle
+from datetime import datetime, timedelta
+from pych_client import ClickHouseClient
 
+from georesolver.clickhouse import CreatePingTable, CreateTracerouteTable, InsertCSV
+
+from georesolver.clickhouse.queries import get_measurement_ids
 from georesolver.prober import RIPEAtlasAPI
-from georesolver.common.files_utils import dump_json
+from georesolver.common.files_utils import dump_json, create_tmp_csv_file
 from georesolver.common.settings import ClickhouseSettings
 
 
@@ -184,7 +189,105 @@ class RIPEAtlasProber:
 
         logger.info(f"{self.uuid}::Measurement finished")
 
-    async def main(self, schedule: dict, config: dict = None) -> Path:
+    async def insert_measurement(
+        self,
+        ids: list[int],
+        output_table: str,
+        wait_time: int = 0.1,
+        step_size: int = 1,
+        ipv6: bool = False,
+    ) -> None:
+        """insert a specific type of measurement"""
+        csv_data = []
+        for i in tqdm(range(0, len(ids), step_size)):
+            tasks = [
+                self.api.get_measurement_results(id, self.probing_type, ipv6=ipv6)
+                for id in ids[i : i + step_size]
+            ]
+            measurement_results = await asyncio.gather(*tasks)
+
+            for r in measurement_results:
+                csv_data.extend(r)
+
+            await asyncio.sleep(wait_time)
+
+        with ClickHouseClient(**self.settings.clickhouse) as client:
+            tmp_file_path = create_tmp_csv_file(csv_data)
+            match self.probing_type:
+                case "ping":
+                    CreatePingTable().execute(client, output_table)
+                case "traceroute":
+                    CreateTracerouteTable().execute(client, output_table)
+                case _:
+                    raise RuntimeError(
+                        f"Insert measurement:: Unknown measurement type {self.probing_type}"
+                    )
+
+            InsertCSV().execute(
+                client=client, table_name=output_table, data=tmp_file_path.read_bytes()
+            )
+            tmp_file_path.unlink()
+
+    async def insert_measurements(
+        self,
+        measurement_schedule: list[tuple],
+        wait_time: int = 60,
+    ) -> None:
+        """insert measurement once they are tagged as Finished on RIPE Atlas"""
+        current_time = datetime.timestamp(datetime.now() - timedelta(days=2))
+        cached_measurement_ids = set()
+        while True:
+            # load measurement finished from RIPE Atlas
+            stopped_measurement_ids = await RIPEAtlasAPI().get_stopped_measurement_ids(
+                start_time=current_time, tags=["dioptra", self.probing_tag]
+            )
+
+            # load already inserted measurement ids
+            inserted_ids = get_measurement_ids(self.output_table)
+
+            # stop measurement once all measurement are inserted
+            all_measurement_ids = set(inserted_ids).union(cached_measurement_ids)
+            if len(all_measurement_ids) >= len(measurement_schedule):
+                logger.info(
+                    f"All measurement inserted:: {len(inserted_ids)=}; {len(measurement_schedule)=}"
+                )
+                break
+
+            measurement_to_insert = set(stopped_measurement_ids).difference(
+                set(inserted_ids)
+            )
+
+            # check cached measurements,
+            # some measurement are not insersed because no results
+            measurement_to_insert = set(measurement_to_insert).difference(
+                cached_measurement_ids
+            )
+
+            logger.info(f"{len(stopped_measurement_ids)=}")
+            logger.info(f"{len(inserted_ids)=}")
+            logger.info(f"{len(measurement_to_insert)=}")
+
+            if not measurement_to_insert:
+                await asyncio.sleep(wait_time)
+                continue
+
+            # insert measurement
+            batch_size = 10
+            for i in range(0, len(measurement_to_insert), batch_size):
+                logger.info(
+                    f"Batch {i // batch_size}/{len(measurement_to_insert) // batch_size}"
+                )
+                batch_measurement_ids = list(measurement_to_insert)[i : i + batch_size]
+                await self.insert_measurement(batch_measurement_ids, self.output_table)
+
+            cached_measurement_ids.update(measurement_to_insert)
+            current_time = datetime.timestamp((datetime.now()) - timedelta(days=1))
+
+            await asyncio.sleep(wait_time)
+
+    async def main(
+        self, schedule: dict, config: dict = None, with_insert: bool = True
+    ) -> Path:
         """run measurement schedule using RIPE Atlas API"""
 
         # check if schedule is in accordance with API's parameters
@@ -211,11 +314,19 @@ class RIPEAtlasProber:
             f"{self.uuid}::Starting measurement for {len({t[0] for t in schedule})} targets"
         )
 
-        await asyncio.gather(
-            self.run(schedule),
-            self.insert_ids(),
-            self.ongoing_measurements(),
-        )
+        if with_insert:
+            await asyncio.gather(
+                self.run(schedule),
+                self.insert_ids(),
+                self.insert_measurements(schedule),
+                self.ongoing_measurements(),
+            )
+        else:
+            await asyncio.gather(
+                self.run(schedule),
+                self.insert_ids(),
+                self.ongoing_measurements(),
+            )
 
         # condition to stop Insert results function
         self.config["start_time"] = self.start_time

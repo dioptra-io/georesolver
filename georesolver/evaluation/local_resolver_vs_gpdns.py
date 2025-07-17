@@ -50,6 +50,7 @@ ITERATIVE_VPS_ECS_MAPPING_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE + "_iterativ
 
 TARGETS_TABLE: str = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE: str = ch_settings.VPS_FILTERED_FINAL_TABLE
+PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 RESULTS_PATH: Path = path_settings.RESULTS_PATH / "iterative_eval"
 
 
@@ -299,9 +300,7 @@ def plot_iterative_results() -> None:
         vps=vps,
     )
 
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE, removed_vps
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     # add reference
     d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)

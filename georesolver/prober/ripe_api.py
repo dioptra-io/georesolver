@@ -18,7 +18,7 @@ from georesolver.clickhouse import (
     InsertCSV,
     CreateVPsTable,
     CreatePingTable,
-    GetMeasurementIds,
+    CreateTracerouteTable,
 )
 from georesolver.clickhouse.queries import load_vps
 from georesolver.common.files_utils import create_tmp_csv_file, dump_pickle
@@ -248,6 +248,65 @@ class RIPEAtlasAPI:
 
                 await asyncio.sleep(0.1)
 
+    async def get_vps(self, probes_only: bool = False, ipV6: bool = False) -> list:
+        """return all RIPE Atlas VPs (set probe_only to remove anchors)"""
+        vps = []
+        rejected = 0
+        vp: dict = None
+        async for vp in self.get_raw_vps():
+            if vp["is_anchor"] and probes_only:
+                continue
+            else:
+                if (
+                    vp["status"]["name"] != "Connected"
+                    or vp.get("geometry") is None
+                    or vp.get("address_v4") is None
+                    or vp.get("asn_v4") is None
+                    or vp.get("country_code") is None
+                    or self.is_geoloc_disputed(vp)
+                ):
+                    rejected += 1
+                    continue
+
+                if ipV6 and vp.get("address_v6") is None:
+                    continue
+
+                reduced_vp = {
+                    "address_v4": vp["address_v4"],
+                    "asn_v4": vp["asn_v4"],
+                    "country_code": vp["country_code"],
+                    "geometry": vp["geometry"],
+                    "lat": vp["geometry"]["coordinates"][1],
+                    "lon": vp["geometry"]["coordinates"][0],
+                    "id": vp["id"],
+                    "is_anchor": vp["is_anchor"],
+                }
+
+                if ipV6:
+                    reduced_vp = {
+                        "address_v4": vp["address_v4"],
+                        "address_v4": vp["address_v6"],
+                        "asn_v4": vp["asn_v4"],
+                        "asn_v4": vp["asn_v6"],
+                        "country_code": vp["country_code"],
+                        "geometry": vp["geometry"],
+                        "lat": vp["geometry"]["coordinates"][1],
+                        "lon": vp["geometry"]["coordinates"][0],
+                        "id": vp["id"],
+                        "is_anchor": vp["is_anchor"],
+                    }
+
+                vps.append(reduced_vp)
+
+        logger.info(f"Retrieved {len(vps)} VPs connected on RIPE Atlas")
+        logger.info(f"VPs removed: {rejected}")
+        logger.info(
+            f"Number of Probes  = {len([vp for vp in vps if not vp['is_anchor']])}"
+        )
+        logger.info(f"Number of Anchors = {len([vp for vp in vps if vp['is_anchor']])}")
+
+        return vps
+
     def parse_vp(self, vp, asndb) -> str:
         """parse RIPE Atlas VPs data for clickhouse insertion"""
 
@@ -298,224 +357,64 @@ class RIPEAtlasAPI:
 
         tmp_file_path.unlink()
 
-    async def insert_pings(
-        self, ping_results: list[str], table_name: str, ipv6: bool = False
-    ) -> None:
-        """insert vps within clickhouse db"""
-
-        tmp_file_path = create_tmp_csv_file(ping_results)
-
-        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreatePingTable().aio_execute(client, table_name, ipv6)
-            await InsertCSV().aio_execute(
-                client=client,
-                table_name=table_name,
-                data=tmp_file_path.read_bytes(),
-            )
-
-        tmp_file_path.unlink()
-
-    async def get_ping_measurement_ids(self, table_name: str) -> list[int]:
-        """return all measurement ids that were already inserted within clickhouse"""
-        async with AsyncClickHouseClient(**self.settings.clickhouse) as client:
-            await CreatePingTable().aio_execute(client, table_name)
-            resp = await GetMeasurementIds().aio_execute(client, table_name)
-
-            measurement_ids = []
-            for row in resp:
-                measurement_ids.append(row["msm_id"])
-
-            return measurement_ids
-
-    def ripe_ip_map_locate(
-        self, ip_addr: int, params: dict = {"engine": "single-radius"}
-    ) -> int:
-        ripe_ip_map_url = f"https://ipmap-api.ripe.net/v1/locate/{ip_addr}/best"
-        with httpx.Client() as client:
-            resp = client.get(url=ripe_ip_map_url, params=params, headers=self.headers)
-            resp = resp.json()
-
-            contributions = resp["metadata"]["service"]["contributions"]
-            for _, metadata in contributions.items():
-                engines = metadata["engines"]
-
-            for engine in engines:
-                if engine["engine"] == "single-radius":
-                    logger.info(f"{engine}")
-                    try:
-                        msm_id = engine["metadata"]["msmId"]
-                        logger.info(f"Locate measurement id: {msm_id}")
-                    except KeyError:
-                        return None
-
-        return msm_id
-
-    def get_tag_measurement_ids(self, params: dict) -> None:
-        # Define API endpoint and parameters
-        url = self.api_url + f"/measurements/ping/"
-
-        measurement_ids = []
-        target_ip_addresses = set()
-        with httpx.Client() as client:
-            resp = client.get(url=url, params=params, timeout=15)
-            measurements = resp.json()
-
-            nb_pages = measurements["count"]
-            logger.info(f"Loading {nb_pages} pages from RIPE Altas")
-
-            count = 0
-            if not measurements["next"]:
-                for measurement in measurements["results"]:
-
-                    logger.info(f"Page {count + 1}/{nb_pages}")
-
-                    for measurement in measurements["results"]:
-                        if (
-                            measurement["af"] != 4
-                            or measurement["target_ip"] in target_ip_addresses
-                        ):
-                            continue
-                        logger.debug(measurement["id"])
-                        measurement_ids.append(measurement["id"])
-                        target_ip_addresses.add(measurement["target_ip"])
-
-            while measurements["next"]:
-                logger.info(f"Page {count + 1}/{nb_pages}")
-
-                for measurement in measurements["results"]:
-                    if (
-                        measurement["af"] != 4
-                        or measurement["target_ip"] in target_ip_addresses
-                    ):
-                        continue
-
-                    measurement_ids.append(measurement["id"])
-                    target_ip_addresses.add(measurement["target_ip"])
-
-                logger.info("Loading next page")
-                resp = client.get(measurements["next"], timeout=15)
-                measurements = resp.json()
-                count += 1
-
-                time.sleep(1)
-
-                if len(measurement_ids) > 100_000:
-                    break
-
-            return measurement_ids
-
-    async def get_results_from_tag(
-        self, params: dict, ping_table: str, ipv6: bool = False
-    ) -> None:
-        # Define API endpoint and parameters
-        url = self.api_url + f"/measurements/ping/"
-
-        measurement_ids = []
-        ping_results = []
-        target_ip_addresses = set()
-
-        ping_measurement_ids = await RIPEAtlasAPI().get_ping_measurement_ids(ping_table)
-
-        with httpx.Client() as client:
-            resp = client.get(url=url, params=params, timeout=15)
-            measurements = resp.json()
-
-            nb_pages = measurements["count"]
-            logger.info(f"Loading {nb_pages} pages from RIPE Altas")
-
-            count = 0
-            while measurements["next"]:
-                logger.info(f"Page {count + 1}/{nb_pages}")
-
-                for measurement in measurements["results"]:
-                    if (
-                        measurement["af"] != 4
-                        or measurement["target_ip"] in target_ip_addresses
-                        or measurement["id"] in ping_measurement_ids
-                    ):
-                        continue
-
-                    ping_result = self.get_ping_results(measurement["id"], ipv6)
-
-                    logger.info(f"{measurement['id']=}, {len(ping_result)}")
-
-                    if len(ping_result) <= 1:
-                        continue
-
-                    ping_results.extend(ping_result)
-
-                    await asyncio.sleep(0.5)
-
-                    if len(ping_results) > 100:
-                        await self.insert_pings(ping_results, ping_table, ipv6)
-                        ping_results = []
-
-                logger.info("Loading next page")
-                resp = client.get(measurements["next"], timeout=15)
-                measurements = resp.json()
-                count += 1
-
-                await asyncio.sleep(1)
-
-            return measurement_ids
-
-    async def get_measurements_from_tag(self, tag: str):
-        url = self.api_url + f"/measurements/tags/{tag}/results/"
-
-        params = {"tags": tag, "format": "json"}
-        ping_results = []
-        with httpx.stream("GET", url=url, params=params, timeout=60) as client:
-            decoded_bytes = b""
-            for resp in client.iter_bytes():
-                decoded_bytes += resp
-
-        decoded_bytes = decoded_bytes.decode()
-
-        dump_pickle(
-            decoded_bytes, self.settings.END_TO_END_DATASET / "decoded_bytes.pickle"
-        )
-
-        ping_results = json.loads(resp)
-
-        return self.parse_ping(ping_results)
-
-    async def get_ping_results(
+    ###########################################################################################################
+    # PING RELATED FUNCTIONS (RUN / PARSE)                                                                    #
+    ###########################################################################################################
+    async def ping(
         self,
-        id: int,
-        timeout: int = 30,
+        target: str,
+        vp_ids: list[str],
+        probing_tag: str,
         max_retry: int = 3,
-        wait_time: int = 30,
+        timeout: int = 60 * 5,
+        wait_time: int = 60 * 5,
+        protocol: str = "ICMP",
         ipv6: bool = False,
-    ) -> dict:
-        """get results from ping measurement id"""
-        url = f"{self.measurement_url}/{id}/results/"
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for i in range(max_retry):
-                try:
-                    resp = await client.get(url, headers=self.headers, timeout=timeout)
-                    resp = resp.json()
+    ) -> int:
+        """start ping measurement towards target from vps, return Atlas measurement id"""
 
-                    ping_results = self.parse_ping(resp, ipv6=ipv6)
-                    await asyncio.sleep(0.1)
+        id = None
+        async with httpx.AsyncClient() as client:
+            for _ in range(max_retry):
+                try:
+                    resp = await client.post(
+                        self.measurement_url,
+                        headers=self.headers,
+                        json=self.get_ping_config(
+                            target, vp_ids, probing_tag, protocol, ipv6
+                        ),
+                        timeout=timeout,
+                    )
+                    resp = resp.json()
                 except httpx.ReadTimeout as e:
+                    logger.error(
+                        "Read timeout for post request, retrying, max retry = 3"
+                    )
                     logger.error(f"{e}")
-                    logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
                     await asyncio.sleep(wait_time)
+                    continue
+                except json.decoder.JSONDecodeError as e:
+                    logger.error(f"Cannot parse response:: {e}, {resp}")
+                    await asyncio.sleep(wait_time)
+                    continue
                 except Exception as e:
                     logger.error(f"Unsuported error:: {e}")
                     await asyncio.sleep(wait_time)
+                    continue
 
-        return ping_results
-
-    def get_probe_requested(self, id: int) -> int:
-        url = f"{self.measurement_url}/{id}/"
-        with httpx.Client() as client:
-            resp = client.get(url, headers=self.headers, timeout=30)
-            resp = resp.json()
-
-            time.sleep(0.1)
-
-        return resp["probes_requested"], resp["target_ip"]
+                try:
+                    id = resp["measurements"][0]
+                    break
+                except KeyError as e:
+                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{resp=}")
+                    await asyncio.sleep(wait_time)
+                    break
+            else:
+                raise Exception(
+                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
+                )
+        return id
 
     def parse_ping(self, results: list[dict], ipv6: bool = False) -> list[str]:
         """retrieve all measurement, parse data and return for clickhouse insert"""
@@ -558,44 +457,72 @@ class RIPEAtlasAPI:
 
         return parsed_data
 
-    async def get_traceroute_info(self, id: int) -> dict:
-        """get all measurement"""
-        url = f"{self.measurement_url}/{id}/"
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=15)
-            resp = resp.json()
-
-        return resp
-
-    async def get_traceroute_results(
+    ###########################################################################################################
+    # TRACEROUTE RELATED FUNCTIONS (RUN / PARSE)                                                              #
+    ###########################################################################################################
+    async def traceroute(
         self,
-        id: int,
-        timeout: int = 30,
+        target: str,
+        vp_ids: list[str],
+        probing_tag: str,
         max_retry: int = 3,
-        wait_time: int = 30,
+        timeout: int = 60 * 5,
+        wait_time: int = 60 * 5,
+        min_ttl: int = 1,
+        max_hops: int = 64,
+        protocol: str = "ICMP",
         ipv6: bool = False,
-    ) -> dict:
-        """get all measurement"""
-        url = f"{self.measurement_url}/{id}/results/"
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for i in range(max_retry):
+    ) -> int:
+        id = None
+        async with httpx.AsyncClient() as client:
+            for _ in range(max_retry):
                 try:
-                    resp = await client.get(url, headers=self.headers, timeout=timeout)
+                    req = self.get_traceroute_config(
+                        target,
+                        vp_ids,
+                        probing_tag,
+                        min_ttl,
+                        max_hops,
+                        protocol,
+                        ipv6,
+                    )
+                    resp = await client.post(
+                        self.measurement_url,
+                        headers=self.headers,
+                        json=req,
+                        timeout=timeout,
+                    )
                     resp = resp.json()
-
-                    ping_results = self.parse_traceroute(resp, ipv6=ipv6)
-                    await asyncio.sleep(0.1)
                 except httpx.ReadTimeout as e:
+                    logger.error(
+                        "Read timeout for post request, retrying, max retry = 3"
+                    )
                     logger.error(f"{e}")
-                    logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
                     await asyncio.sleep(wait_time)
+                    continue
+                except json.decoder.JSONDecodeError as e:
+                    logger.error(f"Cannot parse response:: {e}, {resp}")
+                    await asyncio.sleep(wait_time)
+                    continue
                 except Exception as e:
                     logger.error(f"Unsuported error:: {e}")
                     await asyncio.sleep(wait_time)
+                    continue
 
-        return ping_results
+                try:
+                    id = resp["measurements"][0]
+                    break
+                except KeyError as e:
+                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
+                    logger.error(f"{resp=}")
+                    logger.error(f"{req=}")
+                    await asyncio.sleep(wait_time)
+                    break
+            else:
+                logger.error(
+                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
+                )
+        return id
 
     def parse_traceroute(self, traceroutes: list, ipv6: bool = False) -> str:
         """retrieve all measurement, parse data and return for clickhouse insert"""
@@ -669,258 +596,44 @@ class RIPEAtlasAPI:
 
         return traceroute_results
 
-    async def get_status(self, measurement_id: str) -> bool:
-        """check if measurement status is ongoing, if"""
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{self.measurement_url}/{measurement_id}/")
-            resp = resp.json()
-
-        if resp["status"]["name"] not in [
-            "Ongoing",
-            "Scheduled",
-            "Specified",
-            "synchronizing",
-        ]:
-            logger.debug(f"{resp['status']['name']=}")
-            return True
-
-        return False
-
-    async def get_vps(self, probes_only: bool = False, ipV6: bool = False) -> list:
-        """return all RIPE Atlas VPs (set probe_only to remove anchors)"""
-        vps = []
-        rejected = 0
-        vp: dict = None
-        async for vp in self.get_raw_vps():
-            if vp["is_anchor"] and probes_only:
-                continue
-            else:
-                if (
-                    vp["status"]["name"] != "Connected"
-                    or vp.get("geometry") is None
-                    or vp.get("address_v4") is None
-                    or vp.get("asn_v4") is None
-                    or vp.get("country_code") is None
-                    or self.is_geoloc_disputed(vp)
-                ):
-                    rejected += 1
-                    continue
-
-                if ipV6 and vp.get("address_v6") is None:
-                    continue
-
-                reduced_vp = {
-                    "address_v4": vp["address_v4"],
-                    "asn_v4": vp["asn_v4"],
-                    "country_code": vp["country_code"],
-                    "geometry": vp["geometry"],
-                    "lat": vp["geometry"]["coordinates"][1],
-                    "lon": vp["geometry"]["coordinates"][0],
-                    "id": vp["id"],
-                    "is_anchor": vp["is_anchor"],
-                }
-
-                if ipV6:
-                    reduced_vp = {
-                        "address_v4": vp["address_v4"],
-                        "address_v4": vp["address_v6"],
-                        "asn_v4": vp["asn_v4"],
-                        "asn_v4": vp["asn_v6"],
-                        "country_code": vp["country_code"],
-                        "geometry": vp["geometry"],
-                        "lat": vp["geometry"]["coordinates"][1],
-                        "lon": vp["geometry"]["coordinates"][0],
-                        "id": vp["id"],
-                        "is_anchor": vp["is_anchor"],
-                    }
-
-                vps.append(reduced_vp)
-
-        logger.info(f"Retrieved {len(vps)} VPs connected on RIPE Atlas")
-        logger.info(f"VPs removed: {rejected}")
-        logger.info(
-            f"Number of Probes  = {len([vp for vp in vps if not vp['is_anchor']])}"
-        )
-        logger.info(f"Number of Anchors = {len([vp for vp in vps if vp['is_anchor']])}")
-
-        return vps
-
-    async def get_all_vps(self) -> list:
-        """return all RIPE Atlas VPs (set probe_only to remove anchors)"""
-        vps = []
-        rejected = 0
-        vp: dict = None
-        async for vp in self.get_raw_vps():
-            if (
-                vp.get("address_v4") is None
-                or vp.get("geometry") is None
-                or vp.get("address_v4") is None
-                or vp.get("asn_v4") is None
-                or vp.get("country_code") is None
-            ):
-                rejected += 1
-                continue
-
-            reduced_vp = {
-                "address_v4": vp["address_v4"],
-                "asn_v4": vp["asn_v4"],
-                "country_code": vp["country_code"],
-                "geometry": vp["geometry"],
-                "lat": vp["geometry"]["coordinates"][1],
-                "lon": vp["geometry"]["coordinates"][0],
-                "id": vp["id"],
-                "is_anchor": vp["is_anchor"],
-            }
-            vps.append(reduced_vp)
-
-        logger.info(f"Retrieved {len(vps)} VPs on RIPE Atlas")
-        logger.info(f"VPs removed: {rejected}")
-        logger.info(
-            f"Number of Probes  = {len([vp for vp in vps if not vp['is_anchor']])}"
-        )
-        logger.info(f"Number of Anchors = {len([vp for vp in vps if vp['is_anchor']])}")
-
-        return vps
-
-    async def ping(
+    ###########################################################################################################
+    # GET AND INSERT PING AND TRACEROUTES                                                                     #
+    ###########################################################################################################
+    async def get_measurement_results(
         self,
-        target: str,
-        vp_ids: list[str],
-        probing_tag: str,
+        id: int,
+        measurement_type: str,
+        timeout: int = 30,
         max_retry: int = 3,
-        timeout: int = 60 * 5,
-        wait_time: int = 60 * 5,
-        protocol: str = "ICMP",
+        wait_time: int = 30,
         ipv6: bool = False,
-    ) -> int:
-        """start ping measurement towards target from vps, return Atlas measurement id"""
-
-        id = None
-        async with httpx.AsyncClient() as client:
-            for _ in range(max_retry):
+    ) -> list[str]:
+        """get results from ping measurement id"""
+        url = f"{self.measurement_url}/{id}/results/"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for i in range(max_retry):
                 try:
-                    resp = await client.post(
-                        self.measurement_url,
-                        headers=self.headers,
-                        json=self.get_ping_config(
-                            target, vp_ids, probing_tag, protocol, ipv6
-                        ),
-                        timeout=timeout,
-                    )
+                    resp = await client.get(url, headers=self.headers, timeout=timeout)
                     resp = resp.json()
+
+                    measurement_results = []
+                    match measurement_type:
+                        case "ping":
+                            measurement_results = self.parse_ping(resp, ipv6=ipv6)
+                        case "traceroute":
+                            measurement_results = self.parse_traceroute(resp)
+                        case _:
+                            raise RuntimeError(
+                                f"Unknown {measurement_type=}; cannot retrieve measurement"
+                            )
+
+                    await asyncio.sleep(0.1)
                 except httpx.ReadTimeout as e:
-                    logger.error(
-                        "Read timeout for post request, retrying, max retry = 3"
-                    )
                     logger.error(f"{e}")
+                    logger.error(f"Insertion pending, retry:: {i+1}/{max_retry}")
                     await asyncio.sleep(wait_time)
-                    continue
-                except json.decoder.JSONDecodeError as e:
-                    logger.error(f"Cannot parse response:: {e}, {resp}")
-                    await asyncio.sleep(wait_time)
-                    continue
                 except Exception as e:
                     logger.error(f"Unsuported error:: {e}")
                     await asyncio.sleep(wait_time)
-                    continue
 
-                try:
-                    id = resp["measurements"][0]
-                    break
-                except KeyError as e:
-                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
-                    logger.error(f"{resp=}")
-                    await asyncio.sleep(wait_time)
-                    break
-            else:
-                raise Exception(
-                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
-                )
-        return id
-
-    async def traceroute(
-        self,
-        target: str,
-        vp_ids: list[str],
-        probing_tag: str,
-        max_retry: int = 3,
-        timeout: int = 60 * 5,
-        wait_time: int = 60 * 5,
-        min_ttl: int = 1,
-        max_hops: int = 64,
-        protocol: str = "ICMP",
-        ipv6: bool = False,
-    ) -> int:
-        id = None
-        id = None
-        async with httpx.AsyncClient() as client:
-            for _ in range(max_retry):
-                try:
-                    req = self.get_traceroute_config(
-                        target,
-                        vp_ids,
-                        probing_tag,
-                        min_ttl,
-                        max_hops,
-                        protocol,
-                        ipv6,
-                    )
-                    resp = await client.post(
-                        self.measurement_url,
-                        headers=self.headers,
-                        json=req,
-                        timeout=timeout,
-                    )
-                    resp = resp.json()
-                except httpx.ReadTimeout as e:
-                    logger.error(
-                        "Read timeout for post request, retrying, max retry = 3"
-                    )
-                    logger.error(f"{e}")
-                    await asyncio.sleep(wait_time)
-                    continue
-                except json.decoder.JSONDecodeError as e:
-                    logger.error(f"Cannot parse response:: {e}, {resp}")
-                    await asyncio.sleep(wait_time)
-                    continue
-                except Exception as e:
-                    logger.error(f"Unsuported error:: {e}")
-                    await asyncio.sleep(wait_time)
-                    continue
-
-                try:
-                    id = resp["measurements"][0]
-                    break
-                except KeyError as e:
-                    logger.error(f"{probing_tag}::STOPPED::Too many measurements!! {e}")
-                    logger.error(f"{resp=}")
-                    logger.error(f"{req=}")
-                    await asyncio.sleep(wait_time)
-                    break
-            else:
-                logger.error(
-                    f"{probing_tag}:: Cannot perform measurement for target: {target}"
-                )
-        return id
-
-
-async def test() -> None:
-    """run one ping and one traceroute for testing"""
-    target = "145.220.0.55"
-    vps = [1136]
-
-    id = await RIPEAtlasAPI().ping(
-        target=target, vp_ids=vps, probing_tag="test-measurements"
-    )
-    logger.info(f"Ping with measurement id:: {id} started")
-
-    # id = await RIPEAtlasAPI().traceroute(
-    #     target=target, vp_ids=vps, probing_tag="test-measurements"
-    # )
-    # logger.info(f"Traceroute with measurement id:: {id} started")
-
-
-if __name__ == "__main__":
-
-    asyncio.run(test())
+        return measurement_results

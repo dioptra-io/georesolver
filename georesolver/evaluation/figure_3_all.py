@@ -26,6 +26,7 @@ ch_settings = ClickhouseSettings()
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
+PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_3"
 
@@ -91,7 +92,7 @@ def compute_score() -> None:
             hostnames=selected_hostnames,
             target_subnets=[t["subnet"] for t in targets],
             vp_subnets=[v["subnet"] for v in vps],
-            target_ecs_table=TARGET_ECS_TABLE,
+            target_ecs_table=VPS_ECS_TABLE,
             vps_ecs_table=VPS_ECS_TABLE,
             answer_granularity="answer_subnets",
             score_metric=score_metric,
@@ -130,10 +131,7 @@ def plot_figure_3_left() -> None:
     vps = load_vps(VPS_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     probing_budgets = [50, 1]
     result_files = {
@@ -196,10 +194,7 @@ def plot_figure_3_center() -> None:
     vps = load_vps(VPS_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     probing_budgets = [50, 1]
     result_files = {
@@ -261,10 +256,7 @@ def plot_figure_3_right() -> None:
     vps = load_vps(VPS_TABLE)
     removed_vps = load_json(path_settings.REMOVED_VPS)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     probing_budgets = [50, 1]
     result_files = {

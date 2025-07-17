@@ -58,14 +58,14 @@ HG_NSO = [
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_4_left"
 
 
 def load_hostnames() -> tuple[dict, dict, dict, dict]:
     best_hostnames_per_org_per_ns = load_json(
-        path_settings.HOSTNAME_FILES
-        / "hostname_geo_score_selection_20_BGP_3_hostnames_per_org_ns.json",
+        path_settings.HOSTNAME_FILES / "hostname__20_BGP_3_org_ns.json",
     )
 
     # select hostnames that are not hosted by an HG
@@ -254,11 +254,10 @@ def evaluation() -> None:
         if "scores" not in score_file.name:
             continue
 
+        scores = load_pickle(score_file)
         output_file = (
             RESULTS_PATH / f"{'results' + str(score_file).split('scores')[-1]}"
         )
-
-        scores = load_pickle(score_file)
 
         get_vp_selection_per_target(
             output_path=output_file,
@@ -281,10 +280,7 @@ def plot() -> None:
     vps = load_vps(VPS_TABLE)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
     removed_vps = load_json(path_settings.REMOVED_VPS)
-    pings_per_target = get_pings_per_target_extended(
-        ch_settings.VPS_MESHED_PINGS_TABLE,
-        removed_vps,
-    )
+    pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
 
     # add reference
     d_errors_ref = get_d_errors_ref(pings_per_target, vps_coordinates)

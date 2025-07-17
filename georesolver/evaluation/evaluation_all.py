@@ -24,11 +24,11 @@ ch_settings = ClickhouseSettings()
 
 def main(
     do_figure_2_center_figure_5_right: bool = False,
-    do_figure_2_left_right: bool = True,
-    do_figure_3_all: bool = True,
-    do_figure_4_left: bool = True,
-    do_figure_4_right: bool = True,
-    do_figure_5_left_center: bool = True,
+    do_figure_2_left_right: bool = False,
+    do_figure_3_all: bool = False,
+    do_figure_4_left: bool = False,
+    do_figure_4_right: bool = False,
+    do_figure_5_left_center: bool = False,
     do_table_1: bool = True,
     do_georesolver_vs_hoiho: bool = True,
     do_georesolver_vs_single_radius: bool = True,
@@ -93,8 +93,8 @@ def main(
     if do_table_1:
         logger.info("Running Evaluation related with Table 1")
         table_1.main(
-            do_compute_score=True,
-            do_evaluation=True,
+            do_compute_score=False,
+            do_evaluation=False,
             do_plot=True,
         )
 
