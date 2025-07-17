@@ -1,12 +1,13 @@
+"""perform ECS-DNS resolution on a set of prefixes/hostnames"""
+
 from pathlib import Path
-from datetime import datetime
 from loguru import logger
 
 from georesolver.zdns import ZDNS
 from georesolver.clickhouse.queries import get_subnets
 from georesolver.common.files_utils import load_csv, create_tmp_csv_file
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
-from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
+from georesolver.common.settings import PathSettings, setup_logger
 
 path_settings = PathSettings()
 

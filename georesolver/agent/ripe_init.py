@@ -566,7 +566,6 @@ async def insert_traceroutes(config_path: Path) -> None:
 
 async def vps_init(old_table_suffixe: str) -> None:
     """perform all georesolver ripe atlas init related functions"""
-    """perform all georesolver ripe atlas init related functions"""
 
     # 1. download all VPs
     await update_vps_table(old_table_suffixe)

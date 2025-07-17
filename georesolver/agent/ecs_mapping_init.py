@@ -229,7 +229,7 @@ async def ecs_init(
 
 if __name__ == "__main__":
     itterative = False  # set to true use zdns own resolver instead of GPDNS
-    vps_mapping_table = ch_settings.VPS_ECS_MAPPING_TABLE + "_new_hostnames"
+    VPS_MAPPING_TABLE = "vps_ecs_mapping__2025_04_13" + "_new_hostnames"
     hostname_file = (
         path_settings.HOSTNAME_FILES / "hostname_georesolver_20_BGP_3_org_ns_new.csv"
     )

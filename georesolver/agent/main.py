@@ -10,13 +10,13 @@ from multiprocessing import Process
 
 from georesolver.agent.ripe_init import vps_init
 from georesolver.agent.ecs_process import ecs_task
-from georesolver.agent.score_process import score_task
-from georesolver.agent.schedule_process import schedule_task
 from georesolver.agent.ping_process import ping_task
-from georesolver.agent.insert_process import insert_task, insert_results
+from georesolver.agent.score_process import score_task
 from georesolver.agent.ecs_mapping_init import ecs_init
+from georesolver.agent.schedule_process import schedule_task
 from georesolver.common.files_utils import load_csv, load_json
 from georesolver.common.ip_addresses_utils import get_prefix_from_ip
+from georesolver.agent.insert_process import insert_task, insert_results
 from georesolver.common.settings import PathSettings, ClickhouseSettings, setup_logger
 
 path_settings = PathSettings()
@@ -25,10 +25,10 @@ clickhouse_settings = ClickhouseSettings()
 
 class ProcessNames(Enum):
     ECS_PROC = "ecs_process"
-    SCORE_PROC = "score_process"
-    SCHEDULE_PROC = "schedule_process"
     PING_PROC = "ping_process"
+    SCORE_PROC = "score_process"
     INSERT_PROC = "insert_process"
+    SCHEDULE_PROC = "schedule_process"
 
 
 def main_processes(task, task_args) -> None:
@@ -128,10 +128,12 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
                 else clickhouse_settings.VPS_ECS_MAPPING_TABLE
             )
         if name == ProcessNames.SCHEDULE_PROC.value:
-            func = schedule_task
-            base_params.pop("hostname_file")
-            base_params.pop("batch_size")
-            base_params.pop("agent_uuid")
+            continue
+            # TODO: include schedule process for faster pings
+            # func = schedule_task
+            # base_params.pop("hostname_file")
+            # base_params.pop("batch_size")
+            # base_params.pop("agent_uuid")
         if name == ProcessNames.PING_PROC.value:
             func = ping_task
             base_params.pop("hostname_file")

@@ -1,4 +1,5 @@
-"""generate geolocation map based on ping table results"""
+"""Generate geolocation map based on ping table results"""
+
 import typer
 import folium
 

@@ -46,7 +46,7 @@ def select_one_vp_per_as_city(
         except KeyError:
             continue
 
-        vps_per_as[vp["asn_v4"]].append((vp, last_mile_delay_vp, score))
+        vps_per_as[vp["asn"]].append((vp, last_mile_delay_vp, score))
 
     # select one VP per AS, take maximum VP score in AS
     selected_vps_per_as = defaultdict(list)

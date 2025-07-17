@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 
 from georesolver.prober import RIPEAtlasAPI
 from georesolver.clickhouse.queries import (
-    load_cached_targets,
-    get_measurement_ids,
-    insert_geoloc,
-    load_target_geoloc,
     load_vps,
     insert_pings,
+    insert_geoloc,
     insert_traceroutes,
+    load_target_geoloc,
+    load_cached_targets,
+    get_measurement_ids,
 )
 from georesolver.common.files_utils import load_csv
 from georesolver.common.ip_addresses_utils import (
