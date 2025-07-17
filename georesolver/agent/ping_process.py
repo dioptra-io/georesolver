@@ -316,7 +316,7 @@ async def ping_task(
                     f"Starting geolocation round for {len(measurement_schedule)} targets"
                 )
 
-                await prober.main(measurement_schedule)
+                await prober.main(measurement_schedule, with_insert = False)
 
             geolocated_targets.extend(filtered_targets)
             logger.info("Geolocation round complete")

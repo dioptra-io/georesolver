@@ -10,7 +10,7 @@ from collections import defaultdict
 from pych_client import AsyncClickHouseClient
 from pych_client.exceptions import ClickHouseException
 
-from georesolver.agent.insert_process import retrieve_pings, retrieve_traceroutes
+from georesolver.agent.insert_process import retrieve_traceroutes
 from georesolver.prober import RIPEAtlasAPI, RIPEAtlasProber
 from georesolver.clickhouse import CreateVPsTable, Query
 from georesolver.clickhouse.queries import (
@@ -357,6 +357,7 @@ async def update_vps_filtered_table(
     suffixe_table: str, removed_vps: list[dict]
 ) -> None:
     """filter vps table, update old table if already exists"""
+    logger.info("** Filtering VPs **")
 
     # archive old table
     change_table_name(
@@ -491,6 +492,7 @@ def get_updated_vps(latest_vps: list[dict], prev_vps: list[dict]) -> list[dict]:
 
 async def update_vps_table(suffixe_table: str) -> None:
     """update vps table, change old vps table names with date"""
+    logger.info("Retrieving VPs from RIPE Atlas")
     api = RIPEAtlasAPI()
     vps = await api.get_vps()
 
@@ -504,6 +506,8 @@ async def update_vps_table(suffixe_table: str) -> None:
 
 async def update_meshed_pings(suffixe_table: str) -> None:
     """update vps meshed pings table"""
+    logger.info("Performing VPs meshed pings")
+
     # archive old table
     change_table_name(
         ch_settings.VPS_MESHED_PINGS_TABLE,
@@ -517,20 +521,6 @@ async def update_meshed_pings(suffixe_table: str) -> None:
         probing_tag="meshed-pings",
         output_table=ch_settings.VPS_MESHED_PINGS_TABLE,
     ).main(pings_schedule)
-
-
-async def insert_pings(config_path: Path) -> None:
-    """insert pings from measurement config file"""
-    batch_size: int = 1_000
-    # insert pings using ids saved in config
-    measurement_config = load_json(config_path)
-    measurement_ids = [id for id, _ in measurement_config["ids"]]
-    for i in range(0, len(measurement_ids), batch_size):
-        batch_ids = measurement_ids[i : (i + batch_size)]
-
-        logger.info(f"Batch:: {i // batch_size}/{len(measurement_ids) // batch_size}")
-
-        await retrieve_pings(batch_ids, ch_settings.VPS_MESHED_PINGS_TABLE)
 
 
 async def update_meshed_traceroutes(suffixe_table: str) -> None:
@@ -568,19 +558,17 @@ async def vps_init(old_table_suffixe: str) -> None:
     """perform all georesolver ripe atlas init related functions"""
 
     # 1. download all VPs
-    await update_vps_table(old_table_suffixe)
+    # await update_vps_table(old_table_suffixe)
 
     # 2. update vps meshed pings table
     config_path = await update_meshed_pings(old_table_suffixe)
-    await insert_pings(config_path)
 
     # 3. filter VPs with default geoloc and SOI violation
     removed_vps = await filter_vps()
     await update_vps_filtered_table(old_table_suffixe, removed_vps)
 
     # # 4. perform meshed traceroutes
-    config_path = await update_meshed_traceroutes(old_table_suffixe)
-    await insert_traceroutes(config_path)
+    await update_meshed_traceroutes(old_table_suffixe)
 
     # 5. create a table with only VPs with last myle delay under 2 ms
     vps_filtered = await filter_low_connectivity_vps(delay_threshold=2)
@@ -590,5 +578,5 @@ async def vps_init(old_table_suffixe: str) -> None:
 # debugging, testing
 if __name__ == "__main__":
 
-    old_table_suffixe = "CoNEXT_winter_submision"
+    old_table_suffixe = "CoNEXT_summer_submision"
     asyncio.run(vps_init(old_table_suffixe))

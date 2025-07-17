@@ -137,7 +137,9 @@ async def retrieve_pings(
     csv_data = []
     for i in tqdm(range(0, len(ids), step_size), file=output_file):
         tasks = [
-            RIPEAtlasAPI().get_ping_results(id, ipv6=ipv6)
+            RIPEAtlasAPI().get_measurement_results(
+                id, measurement_type="ping", ipv6=ipv6
+            )
             for id in ids[i : i + step_size]
         ]
         ping_results = await asyncio.gather(*tasks)
