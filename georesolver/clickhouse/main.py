@@ -78,12 +78,6 @@ class Query:
     ) -> list[dict]:
         """
         Execute the query and return each row as a dict.
-        Args:
-            client: ClickHouse client.
-            measurement_id: Measurement id.
-            data: str or bytes iterator containing data to send.
-            limit: (limit, offset) tuple.
-            subsets: Iterable of IP networks on which to execute the query independently.
         """
         rows = []
         statement = self.statement(table_name, **kwargs)
@@ -107,12 +101,6 @@ class Query:
     ) -> list[dict]:
         """
         Execute the query and return each row as a dict.
-        Args:
-            client: ClickHouse client.
-            measurement_id: Measurement id.
-            data: str or bytes iterator containing data to send.
-            limit: (limit, offset) tuple.
-            subsets: Iterable of IP networks on which to execute the query independently.
         """
         rows = []
         statement = self.statement(table_name=table_name, **kwargs)
@@ -143,12 +131,6 @@ class Query:
     ) -> list[dict]:
         """
         Execute the query and return each row as a dict.
-        Args:
-            client: ClickHouse client.
-            measurement_id: Measurement id.
-            data: str or bytes iterator containing data to send.
-            limit: (limit, offset) tuple.
-            subsets: Iterable of IP networks on which to execute the query independently.
         """
         rows = []
         statement = self.statement(table_name)

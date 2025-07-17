@@ -1,5 +1,4 @@
 from georesolver.clickhouse.main import Query
-
 from georesolver.common.settings import ClickhouseSettings
 
 
@@ -115,6 +114,27 @@ class GetVPsSubnets(Query):
 
 
 class GetTargetScore(Query):
+    def statement(self, table_name: str, **kwargs) -> str:
+        if subnet_filter := kwargs.get("subnet_filter"):
+            subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]
+            subnet_filter = f"WHERE subnet IN ({subnet_filter})"
+        else:
+            raise RuntimeError(f"Named argument subnet_filter required for {__class__}")
+
+        return f"""
+        SELECT 
+            subnet, 
+            arraySort(x -> -x.2, groupArray((vp_subnet, score))) AS vps_score
+            FROM 
+                {ClickhouseSettings().CLICKHOUSE_DATABASE}.{table_name} 
+            {subnet_filter}    
+            GROUP BY 
+                subnet
+            
+        """
+
+
+class GetGeoResolverVPSelection(Query):
     def statement(self, table_name: str, **kwargs) -> str:
         if subnet_filter := kwargs.get("subnet_filter"):
             subnet_filter = "".join([f",toIPv4('{s}')" for s in subnet_filter])[1:]

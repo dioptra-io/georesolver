@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from georesolver.clickhouse.main import Query
 from georesolver.common.settings import ClickhouseSettings
 
