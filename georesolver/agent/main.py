@@ -75,6 +75,7 @@ def main(agent_config_path: Path, check_cached_measurements: bool = False) -> No
         asyncio.run(vps_init(True, True))
 
     if agent_config.get("init_ecs_mapping"):
+        # this step takes up to 5 hours...
         asyncio.run(ecs_init(hostname_file))
 
     # load targets, subnets and hostnames

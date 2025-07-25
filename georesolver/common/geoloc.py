@@ -326,7 +326,9 @@ def cbg(vp_coordinates: dict, vp_selection: list):
     return centroid
 
 
-def select_best_guess_centroid(target_ip, vp_coordinates_per_ip, rtt_per_vp_to_target):
+def select_best_guess_centroid(
+    target_ip, vp_coordinates_per_ip, rtt_per_vp_to_target, vp_addr_per_id
+):
     """
     Find the best guess
     that is the location of the vantage point closest to the centroid.
@@ -334,7 +336,8 @@ def select_best_guess_centroid(target_ip, vp_coordinates_per_ip, rtt_per_vp_to_t
     probe_circles = {}
     closest_vp = None
     min_rtt_per_vp_ip = {}
-    for vp_ip, min_rtt in rtt_per_vp_to_target.items():
+    for vp_id, min_rtt in rtt_per_vp_to_target.items():
+        vp_ip = vp_addr_per_id[vp_id]
         if target_ip == vp_ip:
             continue
         if vp_ip not in vp_coordinates_per_ip:

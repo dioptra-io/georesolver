@@ -22,7 +22,6 @@ ch_settings = ClickhouseSettings()
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
-TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
 PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "table_1"
@@ -70,7 +69,7 @@ def compute_score() -> None:
                 hostnames=selected_hostnames,
                 target_subnets=[t["subnet"] for t in targets],
                 vp_subnets=[v["subnet"] for v in vps],
-                target_ecs_table=TARGETS_ECS_TABLE,
+                target_ecs_table=VPS_ECS_TABLE,
                 vps_ecs_table=VPS_ECS_TABLE,
             )
 
@@ -103,6 +102,7 @@ def evaluation() -> None:
 
 def plot() -> None:
     removed_vps = load_json(path_settings.REMOVED_VPS)
+    targets = load_targets(TARGETS_TABLE)
     vps = load_vps(VPS_TABLE)
     vps_coordinates = {vp["addr"]: vp for vp in vps}
     pings_per_target = get_pings_per_target_extended(PING_TABLE, removed_vps)
@@ -138,6 +138,7 @@ def plot() -> None:
             vp_selection_per_target = load_pickle(file)
 
             d_errors = get_d_errors_georesolver(
+                targets=[t["addr"] for t in targets],
                 pings_per_target=pings_per_target,
                 vp_selection_per_target=vp_selection_per_target,
                 vps_coordinates=vps_coordinates,

@@ -10,8 +10,8 @@ from georesolver.common.settings import PathSettings, RIPEAtlasSettings
 path_settings = PathSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
 
-UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 NB_ADDRS = 100
+UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f" 
 LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.USER_DATASETS / "hostnames_georesolver.csv"
 ECS_TABLE: str = "local_demo_ecs"
@@ -19,7 +19,7 @@ SCORE_TABLE: str = "local_demo_score"
 SCHEDULE_TABLE: str = "local_demo_schedule"
 PING_TABLE: str = "local_demo_ping"
 GEOLOC_TABLE: str = "local_demo_geoloc"
-BATCH_SIZE = 10
+BATCH_SIZE = 10  # number of IP addrs between each insertion into each tables
 
 
 def generate_random_dataset(input_dataset: Path) -> None:
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": BATCH_SIZE,
-        "init_ecs_mapping": False,
+        "init_ecs_mapping": True,  # Set to True to renew VPs ECS mapping
         "log_path": f"{(path_settings.LOG_PATH / 'local_demo/').resolve()}",
         "processes": [
             {

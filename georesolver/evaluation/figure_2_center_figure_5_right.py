@@ -17,12 +17,12 @@ from georesolver.clickhouse.queries import (
     load_vps,
     get_tables,
     get_ecs_results,
+    iter_pings_per_vp,
     load_target_geoloc,
     get_measurement_ids,
     get_mapping_answers,
     get_answers_per_hostname,
     get_pings_per_target_extended,
-    iter_pings_per_vp,
 )
 from georesolver.zdns.zmap import zmap
 from georesolver.agent.ecs_process import run_dns_mapping
@@ -57,6 +57,7 @@ ripe_atlas_settings = RIPEAtlasSettings()
 MEASURMENT_TAG = "meshed-cdns-pings-test"
 PING_TABLE = "meshed_cdns_pings_test"
 ECS_TABLE = "meshed_cdns_ecs"
+VPS_MAPPING_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_2_center_figure_5_right"
 
 
@@ -82,7 +83,7 @@ def get_measurement_schedule() -> list[tuple[str, list]]:
 
     # 1. load all VPs mapping answers
     vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
-    answers = get_mapping_answers(ch_settings.VPS_ECS_MAPPING_TABLE)
+    answers = get_mapping_answers(VPS_MAPPING_TABLE)
     all_subnets = set([get_prefix_from_ip(answer) for answer in answers])
 
     logger.info(f"All answers :: {len(answers)}")
@@ -273,7 +274,7 @@ def figure_2_center() -> None:
         target_subnets=[get_prefix_from_ip(t) for t in pings_per_target.keys()],
         vp_subnets=[v["subnet"] for v in vps],
         target_ecs_table=ECS_TABLE,
-        vps_ecs_table=ch_settings.VPS_ECS_MAPPING_TABLE,
+        vps_ecs_table=VPS_MAPPING_TABLE,
     )
 
     vp_selection_per_target = get_vp_selection_per_target(
@@ -343,8 +344,8 @@ def figure_5_right() -> None:
     """evaluate if the redirected PoP was the most optimal based on ping measurements"""
     logger.info("** PLOT FIGURE 5 RIGHT **")
     # 1. load data
-    vps_ecs_mapping = get_ecs_results(ch_settings.VPS_ECS_MAPPING_TABLE)
-    answers_per_hostname = get_answers_per_hostname(ch_settings.VPS_ECS_MAPPING_TABLE)
+    vps_ecs_mapping = get_ecs_results()
+    answers_per_hostname = get_answers_per_hostname(VPS_MAPPING_TABLE)
     pings_per_vp = iter_pings_per_vp(PING_TABLE)
 
     # get subnets answer to hostaname
@@ -354,10 +355,7 @@ def figure_5_right() -> None:
             answer_subnet = get_prefix_from_ip(answer)
             hostname_per_answer_subnet[answer_subnet] = hostname
 
-    pings_per_vp_path = (
-        path_settings.RESULTS_PATH
-        / "pop_redirection_eval/pings_per_vp_per_hostname.json"
-    )
+    pings_per_vp_path = RESULTS_PATH / "pings_per_vp_per_hostname.json"
 
     if pings_per_vp_path.exists():
         pings_per_vp_per_hostname = load_json(pings_per_vp_path)
@@ -539,7 +537,7 @@ def geo_eval() -> None:
     asn_to_org = {int(asn): org_name for asn, org_name in asn_to_org.items()}
 
     # load DNS mapping data
-    answers = get_mapping_answers(ch_settings.VPS_ECS_MAPPING_TABLE)
+    answers = get_mapping_answers(VPS_MAPPING_TABLE)
     # get answer org
     org_per_answer = {}
     for answer in answers:
@@ -555,7 +553,7 @@ def geo_eval() -> None:
     # get pings per target and vps
     removed_vps = load_json(path_settings.REMOVED_VPS)
     pop_geoloc = load_target_geoloc(PING_TABLE, removed_vps)
-    vps = load_vps(ch_settings.VPS_FILTERED_TABLE)
+    vps = load_vps(ch_settings.VPS_FILTERED_FINAL_TABLE)
     vps_per_id = {}
     for vp in vps:
         vps_per_id[vp["id"]] = vp
@@ -617,7 +615,7 @@ def geo_eval() -> None:
 
 async def ecs_cdns_answers() -> None:
     """perform GeoResolver ECS-DNS resolution on VPs mapping answers"""
-    answers = get_mapping_answers(ch_settings.VPS_ECS_MAPPING_TABLE)
+    answers = get_mapping_answers(VPS_MAPPING_TABLE)
     answer_subnets = list(set([get_prefix_from_ip(a) for a in answers]))
 
     await run_dns_mapping(

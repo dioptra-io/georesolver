@@ -13,6 +13,7 @@ from georesolver.evaluation import (
     georesolver_vs_hoiho,
     georesolver_vs_single_radius,
     itdk_post_validation,
+    local_resolver_vs_gpdns,
     measurement_overhead,
     subnet_aggregation,
 )
@@ -29,20 +30,18 @@ def main(
     do_figure_4_left: bool = False,
     do_figure_4_right: bool = False,
     do_figure_5_left_center: bool = False,
-    do_table_1: bool = True,
-    do_georesolver_vs_hoiho: bool = True,
-    do_georesolver_vs_single_radius: bool = True,
+    do_table_1: bool = False,
+    do_georesolver_vs_hoiho: bool = False,
+    do_georesolver_vs_single_radius: bool = False,
     do_itdk_post_validation: bool = False,
     do_local_resolver_vs_gpdns: bool = False,
-    do_measurement_overhead: bool = False,
+    do_measurement_overhead: bool = True,
     # other scripts, not present in GeoResolver's paper
     do_subnet_aggregation: bool = False,
 ) -> None:
     """entry point, set booleans to True or False to either run evaluation or not"""
     if do_figure_2_center_figure_5_right:
-        logger.info(
-            "Running Evaluation related with Figure 2 center and Figure 5 right"
-        )
+        logger.info("** Figure 2 center: CDNs IP addrs and Figure 5 right:  **")
         figure_2_center_figure_5_right.main(
             do_measurement=False,
             do_plot=True,
@@ -50,7 +49,9 @@ def main(
         )
 
     if do_figure_2_left_right:
-        logger.info("Running Evaluation related with Figure 2 left and right")
+        logger.info(
+            "** Figure 2 left: RIPE Atlas Anchors and right: Latency threshold **"
+        )
         figure_2_left_right.main(
             do_compute_score=True,
             do_evaluation=True,
@@ -58,7 +59,7 @@ def main(
         )
 
     if do_figure_3_all:
-        logger.info("Running Evaluation related with Figure 3")
+        logger.info("** Figure 3: Design Decision **")
         figure_3_all.main(
             do_compute_score=True,
             do_evaluation=True,
@@ -66,7 +67,7 @@ def main(
         )
 
     if do_figure_4_left:
-        logger.info("Running Evaluation related with Figure 4 left")
+        logger.info("** Figure 4 left: HyperGiants dependency **")
         figure_4_left.main(
             do_load_hostnames=True,
             do_compute_score=True,
@@ -75,7 +76,7 @@ def main(
         )
 
     if do_figure_4_right:
-        logger.info("Running Evaluation related with Figure 4 right")
+        logger.info("** Figure 4 right: Private DB comparison **")
         figure_4_right.main(
             do_maxmind_measurements=False,
             do_ip_info_measurements=False,
@@ -83,7 +84,7 @@ def main(
         )
 
     if do_figure_5_left_center:
-        logger.info("Running Evaluation related with Figure 5 left and center")
+        logger.info("** Figure 5 left: Probing budget and center: VPs ranking **")
         figure_5_left_center.main(
             do_compute_score=True,
             do_evaluation=True,
@@ -91,7 +92,7 @@ def main(
         )
 
     if do_table_1:
-        logger.info("Running Evaluation related with Table 1")
+        logger.info("** Table 1: Hostnames selection **")
         table_1.main(
             do_compute_score=False,
             do_evaluation=False,
@@ -99,7 +100,7 @@ def main(
         )
 
     if do_georesolver_vs_hoiho:
-        logger.info("Running Evaluation GeoResolver vs. Hoiho")
+        logger.info("** GeoResolver vs. Hoiho **")
         georesolver_vs_hoiho.main(
             do_georesolver_evaluation=True,
             do_coverage_evaluation=True,
@@ -108,7 +109,7 @@ def main(
         )
 
     if do_georesolver_vs_single_radius:
-        logger.info("Running Evaluation GeoResolver vs. Single Radius")
+        logger.info("** GeoResolver vs. Single Radius **")
         georesolver_vs_single_radius.main(
             do_load_dataset=False,
             do_measurements=False,
@@ -116,8 +117,16 @@ def main(
         )
 
     if do_itdk_post_validation:
-        logger.info("Running Evaluation for GeoResolver Post measurement")
+        logger.info("** GeoResolver post measurement validation **")
         itdk_post_validation.main()
+
+    if do_local_resolver_vs_gpdns:
+        logger.info("** Local resolver vs. GPDNS **")
+        local_resolver_vs_gpdns.main()
+
+    if do_measurement_overhead:
+        logger.info("** Measurement overhead **")
+        measurement_overhead.main()
 
 
 if __name__ == "__main__":
