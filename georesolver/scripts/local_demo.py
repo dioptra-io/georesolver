@@ -11,7 +11,7 @@ path_settings = PathSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
 
 NB_ADDRS = 100
-UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f" 
+UUID = "59cd1877-cd58-4ff9-ad7f-41fa8ad26a3f"
 LOCAL_DEMO_TARGET_FILE = path_settings.DATASET / "local_demo_targets.csv"
 LOCAL_DEMO_HOSTNAME_FILE = path_settings.USER_DATASETS / "hostnames_georesolver.csv"
 ECS_TABLE: str = "local_demo_ecs"
@@ -70,15 +70,6 @@ if __name__ == "__main__":
                 "in_table": PING_TABLE,
                 "out_table": GEOLOC_TABLE,
             },
-        ],
-        "agents": [
-            {
-                "user": "hugo",
-                "host": "localhost",
-                "remote_dir": "/srv/hugo/georesolver",
-                "agent_uuid": "6d4b3d4f-9b22-41e1-8e00-d556a1a107f9",
-                "agent_processes": ["ecs_process", "score_process"],
-            }
         ],
     }
 

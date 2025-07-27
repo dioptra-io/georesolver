@@ -1,5 +1,6 @@
 """extract, insert data into the right tables for evaluation and measurements"""
 
+import typer
 import subprocess
 
 from enum import Enum
@@ -8,15 +9,15 @@ from loguru import logger
 from pych_client import ClickHouseClient
 
 from georesolver.clickhouse import (
-    CreateDNSMappingTable,
-    CreateGeolocTable,
-    CreateNameServerTable,
-    CreatePingTable,
-    CreateScheduleTable,
-    CreateScoreTable,
-    CreateTracerouteTable,
-    CreateVPsTable,
     ExtractTableData,
+    CreateVPsTable,
+    CreatePingTable,
+    CreateScoreTable,
+    CreateGeolocTable,
+    CreateScheduleTable,
+    CreateDNSMappingTable,
+    CreateNameServerTable,
+    CreateTracerouteTable,
 )
 from georesolver.clickhouse.queries import get_tables
 from georesolver.common.settings import PathSettings, ClickhouseSettings
@@ -42,8 +43,8 @@ class TableTypes(Enum):
     Traceroute: str = "traceroute"
 
 
-def extract(tables: list[dict[str, str]]) -> None:
-    """extract data from an input list of tables/output files"""
+def upload_to_ftp(tables: list[dict[str, str]]) -> None:
+    """upload_to_ftp data from an input list of tables/output files"""
     for table in tables:
         table_name = table["table_name"]
         out_file = Path(table["output_path"]) / (table_name + ".zst")
@@ -125,8 +126,6 @@ def insert(tables: list[dict[str, str]], out_database: str) -> None:
 
 def main() -> None:
     """entry point, either extract data and output to file or create and insert"""
-    do_extract: bool = True
-    do_insert: bool = True
 
     # create archive dir
     path_settings.ARCHIVE_PATH.mkdir(exist_ok=True, parents=True)
@@ -138,59 +137,42 @@ def main() -> None:
             "table_type": TableTypes.DNS,
             "output_path": path_settings.ARCHIVE_PATH,
         },
-        {
-            "table_name": "vps_ecs_mapping",
-            "table_type": TableTypes.DNS,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "vps_raw",
-            "table_type": TableTypes.VPs,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "vps_filtered_final",
-            "table_type": TableTypes.VPs,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "vps_meshed_pings",
-            "table_type": TableTypes.Ping,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "vps_meshed_traceroutes",
-            "table_type": TableTypes.Traceroute,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "itdk_ecs",
-            "table_type": TableTypes.DNS,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "itdk_ping",
-            "table_type": TableTypes.Ping,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "itdk_schedule",
-            "table_type": TableTypes.DNS,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
-        {
-            "table_name": "itdk_score",
-            "table_type": TableTypes.DNS,
-            "output_path": path_settings.ARCHIVE_PATH,
-        },
+        # {
+        #     "table_name": "vps_ecs_mapping",
+        #     "table_type": TableTypes.DNS,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # },
+        # {
+        #     "table_name": "vps_raw",
+        #     "table_type": TableTypes.VPs,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # },
+        # {
+        #     "table_name": "vps_filtered_final",
+        #     "table_type": TableTypes.VPs,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # },
+        # {
+        #     "table_name": "vps_meshed_pings",
+        #     "table_type": TableTypes.Ping,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # },
+        # {
+        #     "table_name": "vps_meshed_traceroutes",
+        #     "table_type": TableTypes.Traceroute,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # },
+        # {
+        #     "table_name": "itdk_ping",
+        #     "table_type": TableTypes.Ping,
+        #     "output_path": path_settings.ARCHIVE_PATH,
+        # }
     ]
 
-    if do_extract:
-        extract(tables)
+    insert(tables, out_database=OUT_DB)
 
-    if do_insert:
-        insert(tables, out_database=OUT_DB)
+    logger.info("GeoResolver Successfully")
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main())

@@ -86,6 +86,9 @@ class PathSettings(BaseSettings):
     # Docker file
     DOCKER_FILE_PATH: Path = DEFAULT / "../../dockerfile"
 
+    # FTP Files
+    FTP_FILE_PATH: Path = Path("/storage/ftp/CoNEXT_artifacts")
+
 
 class ClickhouseSettings(BaseSettings):
     """general settings, credentials"""
