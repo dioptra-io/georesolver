@@ -47,7 +47,7 @@ class TableTypes(Enum):
 def download_from_ftp(file_name: str, output_path: Path) -> None:
     """upload_to_ftp data from an input list of tables/output files"""
 
-    url = "ftp://132.227.123.74/GeoResolver/CoNEXT_artifacts/" + file_name
+    url = "ftp://132.227.123.74/CoNEXT_artifacts/" + file_name
     download_byte_file(
         url=url,
         output_path=output_path,
@@ -123,37 +123,37 @@ def main() -> None:
     # tables/output files to extract/insert
     tables = [
         {
-            "table_name": "local_demo_ecs",
+            "table_name": "vps_meshed_pings_CoNEXT_summer_submision",
             "table_type": TableTypes.DNS,
         },
-        # {
-        #     "table_name": "vps_ecs_mapping",
-        #     "table_type": TableTypes.DNS,
-        # },
-        # {
-        #     "table_name": "vps_raw",
-        #     "table_type": TableTypes.VPs,
-        # },
-        # {
-        #     "table_name": "vps_filtered_final",
-        #     "table_type": TableTypes.VPs,
-        # },
-        # {
-        #     "table_name": "vps_meshed_pings",
-        #     "table_type": TableTypes.Ping,
-        # },
-        # {
-        #     "table_name": "vps_meshed_traceroutes",
-        #     "table_type": TableTypes.Traceroute,
-        # },
-        # {
-        #     "table_name": "itdk_ping",
-        #     "table_type": TableTypes.Ping,
-        # }
+        {
+            "table_name": "vps_ecs_mapping__2025_04_13",
+            "table_type": TableTypes.DNS,
+        },
+        {
+            "table_name": "vps_raw",
+            "table_type": TableTypes.VPs,
+        },
+        {
+            "table_name": "vps_filtered_final",
+            "table_type": TableTypes.VPs,
+        },
+        {
+            "table_name": "vps_meshed_pings",
+            "table_type": TableTypes.Ping,
+        },
+        {
+            "table_name": "vps_meshed_traceroutes",
+            "table_type": TableTypes.Traceroute,
+        },
+        {
+            "table_name": "itdk_ping",
+            "table_type": TableTypes.Ping,
+        },
     ]
 
     for table in tables:
-        file_name = table + ".zst"
+        file_name = table["table_name"] + ".zst"
         download_from_ftp(
             file_name=file_name, output_path=path_settings.CLICKHOUSE_FILE_PATH
         )
@@ -161,7 +161,10 @@ def main() -> None:
             table, input_path=path_settings.CLICKHOUSE_FILE_PATH, out_database=OUT_DB
         )
 
-    logger.info("GeoResolver Successfully")
+    logger.info(
+        "Clickhouse data succesfully retrieved from FTP server and installed in clickhouse"
+    )
+    logger.info("You are ready to start using GeoResolver!!")
 
 
 if __name__ == "__main__":
