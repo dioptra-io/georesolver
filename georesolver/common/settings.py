@@ -30,6 +30,8 @@ class PathSettings(BaseSettings):
     DOCKER_USERNAME: str = ""
     SSH_USER: str = ""
     SUDO_PWD: str = ""
+    FTP_USERNAME: str = ""
+    FTP_PASSWORD: str = ""
 
     # main dataset dirs
     TMP_PATH: Path = DEFAULT / "../tmp/"
@@ -85,6 +87,9 @@ class PathSettings(BaseSettings):
 
     # Docker file
     DOCKER_FILE_PATH: Path = DEFAULT / "../../dockerfile"
+
+    # CLickhouse file
+    CLICKHOUSE_FILE_PATH: Path = DATASET / "clickhouse"
 
     # FTP Files
     FTP_FILE_PATH: Path = Path("/storage/ftp/CoNEXT_artifacts")

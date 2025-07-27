@@ -11,7 +11,6 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.9"
 pydantic = "^2.2.0"
-clickhouse-driver = "^0.2.4"
 ip_address = "^1.0.22"
 tqdm = "^4.66.0"
 urllib3 = "1.26.9"

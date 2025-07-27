@@ -22,6 +22,34 @@ from georesolver.common.settings import PathSettings
 path_settings = PathSettings()
 
 
+def download_byte_file(
+    url: str, output_path: Path, username: str = None, password: str = None
+) -> None:
+    """download a stream of bytes and output into a file"""
+    logger.info(f"Downloading:: {url}")
+    logger.info(f"Output path:: {output_path}")
+
+    if username and password:
+        user_auth_cmd = ["-u", f"{username}:{password}"]
+    else:
+        user_auth_cmd = [""]
+
+    cmd = [
+        "curl",
+        url,
+        "--output",
+        str(output_path),
+    ]
+
+    cmd.extend(user_auth_cmd)
+
+    ps = subprocess.Popen(cmd, text=True)
+    ps.communicate()
+    if ps.stderr:
+        logger.error(f"{ps.stderr}")
+        raise RuntimeError(f"Could not dowload file from url:: {url}")
+
+
 def decompress(bz2_file: Path) -> None:
     """decompress bz2 archive into the same directory"""
     logger.info(f"Decompressing:: {bz2_file}")
@@ -68,7 +96,7 @@ def dump_csv(data: list[str], output_file: Path, mode: str = "w") -> None:
 
     with output_file.open(mode) as f:
         for row in data:
-            f.write(str(row)+ "\n")
+            f.write(str(row) + "\n")
 
 
 def load_csv(input_file: Path, exit_on_failure: bool = False) -> list[str]:

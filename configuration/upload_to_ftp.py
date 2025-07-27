@@ -18,19 +18,18 @@ def main() -> None:
 
     # tables/output files to extract/insert
     tables = [
-        "meshed_cdns_pings_test",
         "vps_meshed_pings_CoNEXT_summer_submision",
         "vps_ecs_mapping__2025_04_13",
         "vps_raw",
         "vps_filtered_final",
         "vps_meshed_pings",
         "vps_meshed_traceroutes",
+        "meshed_cdns_pings_test",
         "itdk_ping",
     ]
 
-    for table in tables:
-        table_name = table["table_name"]
-        out_file: Path = Path(table["output_path"]) / (table_name + ".zst")
+    for table_name in tables:
+        out_file: Path = path_settings.FTP_FILE_PATH / (table_name + ".zst")
         logger.info(f"{table_name=}; {out_file=}")
 
         if out_file.exists():
