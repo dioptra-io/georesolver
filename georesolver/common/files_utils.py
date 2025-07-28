@@ -36,12 +36,15 @@ def download_byte_file(
 
     cmd = [
         "curl",
-        url,
-        "--output",
+        f"{url}",
+        "-o",
         str(output_path),
     ]
-
     cmd.extend(user_auth_cmd)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(cmd)
 
     ps = subprocess.Popen(cmd, text=True)
     ps.communicate()

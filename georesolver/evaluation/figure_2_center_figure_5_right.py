@@ -260,6 +260,7 @@ def figure_2_center() -> None:
     """plot latency results between meshed pings and georesolver on CDNs IP addresses"""
     logger.info("** PLOT FIGURE 2 CENTER **")
     tables = get_tables()
+
     if ECS_TABLE not in tables:
         asyncio.run(ecs_cdns_answers())
 
