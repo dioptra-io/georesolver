@@ -609,7 +609,7 @@ class RIPEAtlasAPI:
         ipv6: bool = False,
     ) -> list[str]:
         """get results from ping measurement id"""
-        url = f"{self.measurement_url}/{id}/results/"
+        url = f"{self.measurement_url}" + f"{id}" + "/results/"
         async with httpx.AsyncClient(timeout=timeout) as client:
             for i in range(max_retry):
                 try:

@@ -22,18 +22,18 @@ def main() -> None:
         "itdk_ping",
         "vps_meshed_pings",
         "meshed_cdns_pings",
-        "meshed_cdns_pings",
         "single_radius_ping",
         "vps_meshed_pings_ipv6",
-        "vps_filtered_final_ipv6",
         "single_radius_georesolver_ping",
         "vps_meshed_pings_CoNEXT_summer_submision",
         # VPs tables
         "vps_raw",
         "vps_filtered",
         "vps_filtered_final",
+        "vps_filtered_ipv6",
         # DNS tables
         "meshed_cdns_ecs",
+        "vps_ecs_mapping",
         "vps_ecs_mapping__2025_04_13",
         "vps_ecs_mapping_ecs_ipv6_latest",
         # Traceroute tables

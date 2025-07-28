@@ -133,19 +133,19 @@ def main() -> None:
     tables = [
         # DNS Tables
         {
-            "table_name": "vps_meshed_pings_CoNEXT_summer_submision",
-            "table_type": TableTypes.DNS,
-        },
-        {
             "table_name": "vps_ecs_mapping__2025_04_13",
             "table_type": TableTypes.DNS,
         },
         {
-            "table_name": "meshed_cdns_pings",
+            "table_name": "vps_ecs_mapping_ecs_ipv6_latest",
             "table_type": TableTypes.DNS,
         },
         {
             "table_name": "meshed_cdns_ecs",
+            "table_type": TableTypes.DNS,
+        },
+        {
+            "table_name": "vps_ecs_mapping",
             "table_type": TableTypes.DNS,
         },
         # VPs tables
@@ -154,7 +154,15 @@ def main() -> None:
             "table_type": TableTypes.VPs,
         },
         {
+            "table_name": "vps_filtered",
+            "table_type": TableTypes.VPs,
+        },
+        {
             "table_name": "vps_filtered_final",
+            "table_type": TableTypes.VPs,
+        },
+        {
+            "table_name": "vps_filtered_ipv6",
             "table_type": TableTypes.VPs,
         },
         # Ping Tables
@@ -163,12 +171,36 @@ def main() -> None:
             "table_type": TableTypes.Ping,
         },
         {
+            "table_name": "meshed_cdns_pings",
+            "table_type": TableTypes.Ping,
+        },
+        {
             "table_name": "itdk_ping",
+            "table_type": TableTypes.Ping,
+        },
+        {
+            "table_name": "vps_meshed_pings_ipv6",
+            "table_type": TableTypes.Ping,
+        },
+        {
+            "table_name": "single_radius_ping",
+            "table_type": TableTypes.Ping,
+        },
+        {
+            "table_name": "single_radius_georesolver_ping",
+            "table_type": TableTypes.Ping,
+        },
+        {
+            "table_name": "vps_meshed_pings_CoNEXT_summer_submision",
             "table_type": TableTypes.Ping,
         },
         # Traceroute Tables
         {
             "table_name": "vps_meshed_traceroutes",
+            "table_type": TableTypes.Traceroute,
+        },
+        {
+            "table_name": "vps_meshed_traceroutes_ipv6",
             "table_type": TableTypes.Traceroute,
         },
     ]
