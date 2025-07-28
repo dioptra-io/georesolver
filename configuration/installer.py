@@ -165,6 +165,10 @@ def main() -> None:
             "table_name": "vps_filtered_ipv6",
             "table_type": TableTypes.VPs,
         },
+        {
+            "table_name": "vps_filtered_final_CoNEXT_winter_submision",
+            "table_type": TableTypes.VPs,
+        },
         # Ping Tables
         {
             "table_name": "vps_meshed_pings",

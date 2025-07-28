@@ -1,10 +1,21 @@
 # 🗺️ GeoResolver
 
-GeoResolver is an Internet scale IP address geolocation engine (both IPv4 and IPv6) made for running on RIPE Atlas. Its main purpose is to infer the relative distance between a target IP address and a set of vantage points with known geolocation using ECS-DNS redirection similarity. Based on this similarity GeoResolver select a fixed set of 50 vantage points from RIPE Atlas and perform pings, acheiving near optimal precision (the optimal one being when using all the vantage points). 
+GeoResolver is an internet-scale IP address geolocation engine (supporting both IPv4 and IPv6), designed to operate on the RIPE Atlas platform. Its primary objective is to infer the relative distance between a target IP address and a set of vantage points with known geolocations, leveraging ECS-DNS redirection similarity.
+
+Based on this similarity metric, GeoResolver selects a fixed subset of 50 RIPE Atlas vantage points and performs ping measurements, achieving near-optimal geolocation accuracy — comparable to using the full set of available vantage points.
 
 # 📋 Content
 
-This repository contains all code and workflows to **replicate** and **reproduce** GeoResolver's main results. You can run your own experiments to geolocate a set of target of IP addresses of your chosing. Note that GeoResolver relies on RIPE Atlas to perform ping measurement and infer the geolocation of an IP address, therefore, you will need a RIPE Atlas account and some credits to run measurements. All part of GeoResolver are **open-source** and **publically available**.
+This repository contains all the code, workflows, and data required to both replicate and reproduce the main results of GeoResolver.
+
+- **Replication** refers to rerunning our original experiments with the same inputs to validate the published results.
+
+- **Reproduction** enables researchers to apply the methodology to new datasets or target IP addresses of their choosing.
+
+You can also conduct your own experiments using GeoResolver to geolocate custom sets of target IP addresses.
+Note that GeoResolver relies on RIPE Atlas for performing active ping measurements, which are central to its geolocation inference process. To run measurements, you will need a [RIPE Atlas account](https://atlas.ripe.net/) and sufficient credits.
+
+All components of GeoResolver are **open-source and publicly available**.
 
 # 📚 References
 
@@ -16,13 +27,13 @@ Redirection
 
 # 🚩 Prerequisites
 
-GeoResolver relies on a couple of dependencies:
+GeoResolver relies on the following dependencies:
 - [Docker >= 28.0.1](https://docs.docker.com/engine/install/)
 - [Python >= 3.10.12](https://www.python.org/downloads/)
 - [Golang >= 1.23.1](https://go.dev/doc/install)
 
-The following of this tutorial will guide you throught the installation step of all other ressources.
-Notice that, because of the large scale of the measurement GeoResolver's can handle, artifacts are quite large. Therefore, GeoResolver's requires at least X Gb of storage to be fully replicable. A smaller version is also available for those who are only interested into running their own experiments.
+The remainder of this tutorial will guide you through the installation of all other required resources.
+Note: Due to the large-scale nature of GeoResolver, the associated artifacts requires sufficient storage. To fully replicate the original experiments, we recommend having at least 15 GB of available storage (total size of artifacts is 9.4GB). 
 
 # 🧪 Test environments
 
@@ -103,7 +114,7 @@ clickhouse-client --query="CREATE DATABASE IF NOT EXISTS GeoResolver"
 
 ## Install ZDNS
 
-GeoResolver relies on ECS-DNS requests to select the best set of vantage points to geolocate a given target IP address. We used [ZDNS](https://github.com/zmap/zdns), a high-speed DNS resolver to perform these queries.
+GeoResolver relies on ECS-enabled DNS requests to identify the most suitable set of vantage points for geolocating a given target IP address. To perform these queries, we use [ZDNS](https://github.com/zmap/zdns), a high-performance DNS resolver capable of handling large-scale lookups at speed.
 
 First, check that you have correctly installed golang:
 ```bash
@@ -137,7 +148,7 @@ GeoResolver search all credentials into a .env files. First create it at the roo
 ```bash
 touch .env
 ```
-And copy-paste the content of **.env.example** within it. If you made changes (such as CLickhouse password/username or database), modify the .env file accordingly.
+Copy-paste the content of **.env.example** within it. If you made changes (such as CLickhouse password/username or database), modify the .env file accordingly. Do not forget to set your RIPE Atlas API key as well.
 
 # 🗂️ Download artifacts
 
@@ -158,11 +169,11 @@ unzip datasets.zip -d georesolver/datasets/
 ```
 
 **Description**:
-- itdk:
-- static_files:
-- hostname_files:
-- experiment_configs:
-- other files:
+- **itdk**: This folder contains all files related with the ITDK dataset (all IP addresses/ICMP responsive IP addresses, etc.). Original dataset can be found at [CAIDA ITDK](https://www.caida.org/catalog/datasets/internet-topology-data-kit/)
+- **static_files**: This folder contains some useful datasets like [CAIDA AS to organization](https://www.caida.org/archive/as2org/), BGP prefixes from [Anycatch](https://bgp.tools/kb/anycatch), etc.
+- **hostname_files**: Hostname files are all intermediary files we used and produced to select the hostname GeoResolver relies on to calculate the redirection distance between vantage points' subnets and targets one, starting with the [top 1M CrUX table](https://github.com/zakird/crux-top-lists).
+- **experiment_configs**: Some configuration example to use GeoResolver along with its docker image.
+- other files: These other files contains vantage points that were filter because of wrongful geolocation, best hostnames retrieved ranked function of their hosting diversity, etc.
 
 ## Download and install Clickhouse tables
 
@@ -178,16 +189,16 @@ poetry run python configuration/installer.py
 This script will download all files listed as input parameters from the FTP server, create the corresponding table into Clickhouse (DNS/Ping/etc.) and import the data. Below you will find a short description of the default tables.
 
 **Description**
-- Ping tables:
-    - vps_meshed_pings:
-    - meshed_ping_cdns:
-- DNS tables:
-    - vps_ecs_mapping:
-    - meshed_ecs_cdns:
-- VPs tables:
-    - vps_raw:
-    - vps_filtered:
-    - vps_filtered_final:
+- **Ping tables**:
+    - **vps_meshed_pings**:
+    - **meshed_ping_cdns**:
+- **DNS tables**:
+    - **vps_ecs_mapping**:
+    - **meshed_ecs_cdns**:
+- **VPs tables**:
+    - **vps_raw**:
+    - **vps_filtered**:
+    - **vps_filtered_final**:
 
 
 Gongratulation, you are throught with GeoResolver's installation!
@@ -207,6 +218,9 @@ poetry run python georesolver/evaluation/evaluation_all.py
 Otherwise, you can run each script separately. You will notice that some step of these evaluation scripts are skipped. It is because these scripts can also be used to run the measurement used for the evaluation. **WE DO NOT RECOMMEND** running them as these measurement put a significant load on RIPE Atlas plateform. Indeed, most of them perform *meshed measurements*, i.e. measurement from all vantage points to a set of targets, which is very costly.
 
 Instead, in the following section, we propose you to run your own measurements using GeoResolver, as it is leightweight and operate with a fixed cost of 50 vantage points to geolocate each target IP address.
+
+**Description**
+- **figure_2_center_figure_5.py**: 
 
 # 🗺️ Run your own experiments
 
@@ -234,7 +248,12 @@ At the end, you should have 4 tables: local_demo_ecs, local_demo_score, local_de
 python geresolver/scripts/geoloc_map.py 
 ```
 
-Notice that you can choose to load any target file as input (this is the script we used to run GeoResolver on the ITDK dataset), just check that your IP addresses answer to pings! (As mentionned in the paper, GeoResolver methodology works for IPv6 but we did not yet have the tool available for it).
+**Note 1**: You can reniew vantage points ECS-DNS resolution by setting the following variable to True in the JSON config of [georesolver/scripts/geoloc_map.py](georesolver/scripts/geoloc_map.py):
+```python
+
+```
+
+**Note 2**: You can choose to load any target file as input (this is the script we used to run GeoResolver on the ITDK dataset), just check that your IP addresses answer to pings! (As mentionned in the paper, GeoResolver methodology works for IPv6 but we did not yet have the tool available for it).
 
 
 # Acknowledgements
