@@ -18,6 +18,7 @@ logs/
 experiments/
 config/
 archive/
+georesolver/zdns/zdns_binary
 
 .vscode/
 *.lock
