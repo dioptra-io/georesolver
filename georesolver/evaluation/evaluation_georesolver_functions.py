@@ -525,7 +525,6 @@ def get_d_errors_georesolver(
         try:
             pings = pings_per_target[target_addr]
         except KeyError:
-            logger.error(f"Cannot find pings for {target_addr=}")
             continue
 
         # geoResolver vps selection function of probing budget

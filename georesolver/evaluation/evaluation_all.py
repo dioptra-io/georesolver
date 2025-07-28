@@ -23,6 +23,8 @@ path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 
 
+
+
 def main(
     do_figure_2_center_figure_5_right: bool = False,
     do_figure_2_left_right: bool = True,

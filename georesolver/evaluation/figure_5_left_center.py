@@ -119,8 +119,10 @@ def plot_figure_5_left() -> None:
         m_error = round(np.median(x), 2)
         proportion_of_ip = get_proportion_under(x, y)
 
+        logger.info("##################################################")
         logger.info(f"GeoResolver:: {budget=}: <40km={round(proportion_of_ip, 2)}")
         logger.info(f"GeoResolver:: {budget=}: median_error={round(m_error, 2)} [km]")
+        logger.info("##################################################")
 
     plot_multiple_cdf(
         cdfs=cdfs,
@@ -191,8 +193,10 @@ def plot_figure_5_center() -> None:
         m_error = round(np.median(x), 2)
         proportion_of_ip = get_proportion_under(x, y)
 
+        logger.info("##################################################")
         logger.info(f"GeoResolver:: {rank=}: <40km={round(proportion_of_ip, 2)}")
         logger.info(f"GeoResolver:: {rank=}: median_error={round(m_error, 2)} [km]")
+        logger.info("##################################################")
 
     plot_multiple_cdf(
         cdfs=cdfs,

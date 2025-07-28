@@ -257,7 +257,10 @@ def evaluation(input_tables: list[tuple[str, str]]) -> None:
         cdfs.append((x, y, label))
 
         frac_under2ms = get_proportion_under(x, y, 2)
+        logger.info()
+        logger.info("##################################################")
         logger.info(f"{input_table=}; {len(under_2ms)=}; {frac_under2ms=}")
+        logger.info("##################################################")
 
     plot_multiple_cdf(
         cdfs=cdfs,
