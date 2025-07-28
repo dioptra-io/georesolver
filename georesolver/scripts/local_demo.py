@@ -42,7 +42,7 @@ if __name__ == "__main__":
         "target_file": f"{LOCAL_DEMO_TARGET_FILE.resolve()}",
         "hostname_file": f"{LOCAL_DEMO_HOSTNAME_FILE.resolve()}",
         "batch_size": BATCH_SIZE,
-        "init_ecs_mapping": True,  # Set to True to renew VPs ECS mapping
+        "init_ecs_mapping": False,  # Set to True to renew VPs ECS mapping
         "log_path": f"{(path_settings.LOG_PATH / 'local_demo/').resolve()}",
         "processes": [
             {
