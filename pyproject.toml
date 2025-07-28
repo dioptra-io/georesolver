@@ -33,7 +33,8 @@ folium = "0.0.0"
 shapely = "^2.0.0"
 sklearn = "0.0"
 pandas = "^2.0.0"
-geoip2 = "^4.7.0" 
+geoip2 = "^4.7.0"
+clickhouse_driver = "^0.2.0" 
 
 
 [tool.poetry.group.dev.dependencies]

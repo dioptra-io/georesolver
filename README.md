@@ -12,7 +12,6 @@ This repository contains all the code, workflows, and data required to both repl
 
 - **Reproduction** enables researchers to apply the methodology to new datasets or target IP addresses of their choosing.
 
-You can also conduct your own experiments using GeoResolver to geolocate custom sets of target IP addresses.
 Note that GeoResolver relies on RIPE Atlas for performing active ping measurements, which are central to its geolocation inference process. To run measurements, you will need a [RIPE Atlas account](https://atlas.ripe.net/) and sufficient credits.
 
 All components of GeoResolver are **open-source and publicly available**.
@@ -189,17 +188,32 @@ poetry run python configuration/installer.py
 This script will download all files listed as input parameters from the FTP server, create the corresponding table into Clickhouse (DNS/Ping/etc.) and import the data. Below you will find a short description of the default tables.
 
 **Description**
-- **Ping tables**:
-    - **vps_meshed_pings**:
-    - **meshed_ping_cdns**:
-- **DNS tables**:
-    - **vps_ecs_mapping**:
-    - **meshed_ecs_cdns**:
-- **VPs tables**:
-    - **vps_raw**:
-    - **vps_filtered**:
-    - **vps_filtered_final**:
 
+- **Ping tables**:
+    - **itdk_ping**: Contains the result of all ping measurement made with GeoResolver of the 2.1M ICMP responsive IP addresses of the ITDK dataset.
+    - **vps_meshed_pings**: Contains the result of pings from all RIPE Atlas probes to all RIPE Atlas anchors. We use this dataset to compare GeoResolver vantage point selection vs. optimal precision (i.e. all vantage points) and to filter out wrongly geolocated probes (using speed of light violation).
+    - **vps_meshed_pings_CoNEXT_summer_submision**: Historic vps_meshed_pings dataset ran for the winter submission of CoNEXT 2025.
+    - **vps_meshed_pings_ipv6**: Same a vps_meshed_pings but for IPv6.
+    - **meshed_ping_cdns**: Same as vps_meshed_pings but this time towards one IP address in every /24 prefix we retrieved when performing ECS-DNS resolution of all /24 vantage points' prefixes. We use this dataset to evaluate the optimality of the redirection, in respect to the observed latency.
+    - **single_radius_ping**: Contains the result of measurement made by RIPE Atlas geolocation engine [single-radius](https://ripe79.ripe.net/wp-content/uploads/presentations/42-single-radius-experience-ripe79.pdf).
+    - **single_radius_georesolver_ping**: Contains the result of measurements made by GeoResolver on the same set of IP addresses of single_radius_ping. This dataset is used to compare the performance of GeoResolver and single-radius.
+
+- **Traceroute tables**:
+    - **vps_meshed_traceroutes**: Traceroutes between each RIPE Atlas probes and its 50 closest RIPE Atlas probes. This dataset is meant to measure the last mile delay between each probes and the first observe public IP address. 
+    - **vps_meshed_traceroutes_ipv6**: Same as previous table but for IPv6.
+
+- **VPs tables**:
+    - **vps_raw**: All connected RIPE Atlas probes with a valid IPv4 address.
+    - **vps_filtered**: Filtered RIPE Atlas probes based on the least speed of light violation using vps_meshed_pings measurement.
+    - **vps_filtered_final**: Filtered RIPE Atlas probes from vps_filtered, this time, all probes without a latency under 2ms towards at least one public IP address was removed (using traceroutes table).
+    - **vps_filtered_ipv6**: Same as vps_filtered but in IPv6 (Note: due to a bug vps_filtered_final_ipv6 is not available).
+    - **vps_filtered_final_CoNEXT_winter_submision**: Same as vps_filtered_final but produced for CoNEXT winter submission.
+    
+- **DNS tables**:
+    - **vps_ecs_mapping**: Latest ECS-DNS resolution over all vantage points' /24 prefixes over the set GeoResolver's selected hostnames.
+    - **vps_ecs_mapping__2025_04_13**: Same as vps_ecs_mapping but historic data.
+    - **vps_ecs_mapping_ecs_ipv6_latest**: Same as vps_ecs_mapping but for IPv6.
+    - **meshed_cdns_ecs**: ECS-DNS resolution over all vantage points specically ran for CDNs evaluation (related with meshed_ping_cdns). 
 
 Gongratulation, you are throught with GeoResolver's installation!
 
@@ -214,13 +228,9 @@ or
 ```bash
 poetry run python georesolver/evaluation/evaluation_all.py
 ```
+Alternatively, you can execute each script individually. You may notice that some steps within the evaluation scripts are intentionally skipped. This is because these scripts are also designed to run the measurements used during the evaluation phase. **WE STRONGLY DISCOURAGE** executing these measurements, as they impose a significant load on the RIPE Atlas platform. In particular, many of them perform *meshed measurements* — i.e., probes from all vantage points to a set of targets — which is resource-intensive and costly.
 
-Otherwise, you can run each script separately. You will notice that some step of these evaluation scripts are skipped. It is because these scripts can also be used to run the measurement used for the evaluation. **WE DO NOT RECOMMEND** running them as these measurement put a significant load on RIPE Atlas plateform. Indeed, most of them perform *meshed measurements*, i.e. measurement from all vantage points to a set of targets, which is very costly.
-
-Instead, in the following section, we propose you to run your own measurements using GeoResolver, as it is leightweight and operate with a fixed cost of 50 vantage points to geolocate each target IP address.
-
-**Description**
-- **figure_2_center_figure_5.py**: 
+Instead, in the following section, we guide you through running your own measurements using GeoResolver. This approach is lightweight and operates with a fixed cost, using 50 vantage points to geolocate each target IP address.
 
 # 🗺️ Run your own experiments
 
@@ -233,27 +243,39 @@ or
 poetry run python georesolver/scripts/local_demo.py
 ```
 
-Note that this section will require you to have a RIPE Atlas account with enought credits to run your measurement. Create your [RIPE Atlas account]() if you do not have one and request credits if needed (RIPE Atlas offers credits to researchers when requested). 
+Note: This section requires a [RIPE Atlas account](https://atlas.ripe.net/) with sufficient credits to run measurements. If you don’t already have an account, create one and request credits as needed, RIPE Atlas provides credits to researchers upon request.
 
-This python script select a random set of 100 IP addresses from the ITDK ICMP responsive IP addresses. It then run GeoResolver geolocation engine on this set of IP addresses. GeoResolver start 4 processes in parrallel:
-1. **ECS process**: Run ECS-DNS queries on all target's subnets.
-2. **Score process**: Compute the redirection distance between the ECS resolution of over all vantage points and the one obtain for the targets.
-3. **Ping process**: Select the vantage points with the smallest redirection distance and post the measurement on RIPE Atlas.
-4. **Insert process**: Insert ping measurement into a clickhouse table.
+The provided Python script selects a random set of 100 ICMP-responsive IP addresses from the ITDK dataset. It then runs the GeoResolver geolocation engine on this set. GeoResolver launches four parallel processes:
+1. **ECS process**: Executes ECS-DNS queries on the subnets of all target IP addresses.
+2. **Score process**: Computes redirection distances between the ECS resolutions from all vantage points and those of the targets.
+3. **Ping process**: Selects the vantage points with the smallest redirection distances and initiates measurements via RIPE Atlas.
+4. **Insert process**: Stores the resulting ping measurements into a ClickHouse table.
 
 GeoResolver adopt a *waterfall* design, meaning that each process works in batch, starting with the ECS process. Once a batch is done, it triggers the Score process which, when done, triggers the Ping process and so on. You can follow the execution of each process by inspecting the logs at [georesolver/logs/local_demo/]() where each process has its own log file.
 
-At the end, you should have 4 tables: local_demo_ecs, local_demo_score, local_demo_ping and local_demo_geoloc (which contains the result of the geolocation based on the shortest ping vantage point geolocation). Addiotionally, you can run [georesolver/scripts/geoloc_map.py](georesolver/scripts/geoloc_map.py) to obtain a map of your geolocated IP addresses (by default this script only output IP addresses geolocated under 2ms):
+GeoResolver follows a waterfall architecture: each process operates on batches and triggers the next process upon completion. Execution progress can be monitored via logs located in [georesolver/logs/local_demo/](), where each process maintains a separate log file.
+
+At the end of the pipeline, four tables should be created:
+- local_demo_ecs
+- local_demo_score
+- local_demo_ping
+- local_demo_geoloc (containing final geolocation results based on the shotest ping vantage point)
+
+Additionally, you can generate a visualization of the geolocated IP addresses using the script:
 ```bash
 python geresolver/scripts/geoloc_map.py 
 ```
+By default, this script outputs only IP addresses geolocated within a 2ms latency threshold.
 
 **Note 1**: You can reniew vantage points ECS-DNS resolution by setting the following variable to True in the JSON config of [georesolver/scripts/geoloc_map.py](georesolver/scripts/geoloc_map.py):
 ```python
-
+"init_ecs_mapping": True, # Set to True to renew VPs ECS resolution
 ```
+⚠️ This step takes several hours to complete.
 
-**Note 2**: You can choose to load any target file as input (this is the script we used to run GeoResolver on the ITDK dataset), just check that your IP addresses answer to pings! (As mentionned in the paper, GeoResolver methodology works for IPv6 but we did not yet have the tool available for it).
+**Note 2**: You can choose to load any target file as input (this is the script we used to run GeoResolver on the ITDK dataset), simply verify that your IP addresses answer to pings! (As mentionned in the paper, GeoResolver methodology works for IPv6 but we did not yet have the tool available for the latter).
+
+**Note 3**: For the same reason we do not recommend to run the meshed measurements of some evaluation, we kindly invite you to use the sanitize vantage points selection available on the FTP. Filtering vantage points also requires *meshed pings* between all vantage points and RIPE Atlas anchors. 
 
 
 # Acknowledgements
