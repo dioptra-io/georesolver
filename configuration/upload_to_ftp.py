@@ -18,14 +18,27 @@ def main() -> None:
 
     # tables/output files to extract/insert
     tables = [
-        "vps_meshed_pings_CoNEXT_summer_submision",
-        "vps_ecs_mapping__2025_04_13",
-        "vps_raw",
-        "vps_filtered_final",
-        "vps_meshed_pings",
-        "vps_meshed_traceroutes",
-        "meshed_cdns_pings_test",
+        # Ping tables
         "itdk_ping",
+        "vps_meshed_pings",
+        "meshed_cdns_pings",
+        "meshed_cdns_pings",
+        "single_radius_ping",
+        "vps_meshed_pings_ipv6",
+        "vps_filtered_final_ipv6",
+        "single_radius_georesolver_ping",
+        "vps_meshed_pings_CoNEXT_summer_submision",
+        # VPs tables
+        "vps_raw",
+        "vps_filtered",
+        "vps_filtered_final",
+        # DNS tables
+        "meshed_cdns_ecs",
+        "vps_ecs_mapping__2025_04_13",
+        "vps_ecs_mapping_ecs_ipv6_latest",
+        # Traceroute tables
+        "vps_meshed_traceroutes",
+        "vps_meshed_traceroutes_ipv6",
     ]
 
     for table_name in tables:

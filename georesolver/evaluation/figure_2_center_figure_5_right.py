@@ -55,7 +55,7 @@ ch_settings = ClickhouseSettings()
 ripe_atlas_settings = RIPEAtlasSettings()
 
 MEASURMENT_TAG = "meshed-cdns-pings-test"
-PING_TABLE = "meshed_cdns_pings_test"
+PING_TABLE = "meshed_cdns_pings"
 ECS_TABLE = "meshed_cdns_ecs"
 VPS_MAPPING_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_2_center_figure_5_right"

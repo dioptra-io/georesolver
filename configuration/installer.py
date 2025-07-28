@@ -9,7 +9,6 @@ from loguru import logger
 from pych_client import ClickHouseClient
 
 from georesolver.clickhouse import (
-    ExtractTableData,
     CreateVPsTable,
     CreatePingTable,
     CreateScoreTable,
@@ -48,9 +47,16 @@ def download_from_ftp(file_name: str, output_path: Path) -> None:
     """upload_to_ftp data from an input list of tables/output files"""
 
     url = "ftp://132.227.123.74/CoNEXT_artifacts/" + file_name
+
+    if (output_path / file_name).exists():
+        logger.warning(
+            f"File {file_name} already exists at {output_path}, skipping download"
+        )
+        return
+
     download_byte_file(
         url=url,
-        output_path=output_path,
+        output_path=output_path / file_name,
         username=path_settings.FTP_USERNAME,
         password=path_settings.FTP_PASSWORD,
     )
@@ -60,19 +66,18 @@ def insert_clickhouse(
     table: dict[str, str], input_path: Path, out_database: str
 ) -> None:
     """create and insert tables from tables description"""
-    existing_tables = get_tables()
     table_name = table["table_name"]
+    table_type = table["table_type"]
     file_name = input_path / (table_name + ".zst")
 
     if not file_name.exists():
         raise RuntimeError(f"Trying to insert:: {file_name}; but file does not exists")
 
-    table_type = table["table_type"]
-
-    if table in existing_tables:
+    if table_name in get_tables():
         logger.warning(
             f"Skipping {file_name=} file inserstion as {table_name=} table already exists"
         )
+        return
     else:
         logger.info(
             f"Inserting file {file_name=} into {table_name=} of type {table_type=}"
@@ -101,7 +106,11 @@ def insert_clickhouse(
 
     # insert data
     cmd = f"clickhouse-client --user {ch_settings.CLICKHOUSE_USERNAME}"
-    cmd += f" --password {ch_settings.CLICKHOUSE_PASSWORD}"
+    cmd += (
+        f" --password {ch_settings.CLICKHOUSE_PASSWORD}"
+        if ch_settings.CLICKHOUSE_PASSWORD
+        else ""
+    )
     cmd += f" --query=\"INSERT INTO {out_database}.{table_name} FROM INFILE '{file_name}' FORMAT Native\""
 
     ps = subprocess.run(
@@ -122,6 +131,7 @@ def main() -> None:
 
     # tables/output files to extract/insert
     tables = [
+        # DNS Tables
         {
             "table_name": "vps_meshed_pings_CoNEXT_summer_submision",
             "table_type": TableTypes.DNS,
@@ -131,6 +141,15 @@ def main() -> None:
             "table_type": TableTypes.DNS,
         },
         {
+            "table_name": "meshed_cdns_pings",
+            "table_type": TableTypes.DNS,
+        },
+        {
+            "table_name": "meshed_cdns_ecs",
+            "table_type": TableTypes.DNS,
+        },
+        # VPs tables
+        {
             "table_name": "vps_raw",
             "table_type": TableTypes.VPs,
         },
@@ -138,17 +157,19 @@ def main() -> None:
             "table_name": "vps_filtered_final",
             "table_type": TableTypes.VPs,
         },
+        # Ping Tables
         {
             "table_name": "vps_meshed_pings",
             "table_type": TableTypes.Ping,
         },
         {
-            "table_name": "vps_meshed_traceroutes",
-            "table_type": TableTypes.Traceroute,
-        },
-        {
             "table_name": "itdk_ping",
             "table_type": TableTypes.Ping,
+        },
+        # Traceroute Tables
+        {
+            "table_name": "vps_meshed_traceroutes",
+            "table_type": TableTypes.Traceroute,
         },
     ]
 

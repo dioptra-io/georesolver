@@ -57,7 +57,7 @@ HG_NSO = [
 
 TARGETS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
 VPS_TABLE = ch_settings.VPS_FILTERED_FINAL_TABLE
-TARGETS_ECS_TABLE = ch_settings.VPS_ECS_MAPPING_TABLE
+TARGETS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 PING_TABLE = "vps_meshed_pings_CoNEXT_summer_submision"
 VPS_ECS_TABLE = "vps_ecs_mapping__2025_04_13"
 RESULTS_PATH = path_settings.RESULTS_PATH / "figure_4_left"

@@ -36,8 +36,6 @@ ripe_atlas_settings = RIPEAtlasSettings()
 
 PRIVATE_COMPANIES_PATH: Path = path_settings.DATASET / "private_companies_comparison"
 TARGET_PATH: Path = PRIVATE_COMPANIES_PATH / "itdk_sample_targets.csv"
-MEASURMENT_TAG = "meshed-cdns-pings-test"
-OUTPUT_TABLE = "meshed_cdns_pings_test"
 
 
 def load_sample_targets(

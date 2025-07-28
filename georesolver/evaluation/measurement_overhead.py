@@ -336,7 +336,7 @@ def main() -> None:
     ping_table = "vps_meshed_pings_CoNEXT_summer_submision"
     output_path = RESULTS_PATH / "imc_baseline_anchors_dataset.json"
 
-    if output_path.exists():
+    if not output_path.exists():
         run_imc_baseline(
             targets=targets,
             target_ids=target_ids,

@@ -36,7 +36,7 @@ pandas = "^2.0.0"
 geoip2 = "^4.7.0" 
 
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 black = "23.12"
 flake8 = "^5.0.4"
 isort = "^5.10.1"
