@@ -19,6 +19,7 @@ experiments/
 config/
 archive/
 georesolver/zdns/zdns_binary
+poetry.lock
 
 .vscode/
 *.lock
