@@ -25,7 +25,7 @@ from georesolver.common.settings import PathSettings, ClickhouseSettings
 path_settings = PathSettings()
 ch_settings = ClickhouseSettings()
 
-DEBUG: bool = True  # set to false if not debugging
+DEBUG: bool = False  # set to false if not debugging
 if DEBUG:
     OUT_DB: str = "GeoResolver_dev"
 else:

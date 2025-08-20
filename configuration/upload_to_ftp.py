@@ -31,7 +31,7 @@ def main() -> None:
         "vps_filtered",
         "vps_filtered_final",
         "vps_filtered_ipv6",
-        "vps_filtered_final_CoNEXT_winter_submision"
+        "vps_filtered_final_CoNEXT_winter_submision",
         # DNS tables
         "vps_ecs_mapping",
         "vps_ecs_mapping__2025_04_13",

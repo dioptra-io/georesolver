@@ -255,6 +255,10 @@ def get_scores(
     usable_cpu = cpu_count() - 2
     batch_size = len(target_subnets) // usable_cpu + 1
 
+    # limit number of CPUs otherwise can break RAM
+    if usable_cpu > 10:
+        usable_cpu = 10
+
     logger.info(f"Nb CPUs available:: {cpu_count()} (number of cpu used: {usable_cpu})")
 
     # perform score computation in parrallel

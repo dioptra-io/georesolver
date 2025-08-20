@@ -24,17 +24,17 @@ ch_settings = ClickhouseSettings()
 
 
 def main(
-    do_figure_2_center_figure_5_right: bool = False,
-    do_figure_2_left_right: bool = False,
-    do_figure_3_all: bool = False,
-    do_figure_4_left: bool = False,
-    do_figure_4_right: bool = False,
-    do_figure_5_left_center: bool = False,
+    do_figure_2_center_figure_5_right: bool = True,
+    do_figure_2_left_right: bool = True,
+    do_figure_3_all: bool = True,
+    do_figure_4_left: bool = True,
+    do_figure_4_right: bool = True,
+    do_figure_5_left_center: bool = True,
     do_table_1: bool = True,
     do_georesolver_vs_hoiho: bool = True,
-    do_georesolver_vs_single_radius: bool = False,
+    do_georesolver_vs_single_radius: bool = True,
     do_itdk_post_validation: bool = True,
-    do_local_resolver_vs_gpdns: bool = False,
+    do_local_resolver_vs_gpdns: bool = True,
     do_measurement_overhead: bool = True,
     # other scripts, not present in GeoResolver's paper
     do_subnet_aggregation: bool = False,
@@ -178,8 +178,8 @@ def main(
             "########################################################################"
         )
         table_1.main(
-            do_compute_score=False,
-            do_evaluation=False,
+            do_compute_score=True,
+            do_evaluation=True,
             do_plot=True,
         )
 
