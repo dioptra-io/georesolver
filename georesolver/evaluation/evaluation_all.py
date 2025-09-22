@@ -24,7 +24,7 @@ ch_settings = ClickhouseSettings()
 
 
 def main(
-    do_figure_2_center_figure_5_right: bool = True,
+    do_figure_2_center_figure_5_right: bool = False,
     do_figure_2_left_right: bool = True,
     do_figure_3_all: bool = True,
     do_figure_4_left: bool = True,

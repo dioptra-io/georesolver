@@ -345,7 +345,7 @@ def figure_5_right() -> None:
     """evaluate if the redirected PoP was the most optimal based on ping measurements"""
     logger.info("** PLOT FIGURE 5 RIGHT **")
     # 1. load data
-    vps_ecs_mapping = get_ecs_results()
+    vps_ecs_mapping = get_ecs_results(VPS_MAPPING_TABLE)
     answers_per_hostname = get_answers_per_hostname(VPS_MAPPING_TABLE)
     pings_per_vp = iter_pings_per_vp(PING_TABLE)
 
@@ -356,7 +356,7 @@ def figure_5_right() -> None:
             answer_subnet = get_prefix_from_ip(answer)
             hostname_per_answer_subnet[answer_subnet] = hostname
 
-    pings_per_vp_path = RESULTS_PATH / "pings_per_vp_per_hostname.json"
+    pings_per_vp_path = RESULTS_PATH / "pings_per_vp_per_hostname_new.json"
 
     if pings_per_vp_path.exists():
         pings_per_vp_per_hostname = load_json(pings_per_vp_path)
@@ -368,7 +368,11 @@ def figure_5_right() -> None:
             pings = row["pings"]
             for target_addr, min_rtt in pings:
                 target_subnet = get_prefix_from_ip(target_addr)
-                hostname = hostname_per_answer_subnet[target_subnet]
+
+                try:
+                    hostname = hostname_per_answer_subnet[target_subnet]
+                except KeyError:
+                    continue
 
                 try:
                     pings_per_vp_per_hostname[vp_addr][hostname].append(
@@ -476,7 +480,7 @@ def figure_5_right() -> None:
 
     plot_multiple_cdf(
         cdfs=cdfs,
-        x_limit_left=0,
+        x_limit_left=0.4,
         legend_size=8,
         legend_pos="lower right",
         output_path="figure_5_center_cdf_avg_percentile_latency_per_hostname",
@@ -685,7 +689,7 @@ def main(
         asyncio.run(meshed_ping_cdns())
 
     if do_plot:
-        figure_2_center()
+        # figure_2_center()
         figure_5_right()
 
     # Evaluation not present the paper
