@@ -251,8 +251,6 @@ The provided Python script selects a random set of 100 ICMP-responsive IP addres
 3. **Ping process**: Selects the vantage points with the smallest redirection distances and initiates measurements via RIPE Atlas.
 4. **Insert process**: Stores the resulting ping measurements into a ClickHouse table.
 
-GeoResolver adopt a *waterfall* design, meaning that each process works in batch, starting with the ECS process. Once a batch is done, it triggers the Score process which, when done, triggers the Ping process and so on. You can follow the execution of each process by inspecting the logs at [georesolver/logs/local_demo/]() where each process has its own log file.
-
 GeoResolver follows a waterfall architecture: each process operates on batches and triggers the next process upon completion. Execution progress can be monitored via logs located in [georesolver/logs/local_demo/](), where each process maintains a separate log file.
 
 At the end of the pipeline, four tables should be created:
